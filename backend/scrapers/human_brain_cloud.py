@@ -21,7 +21,7 @@ def process():
         for record in result['data']:
             record['_id'] = record['id']
             record.pop('id')
-            db.data.update({'_id': record['id']}, record, upsert=True)
+            db.data.update({'_id': record['_id']}, record, upsert=True)
 
 
 def setup():
