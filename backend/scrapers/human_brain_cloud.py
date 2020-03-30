@@ -19,6 +19,7 @@ def process():
     if result['status'] == 'ok':
         db = pymongo.MongoClient(host='localhost')['humanbrain']
         for record in result['data']:
+            record['_id'] = record['id']
             db.data.update({'_id': record['id']}, record, upsert=True)
 
 
