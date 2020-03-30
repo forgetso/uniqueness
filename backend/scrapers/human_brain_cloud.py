@@ -19,7 +19,7 @@ def process():
     if result['status'] == 'ok':
         db = pymongo.MongoClient(host='localhost')['humanbrain']
         for record in result['data']:
-            db.data.insert_one({'_id': record['id']}, record)
+            db.data.insert_one({'_id': record['id']}, record, upsert=True)
 
 
 def setup():
