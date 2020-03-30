@@ -20,6 +20,7 @@ def process():
         db = pymongo.MongoClient(host='localhost')['humanbrain']
         for record in result['data']:
             record['_id'] = record['id']
+            record.pop('id')
             db.data.update({'_id': record['id']}, record, upsert=True)
 
 
