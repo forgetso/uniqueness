@@ -14,11 +14,12 @@ def process():
     uri_filled = uri.format(random_id=random_id, timestamp=timestamp)
     request_obj = requests.get(uri_filled)
 
-    data = request_obj.json()
+    result = request_obj.json()
 
-    db = pymongo.MongoClient(host='localhost')['humanbrain']
-
-    db.data.insert_one(data)
+    if result['status'] == 'ok':
+        db = pymongo.MongoClient(host='localhost')['humanbrain']
+        for record in result['data']:
+            db.data.insert_one({'_id': record['id']}, record)
 
 
 def setup():
