@@ -7,57 +7,56 @@ from sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER
 import pprint
 import re
-
-# check if the response is one of these types of relations to the cue
-synset_methods = [
-
-    'member_holonyms',
-    'substance_holonyms',
-    'part_holonyms'
-    'member_meronyms',
-    'substance_meronyms',
-    'part_meronyms'
-    'topic_domains',
-    'region_domains',
-    'usage_domains'
-    'attributes',
-    'entailments'
-    'causes'
-    'also_sees'
-    'verb_groups'
-    'similar_tos'
-    'hypernyms',
-    'instance_hypernyms'
-    'hyponyms',
-    'instance_hyponyms'
-]
-# 'root_hypernyms']
-
-wn_methods = ['antonyms',
-              'derivationally_related_forms',
-              'pertainyms',
-              'instance_hypernyms'
-              'hyponyms',
-              'instance_hyponyms'
-              'member_holonyms',
-              'substance_holonyms',
-              'part_holonyms'
-              'member_meronyms',
-              'substance_meronyms',
-              'part_meronyms'
-              'topic_domains',
-              'region_domains',
-              'usage_domains'
-              'attributes',
-              'entailments'
-              'causes'
-              'also_sees'
-              'verb_groups'
-              'similar_tos'
-              'hypernyms',
-              ]
+from backend.lib.wordnet_relations import WordnetRelations
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
+
+# The following categories could be used to describe a cue response pair
+CUE_RESPONSE_VECTOR = {
+    # these are the ways in which the response could be related to the cue
+    'relations': {
+        'exact': False,
+        'antonym': False,
+        'associated': False,
+        'co-hyponym': False,
+        'holonym': False,
+        'hypernym': False,
+        'hyponym': False,
+        'instance': False,
+        'meronym': False,
+        'phonology': False,
+        'synonym': False,
+        'syntagmatic': False,
+        'positional': False,
+        'affix': False,
+    },
+    # these are basic attributes of the response
+    'basic': {
+        'length': None,
+        'response_time': None,
+        'syllables': None,
+        'capitalised': False,
+        'punctuation': False,
+        'number_of_words': None,
+        'incorrect_spelling': False,
+    },
+    # these are other more complicated, derived metrics
+    'other': {
+        'prevalence': None,
+        'corpus_similarity': None,
+        'dictionary_similarity': None,
+        'concreteness': None,
+        'age_of_acquisition': None,
+        'emotion': None,
+        'subtitle_frequency': None,
+        'orthographic_neighbourhood': None,
+        'phonograpic_neighbourhood': None,
+        'part_of_speech': None,
+        'morpheme': False,
+        'cultural_reference': None,
+        'active_brain_region': None,
+    }
+}
 
 
 def main():
@@ -87,13 +86,12 @@ def main():
     # TODO consider the categories found in the Gallant Research:
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
 
-    nltk.download('wordnet')
     common_norms = get_common_norms()
     s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 
     cue_response_pairs = []
     distinct_cue_response_pairs = set()
-    for pair in get_cue_response_pairs(limit=1000):
+    for pair in get_cue_response_pairs(limit=100):
         pair = dict(pair)
         cue = pair['cue'].lower()
         response = pair['response'].replace(' ', '_').replace('.', '').lower()
@@ -103,7 +101,7 @@ def main():
         distinct_cue_response_pairs.add((pair['cue'], pair['response']))
 
     participants = {}
-    totals = {1: {}, 2: {}, 3: {}, 4: {}}
+    totals = dict()
 
     erratic = set()
     # code distinct list of cue response pairs
@@ -111,104 +109,20 @@ def main():
     for pair in distinct_cue_response_pairs:
         cue = pair[0]
         response = pair[1]
+        print(cue, response)
         category = 0
         match_type = None
         depth = 0
 
         if len(cue) > 3:
-            # check the easiest things first
-            category, match_type = form_based(cue, response)
-            if category < 1:
-                category, match_type = position_based(cue, response)
-            # if category < 1:
-            #     category, match_type, depth = meaning_based(cue, response)
-            if category < 1 and cue in common_norms:
-                if response in common_norms[cue]:
-                    category = 1
-                    match_type = 'common_norms'
-            if category < 1:
-                word_types = ['ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN',
-                              'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
-
-                for word_type in word_types:
-                    s2v_lookup_joined_xy = ''.join([''.join([cue, response]), '|', word_type])
-                    s2v_lookup_joined_yx = ''.join([''.join([response, cue]), '|', word_type])
-                    s2v_lookup_forwards = ''.join(['_'.join([cue, response]), '|', word_type])
-                    s2v_lookup_backwards = ''.join(['_'.join([response, cue]), '|', word_type])
-                    # TODO is this the same thing as the other consecutive definitions?
-                    if s2v.__contains__(s2v_lookup_joined_xy):
-                        category = 2
-                        match_type = 'consecutivexy'
-                        break
-                    if s2v.__contains__(s2v_lookup_joined_yx):
-                        category = 2
-                        match_type = 'consecutiveyx'
-                        break
-                    if s2v.__contains__(s2v_lookup_forwards):
-                        category = 2
-                        match_type = 'consecutivexy'
-                        break
-                    if s2v.__contains__(s2v_lookup_backwards):
-                        category = 2
-                        match_type = 'consecutiveyx'
-                        break
-
-            if category < 1:
-                # cue_keys = create_s2v_keys(cue)
-                # response_keys = create_s2v_keys(response)
-                # end_loop = False
-                s2v_cue = s2v.get_best_sense(cue)
-                s2v_response = s2v.get_best_sense(response)
-                if s2v_cue and s2v_response:
-                    similarity = s2v.similarity(s2v_cue, s2v_response)
-                    if similarity > 0:
-                        category = 1
-                        match_type = 'conceptual_{:3.2f}'.format(round(similarity, 1))
-                        print('s2v_similarity', cue, response, match_type)
-                        end_loop = True
-                        # break
-
-                # for cue_key in cue_keys:
-                #
-                #     for response_key in response_keys:
-                #         if s2v.__contains__(cue_key) and s2v.__contains__(response_key):
-                #             similarity = s2v.similarity(cue_key, response_key)
-                #             if similarity > 0:
-                #                 category = 1
-                #                 match_type = 'conceptual_{:3.2f}'.format(round(similarity, 1))
-                #                 print('s2v_similarity', cue, response, match_type)
-                #                 end_loop = True
-                #                 break
-                #     if end_loop:
-                #         break
-            if category < 1:
-                category, match_type = sound_based(cue, response)
-            if category < 1:
-                # erratic
-                category = 4
-                erratic.add(tuple([cue, response]))
-        coded_pairs[(cue, response)] = category, match_type, depth
-
-    for pair in cue_response_pairs:
-        cue = pair['cue'].lower()
-        response = pair['response'].replace(' ', '_').replace('.', '').lower()
-
-        if len(pair['cue']) > 3:
-            category, match_type, depth = coded_pairs[(cue, response)]
-
-            pair.setdefault('category', category)
-            pair.setdefault('match_type', match_type)
-            pair.setdefault('depth', depth)
-
-            participants.setdefault(pair['participantid'], {1: 0, 2: 0, 3: 0, 4: 0})
-            participants[pair['participantid']][category] += 1
-            totals[category].setdefault(match_type, 0)
-            totals[category][match_type] += 1
-
-    # pprint.pprint(list(erratic)[0:10])
-    # pprint.pprint(coded_pairs)
-    # pprint.pprint(erratic)
-    pprint.pprint(totals)
+            relation_obj = WordnetRelations(cue, response)
+            coded_pairs[(cue, response)] = relation_obj.relations
+            for type in relation_obj.relation_types:
+                if relation_obj.relations[type]:
+                    totals.setdefault(type, 0)
+                    totals[type] += 1
+    print(totals)
+    print(sum(totals.values()))
 
 
 def create_s2v_keys(word):
@@ -218,70 +132,6 @@ def create_s2v_keys(word):
     for word_type in word_types:
         keys.append(''.join([word, '|', word_type]))
     return keys
-
-
-def meaning_based(cue, response, depth=0):
-    # 1. get synsets related to cue
-    # 2. check if response is in cue synsets
-    # 3. build up list of lemma names that are relations of first cue synset (antonyms, hyponyms, meronyms, etc.) (1st degree lemmas)
-    # 4. check if response in lemma names
-    # 5. store ALL related lemma names against cue synset as key {cue_synset: lemma names, ...}
-    # 6. build up list of lemma names that are relations of second cue synset (1st degree lemmas)
-    # 7. etc.
-    # 8. if the response is not in any of the 1st degree related lemmas, check the 2nd degree related lemmas
-    # 9. if the response is not in any of the 2nd degree related lemmas, check the 3rd degree related lemmas
-    # 10. etc up to n degrees (n TBC)
-
-    category = 0
-    depth = 0
-    type = None
-    antonym = None
-    synonynm_threshold = 0.6
-    antonym_threshold = 0.7
-
-    # TODO identify paths of interest. If a path has very few related lemmas, discard it?
-
-    # response has form X not e.g. have not, maybe_not, etc.
-    if response in [' '.join([cue, 'not']), '_'.join([cue, 'not'])]:
-        return 1, 'antonym'
-
-    # response has form 'opposite of Y'
-    if response.index('opposite of ') == 0:
-        return 1, 'antonym'
-
-    # first, check if the response word is in the synonym of the cue word
-    synsets_cue = wn.synsets(cue)
-
-    if check_word_in_synsets(response, synsets_cue):
-        return 1, 'synonym', 0
-
-    # antonyms
-    all_antonyms = set()
-    for synset in synsets_cue:
-        lemmas = synset.lemmas()
-
-        for lemma in lemmas:
-            antonyms = lemma.antonyms()
-            if antonyms:
-                antonym = antonyms[0].name()
-                all_antonyms.add(antonym)
-                if antonym == response:
-                    # print(cue, response, 'antonym')
-                    return 1, 'antonym', 0
-
-        for relation in synset_methods:
-            if hasattr(synset, relation):
-                if check_word_in_synsets(response, getattr(synset, relation)()):
-                    return 1, relation, 0
-
-    cue_synset, response_synset, similarity, depth = check_similarity(cue, response)
-    if similarity >= synonynm_threshold:
-        # print('similar', cue_synset, response_synset, similarity, cue, response)
-        return 1, 'conceptual_link', 0
-
-    # TODO look into definitions as a source of additional keywords i.e. synset.definitions().split(' '), len > 3 ?
-
-    return category, type, depth
 
 
 def check_similarity(w1, w2, depth=None):
@@ -425,21 +275,6 @@ def sound_based(cue, response):
 
 def erratic_association(cue, response):
     return
-
-
-def check_word_in_synsets(word, synsets):
-    for synset in synsets:
-        for lemma in synset.lemmas():
-            if word == lemma.name():
-                return True
-    return False
-
-
-def check_word_in_lemmas(word, lemmas):
-    for lemma in lemmas:
-        if word == lemma.name():
-            return True
-    return False
 
 
 def get_wn_relations(wn_obj_set, existing=None):
