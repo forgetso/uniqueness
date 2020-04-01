@@ -9,9 +9,10 @@ import os
 import pandas
 
 
-def process(wordassoc=None, responses=None, affix=None, norms=None):
+def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None):
     conn = db.connect()
-    db.setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms)
+    db.setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
+             concreteness=concreteness)
     cur = conn.cursor()
     if wordassoc:
         with ZipFile(settings.ZIP_FILE) as zf:
@@ -105,6 +106,28 @@ def process(wordassoc=None, responses=None, affix=None, norms=None):
         db.execute_values_wrap(cur, 'norms', keys, normsvalues)
         conn.commit()
 
+    if prevalences:
+        prevalences = []
+        with open(settings.PREVALENCES_FOLDER, mode='r', encoding='ISO-8859-1') as prevalences_file:
+            # Word,Pknown,Nobs,Prevalence,FreqZipfUS
+            reader = csv.DictReader(prevalences_file)
+            for row in reader:
+                prevalences.append(list(row.values()))
+            db.execute_values_wrap(cur, 'prevalences', ('word', 'pknown', 'nobs', 'prevalence', 'freqzipfus'),
+                                   prevalences)
+            conn.commit()
+
+    if concreteness:
+        concreteness = []
+        with open(settings.PREVALENCES_FOLDER, mode='r', encoding='ISO-8859-1') as concreteness_file:
+            # Word,Pknown,Nobs,Prevalence,FreqZipfUS
+            reader = csv.DictReader(concreteness_file)
+            for row in reader:
+                prevalences.append(list(row.values()))
+            db.execute_values_wrap(cur, 'prevalences', ('word', 'pknown', 'nobs', 'prevalence', 'freqzipfus'),
+                                   prevalences)
+            conn.commit()
+
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
@@ -112,8 +135,10 @@ def setup():
     parser.add_argument('--responses', action='store_true', help='Responses table refresh')
     parser.add_argument('--affix', action='store_true', help='Affixes')
     parser.add_argument('--norms', action='store_true', help='Word association norms')
+    parser.add_argument('--prevalences', action='store_true', help='Word prevalences')
+    parser.add_argument('--concreteness', action='store_true', help='Word concreteness')
     args = parser.parse_args()
-    process(args.wordassoc, args.responses, args.affix, args.norms)
+    process(args.wordassoc, args.responses, args.affix, args.norms, args.prevalences)
 
 
 if __name__ == "__main__":
