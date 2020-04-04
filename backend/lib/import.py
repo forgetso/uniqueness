@@ -9,10 +9,11 @@ import os
 import pandas
 
 
-def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None, age=None):
+def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None, age=None,
+            emotions=None):
     conn = db.connect()
     db.setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
-             concreteness=concreteness, age=age)
+             concreteness=concreteness, age=age, emotions=emotions)
     cur = conn.cursor()
     if wordassoc:
         with ZipFile(settings.ZIP_FILE) as zf:
@@ -147,6 +148,19 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
                 'num_syllables', 'lemma_highest_pos', 'aoa_kup_lemma', 'percent_known_lemma',), age_of_acquisitions)
             conn.commit()
 
+    if emotions:
+        emotions = []
+        # TODO import segments of emotions like male/female split
+        with open(settings.EMOTIONS_FILE, mode='r', encoding='ISO-8859-1') as emotions_file:
+            # Word	V.Mean.Sum	V.SD.Sum	V.Rat.Sum	A.Mean.Sum	A.SD.Sum	A.Rat.Sum	D.Mean.Sum
+            reader = csv.DictReader(emotions_file, delimiter=',')
+            for row in reader:
+                final_row = [row['Word'], row['V.Mean.Sum'], row['A.Mean.Sum'], row['D.Mean.Sum']]
+                emotions.append(final_row)
+            db.execute_values_wrap(cur, 'emotions', (
+                'word', 'valence', 'arousal', 'dominance'), emotions)
+            conn.commit()
+
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
@@ -157,9 +171,11 @@ def setup():
     parser.add_argument('--prevalences', action='store_true', help='Word prevalences')
     parser.add_argument('--concreteness', action='store_true', help='Word concretenesses')
     parser.add_argument('--age', action='store_true', help='Word age if acquisition')
+    parser.add_argument('--emotions', action='store_true', help='Word valence, arousal, and dominance ratings')
 
     args = parser.parse_args()
-    process(args.wordassoc, args.responses, args.affix, args.norms, args.prevalences, args.concreteness, args.age)
+    process(args.wordassoc, args.responses, args.affix, args.norms, args.prevalences, args.concreteness, args.age,
+            args.emotions)
 
 
 if __name__ == "__main__":

@@ -79,7 +79,10 @@ def main():
                 totals['age'] += 1
                 coded_pairs[(cue, response)]['other']['age'] = acquisition_age
 
-            # TODO 'emotion': None,
+            # TODO 'emotion' (valence, arousal dominance)
+
+
+
             # TODO 'subtitle_frequency': None,
             # TODO 'orthographic_neighbourhood': None,
             # TODO 'phonograpic_neighbourhood': None,
