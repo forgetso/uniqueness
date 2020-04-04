@@ -1,17 +1,21 @@
-from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences
+from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
+    get_acquisition_ages
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
 import unidecode
-from sense2vec import Sense2Vec
+# from sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER
 from backend.lib.wordnet_relations import WordnetRelations
+from collections import Counter
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
+CONCRETENESSES = get_concretenesses()
+ACQUISITION_AGES = get_acquisition_ages()
 COMMON_NORMS = get_common_norms()
 ps = PorterStemmer()
-TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0}
+TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent': 0}
 
 
 def main():
@@ -19,7 +23,7 @@ def main():
     # TODO consider the categories found in the Gallant Research:
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
 
-    s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+    # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 
     cue_response_pairs = []
     distinct_cue_response_pairs = set()
@@ -28,46 +32,65 @@ def main():
         pair = dict(pair)
         cue = pair['cue'].lower()
         response = pair['response'].replace(' ', '_').replace('.', '').lower()
-        response_raw = pair['r1raw'].replace(' ', '_').lower()
+        response_raw = pair['response_raw'].replace(' ', '_').lower()
         pair['cue'] = cue
         pair['response'] = response
-        cue_response_pairs.append(pair)
-        distinct_cue_response_pairs.add((pair['cue'], pair['response']))
         pair['key'] = (cue, response)
         pair['basic'] = basic_coding(response, response_raw)
+        cue_response_pairs.append(pair)
+        distinct_cue_response_pairs.add((pair['cue'], pair['response']))
 
     erratic = set()
     # code distinct list of cue response pairs
     coded_pairs = {}
 
+    totals = Counter(TOTALS)
     for pair in distinct_cue_response_pairs:
         cue = pair[0]
         response = pair[1]
         print(cue, response)
 
         if len(cue) > 3:
-            relations_coding, totals = relation_coding(cue, response)
+            coded_pairs[(cue, response)] = {'other': {}, 'relations': None}
+            relations_coding, relations_totals = relation_coding(cue, response)
+            totals = totals + relations_totals
+
             coded_pairs[(cue, response)]['relations'] = relations_coding
-            # now check the other things
-            # 'prevalence': None,
+
+            ############## Other Categories ##############
+
+            # prevalence
             if check_prevalence(response):
                 totals['prevalent'] += 1
                 coded_pairs[(cue, response)]['other']['prevalent'] = True
-            # 'corpus_similarity': None,
-            # 'dictionary_similarity': None,
-            # 'concreteness': None,
-            # 'age_of_acquisition': None,
-            # 'emotion': None,
-            # 'subtitle_frequency': None,
-            # 'orthographic_neighbourhood': None,
-            # 'phonograpic_neighbourhood': None,
-            # 'part_of_speech': None,
-            # 'morpheme': False,
-            # 'cultural_reference': None,
-            # 'active_brain_region': None,
+
+
+            # TODO 'corpus_similarity': None,
+            # TODO 'dictionary_similarity': None,
+
+            # concreteness
+            if check_concreteness(response):
+                totals['concrete'] += 1
+                coded_pairs[(cue, response)]['other']['concrete'] = True
+
+            # age_of_acquisition
+            acquisition_age = check_acquisition_age(response)
+            if acquisition_age:
+                totals['age'] += 1
+                coded_pairs[(cue, response)]['other']['age'] = acquisition_age
+
+            # TODO 'emotion': None,
+            # TODO 'subtitle_frequency': None,
+            # TODO 'orthographic_neighbourhood': None,
+            # TODO 'phonograpic_neighbourhood': None,
+            # TODO 'part_of_speech': None,
+            # TODO 'morpheme': False,
+            # TODO 'cultural_reference': None,
+            # TODO 'active_brain_region': None,
 
     print(totals)
     print(sum(totals.values()))
+    print(coded_pairs[0:5])
 
 
 def basic_coding(response, response_raw):
@@ -81,7 +104,7 @@ def basic_coding(response, response_raw):
     basic['length'] = len(response)
     basic['syllables'] = syllables(response)
     basic['capitalised'] = str.isupper(response[0])
-    basic['punctuation'] = re.match(r'[\.\-\']') or False
+    basic['punctuation'] = re.match(r'[\.\-\']', response_raw) or False
     basic['response'] = len(response.split('_'))
     basic['incorrect_spelling'] = response_raw.lower() != response
     return basic
@@ -89,7 +112,7 @@ def basic_coding(response, response_raw):
 
 def relation_coding(cue, response):
     # First do the relations
-    totals = {}
+    totals = Counter({'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0})
     relation_obj = WordnetRelations(cue, response)
     relations = relation_obj.relations
     for type in relation_obj.relation_types:
@@ -227,6 +250,26 @@ def check_prevalence(response):
     if response in PREVALENCES:
         if PREVALENCES[response] > 0:
             return True
+    return False
+
+
+def check_concreteness(response):
+    # TODO maybe make use of other measures in concreteness table
+    stem = ps.stem(response)
+    if response in CONCRETENESSES:
+        if CONCRETENESSES[response] >= 3:
+            return True
+    elif stem in CONCRETENESSES:
+        if CONCRETENESSES[stem] >= 3:
+            return True
+    # else:
+    #     raise KeyError('{} missing from concretenesses'.format(response))
+    return False
+
+
+def check_acquisition_age(response):
+    if response in ACQUISITION_AGES:
+        return round(ACQUISITION_AGES['age'], 1)
     return False
 
 

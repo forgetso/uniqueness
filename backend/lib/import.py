@@ -9,10 +9,10 @@ import os
 import pandas
 
 
-def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None):
+def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None, age=None):
     conn = db.connect()
     db.setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
-             concreteness=concreteness)
+             concreteness=concreteness, age=age)
     cur = conn.cursor()
     if wordassoc:
         with ZipFile(settings.ZIP_FILE) as zf:
@@ -108,7 +108,7 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
 
     if prevalences:
         prevalences = []
-        with open(settings.PREVALENCES_FOLDER, mode='r', encoding='ISO-8859-1') as prevalences_file:
+        with open(settings.PREVALENCES_FILE, mode='r', encoding='ISO-8859-1') as prevalences_file:
             # Word,Pknown,Nobs,Prevalence,FreqZipfUS
             reader = csv.DictReader(prevalences_file)
             for row in reader:
@@ -118,14 +118,33 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
             conn.commit()
 
     if concreteness:
-        concreteness = []
-        with open(settings.PREVALENCES_FOLDER, mode='r', encoding='ISO-8859-1') as concreteness_file:
-            # Word,Pknown,Nobs,Prevalence,FreqZipfUS
-            reader = csv.DictReader(concreteness_file)
+        concretenesses = []
+        with open(settings.CONCRETENESS_FILE, mode='r', encoding='ISO-8859-1') as concreteness_file:
+            # Word	Bigram	Conc.M	Conc.SD	Unknown	Total	Percent_known	SUBTLEX	Dom_Pos
+            reader = csv.DictReader(concreteness_file, delimiter='\t', quoting=csv.QUOTE_NONE)
             for row in reader:
-                prevalences.append(list(row.values()))
-            db.execute_values_wrap(cur, 'prevalences', ('word', 'pknown', 'nobs', 'prevalence', 'freqzipfus'),
-                                   prevalences)
+                concretenesses.append(list(row.values()))
+            db.execute_values_wrap(cur, 'concreteness', (
+                'word', 'bigram', 'concreteness_measure', 'concreteness_standard_dev', 'unknown', 'total',
+                'percent_known', 'subtlex', 'dom_pos'), concretenesses)
+            conn.commit()
+
+    if age:
+        age_of_acquisitions = []
+        with open(settings.AGE_FILE, mode='r', encoding='ISO-8859-1') as age_file:
+            # Word	Alternative.spelling	Freq_pm	Dom_PoS_SUBTLEX	Nletters	Nphon	Nsyll	Lemma_highest_PoS	AoA_Kup	Perc_known	AoA_Kup_lem	Perc_known_lem
+            reader = csv.DictReader(age_file, delimiter=',')
+            for row in reader:
+                row['Freq_pm'] = row['Freq_pm'].replace('#N/A', '0')
+                row['Dom_PoS_SUBTLEX'] = row['Dom_PoS_SUBTLEX'].replace('#N/A', '0')
+                row['AoA_Kup_lem'] = row['AoA_Kup_lem'].replace('NA', '0')
+                rowlist = list(row.values())
+                edited_row = rowlist[0:8]
+                edited_row.extend(rowlist[10:12])
+                age_of_acquisitions.append(edited_row)
+            db.execute_values_wrap(cur, 'acquisition_age', (
+                'word', 'alternative_spelling', 'freq_pm', 'dom_pos_subtlex', 'num_letters', 'num_phon',
+                'num_syllables', 'lemma_highest_pos', 'aoa_kup_lemma', 'percent_known_lemma',), age_of_acquisitions)
             conn.commit()
 
 
@@ -136,9 +155,11 @@ def setup():
     parser.add_argument('--affix', action='store_true', help='Affixes')
     parser.add_argument('--norms', action='store_true', help='Word association norms')
     parser.add_argument('--prevalences', action='store_true', help='Word prevalences')
-    parser.add_argument('--concreteness', action='store_true', help='Word concreteness')
+    parser.add_argument('--concreteness', action='store_true', help='Word concretenesses')
+    parser.add_argument('--age', action='store_true', help='Word age if acquisition')
+
     args = parser.parse_args()
-    process(args.wordassoc, args.responses, args.affix, args.norms, args.prevalences)
+    process(args.wordassoc, args.responses, args.affix, args.norms, args.prevalences, args.concreteness, args.age)
 
 
 if __name__ == "__main__":
