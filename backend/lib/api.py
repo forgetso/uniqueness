@@ -56,6 +56,7 @@ class CueResponse(Resource):
 
         # just need to make this an iterable for the next line to be ok
         corrections = check_spelling(cue_response_pair['response']) or set()
+        #TODO restrict the number of spelling corrections returned to the page (perhaps phonetically?)
         corrections_list = list(corrections)
         cue_response_pair['corrections'] = corrections_list
         response_id = save_cue_response_pair(cue_response_pair)

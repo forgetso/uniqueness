@@ -15,6 +15,9 @@ class App extends Component {
         );
     }
 }
+//TODO prevent form submission when field is blank
+//TODO allow spaces in form submission
+
 
 class WordAssociation extends Component {
     constructor(props) {
