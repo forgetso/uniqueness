@@ -4,6 +4,8 @@ import './App.css';
 import InputMask from 'react-input-mask';
 import Spelling from './components/spelling.js'
 import Fingerprint2 from 'fingerprintjs2'
+import ls from 'local-storage'
+import * as api from "./helpers/api.js"
 
 class App extends Component {
     render() {
@@ -18,16 +20,16 @@ class App extends Component {
 class WordAssociation extends Component {
     constructor(props) {
         super(props);
-        this.state = {response: '', cue: '', time: 0, spelling: null};
+        this.state = {response: '', cue: '', time: 0, corrections: null};
     }
 
     componentDidMount() {
-        getCueWord().then(cue_obj => {
+        api.getCueWord().then(cue_obj => {
             this.setState({
                 cue: cue_obj['cue'],
                 response: '',
                 time_start: Date.now()
-            })
+            });
             this.getFingerprint();
         }).catch(err => console.log('There was an error:' + err));
     }
@@ -37,16 +39,17 @@ class WordAssociation extends Component {
         let response = this.state.response;
         let cue = this.state.cue;
         let time_duration = Date.now() - this.state.time_start;
+        let user_id = ls.get('user_id')
         // TODO implement spelling options
-        saveResponseWord(cue, response, time_duration).then((res) => {
+        api.saveResponseWord(cue, response, time_duration, user_id).then((res) => {
             if (res.status === 201) {
-                this.reload()
-            } else if (res.status === 406) {
                 return res.json();
             }
         }).then((data) => {
-            if (data) {
+            if (data.hasOwnProperty('corrections')) {
                 this.spellingOptions(data);
+            } else {
+                this.reload()
             }
         });
     };
@@ -69,22 +72,20 @@ class WordAssociation extends Component {
 
     getFingerprint() {
         if (window.requestIdleCallback) {
-            let callbackId = requestIdleCallback(this.idleFingerprint(this.setState.bind(this)));
+            let callbackId = requestIdleCallback(this.idleFingerprint());
         } else {
-            setTimeout(function () {
-                Fingerprint2.get(function (components) {
-                    console.log(components); // an array of components: {key: ..., value: ...}
-
-                })
-            }.bind(this), 500)
+            setTimeout(this.idleFingerprint.bind(this), 500)
         }
     }
 
-    idleFingerprint(setState) {
-        Fingerprint2.get(function (components) {
+    idleFingerprint() {
+        Fingerprint2.get(function (components, result) {
             //console.log(components); // an array of components: {key: ..., value: ...}
-            console.log('inner');
-            setState({'user_id': components})
+            var values = components.map(function (component) {
+                return component.value
+            });
+            var murmur = Fingerprint2.x64hash128(values.join(''), 31)
+            ls.set('user_id', murmur)
         })
     }
 
@@ -111,44 +112,6 @@ class WordAssociation extends Component {
             </form>
         );
     }
-}
-
-
-function getCueWord() {
-    return fetch(process.env.REACT_APP_API_URL + 'cueresponse',
-        {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                "Accept": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            }
-        }).then((res) => {
-        return res.json();
-    }).then((data) => {
-        return data;
-    });
-}
-
-function saveResponseWord(cue, response, time_duration) {
-    return fetch(process.env.REACT_APP_API_URL + "cueresponse",
-        {
-            method: 'POST',
-            body: JSON.stringify({
-                'cue': cue,
-                'response': response,
-                'time_duration': time_duration
-            }),
-            headers: {
-                //'X-Api-Key': API_KEY,
-                'Content-Type': 'application/json',
-                "Accept": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            }
-        }
-    ).then(function (response) {
-        return response
-    });
 }
 
 

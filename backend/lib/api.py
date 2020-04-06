@@ -3,10 +3,11 @@ from flask_restful import reqparse, abort, Api, Resource
 from flask_cors import CORS
 import random
 import json
-from backend.lib.db import get_cue_response_pairs
+from backend.lib.db import get_cue_response_pairs, save_cue_response_pair
 import logging
 from backend.lib.spelling import check_spelling
 import re
+from datetime import datetime as dt
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -21,6 +22,7 @@ parser = reqparse.RequestParser()
 parser.add_argument('response')
 parser.add_argument('cue')
 parser.add_argument('time_duration')
+parser.add_argument('user_id')
 
 CUE_RESPONSE_PAIRS = [x for x in get_cue_response_pairs()]
 print(CUE_RESPONSE_PAIRS[0])
@@ -41,14 +43,33 @@ class CueResponse(Resource):
     def post(self):
         args = parser.parse_args()
         cue_response_pair = sanitise_response(
-            {'response': args['response'], 'cue': args['cue'], 'time_duration': args['time_duration']})
+            {'response': args['response'],
+             'created': dt.utcnow(),
+             'cue': args['cue'],
+             'time_duration': args['time_duration'],
+             'user_id': args['user_id'],
+             'corrections': []}
+        )
 
-        spelling = check_spelling(cue_response_pair['response'])
-        if spelling:
-            response = output_json({'corrections': list(spelling)}, 406, HEADERS)
+        corrections = check_spelling(cue_response_pair['response'])
+
+        response_id = save_cue_response_pair(cue_response_pair)
+        if corrections:
+            corrections_list = list(corrections)
+            cue_response_pair['corrections'] = corrections_list
+            response = output_json({'corrections': corrections_list, 'response_id': response_id}, 201, HEADERS)
         else:
-            response = output_json(dict(), 201, HEADERS)
+            response = output_json({'response_id': response_id}, 201, HEADERS)
         return response
+
+
+class CorrectSpelling(Resource):
+    def post(self):
+        args = parser.parse_args()
+        id = args.get('id')
+        correction = args.get('correction')
+        if id and correction:
+            print('saving correction!')
 
 
 def output_json(data, code, headers=None):
@@ -69,6 +90,7 @@ def sanitise_response(cue_response_pair):
 ## Actually setup the Api resource routing here
 ##
 api.add_resource(CueResponse, '/cueresponse')
+api.add_resource(CorrectSpelling, '/correctspelling')
 
 if __name__ == '__main__':
     app.run(debug=True)
