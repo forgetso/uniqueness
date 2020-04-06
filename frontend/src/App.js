@@ -21,6 +21,7 @@ class WordAssociation extends Component {
         super(props);
         this.state = {response: '', cue: '', time: 0, corrections: null, showSpelling: false};
         this.sendSpellingCorrection = this.sendSpellingCorrection.bind(this)
+        this.reload = this.reload.bind(this);
     }
 
     componentDidMount() {
@@ -63,6 +64,7 @@ class WordAssociation extends Component {
     };
 
     reload() {
+        this.setState({showSpelling: false});
         this.componentDidMount();
     }
 
@@ -85,8 +87,9 @@ class WordAssociation extends Component {
         })
     }
 
-    sendSpellingCorrection(response_id, correction) {
+    sendSpellingCorrection(response_id, correction, reload) {
         const that = this;
+
         api.correctSpelling(response_id, correction).then((res) => {
             if (res.status === 201) {
                 that.setState({
@@ -118,7 +121,8 @@ class WordAssociation extends Component {
                                            corrections={this.state.corrections}
                                            response_id={this.state.response_id}
                                            showSpelling={this.state.showSpelling}
-                                           sendSpellingCorrection={this.sendSpellingCorrection}/> : null}
+                                           sendSpellingCorrection={this.sendSpellingCorrection}
+                                           reload={this.reload}/> : null}
                     </div>
                 </div>
             </form>

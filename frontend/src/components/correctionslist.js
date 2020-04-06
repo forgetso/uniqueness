@@ -1,6 +1,4 @@
-'use strict'
-
-import * as api from "../helpers/api";
+'use strict';
 import React, {Component} from 'react';
 
 class CorrectionsList extends Component {
@@ -20,10 +18,22 @@ class CorrectionsList extends Component {
 
     handleClick = (event) => {
         this.props.sendSpellingCorrection(this.props.response_id, event.target.innerText);
-    }
+    };
+
+    reloadComponent = (event) => {
+        this.props.reloadComponent();
+    };
 
     render() {
-        return (<ul className="list-group">{this.listItems()}</ul>)
+        return (
+            <ul className="list-group">
+                {this.listItems()}
+                <li>
+                    <button type="button" className="btn btn-primary btn-lg"
+                            onClick={this.props.reload}>None of the above
+                    </button>
+                </li>
+            </ul>)
     }
 }
 
