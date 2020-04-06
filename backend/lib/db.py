@@ -1,7 +1,7 @@
 import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
-
+import logging
 
 def connect():
     conn = pg.connect(host='localhost', user=PG_USER, password=PG_PASSWORD, database="backend")
@@ -172,6 +172,15 @@ def execute_values_wrap(cur, table, fieldnametuple, values):
     result = execute_values(cur, query, values)
     return result
 
+def get_cues(min_length=None, limit=None):
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """ SELECT DISTINCT cue
+                    FROM wordassoc"""
+    if limit:
+        query += """ LIMIT %s""" % str(int(limit))
+    cur.execute(query)
+    return [x for x in cur]
 
 def get_cue_response_pairs(min_length=None, limit=None):
     conn = connect()
@@ -277,6 +286,6 @@ def save_cue_response_pair(cue_response_pair):
 def correct_cue_response_pair(response_id, correction):
     conn = connect()
     cur = conn.cursor()
-    query = """UPDATE responses SET correction = %s WHERE response_id = %s"""
+    query = """UPDATE responses SET correction = %s WHERE id = %s"""
     cur.execute(query, (correction, response_id))
     conn.commit()

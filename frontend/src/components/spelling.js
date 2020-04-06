@@ -1,13 +1,12 @@
+'use strict'
+
 import React, {Component} from 'react';
-import App from "../App";
 import * as api from "../helpers/api.js"
+import CorrectionsList from "./correctionslist"
 
 class Spelling extends Component {
     constructor(props) {
         super(props);
-        console.log(this.props.cue);
-        console.log(this.props.response);
-        console.log(this.props.corrections);
     }
 
     render() {
@@ -15,7 +14,10 @@ class Spelling extends Component {
             <div>
                 <div>Did you mean</div>
                 <div>
-                    <CorrectionsList corrections={this.props.corrections}/>
+                    <CorrectionsList response_id={this.props.response_id}
+                                     corrections={this.props.corrections}
+                                     showSpelling={this.props.showSpelling}
+                                     sendSpellingCorrection={this.props.sendSpellingCorrection}/>
                 </div>
                 <div>?</div>
             </div>
@@ -24,21 +26,5 @@ class Spelling extends Component {
     }
 }
 
-function CorrectionsList(props) {
-    console.log(props);
-    const corrections = props.corrections;
-    const listItems = corrections.map((correction) =>
-        <li key={correction.toString()}><a href=""
-                                           onClick={sendSpellingCorrection(correction.toString())}>{correction}</a>
-        </li>
-    );
-    return (
-        <ul className="list-group">{listItems}</ul>
-    );
-}
-
-function sendSpellingCorrection(correction) {
-    api.correctSpelling(this.props.responseId,  correction)
-}
 
 export default Spelling;

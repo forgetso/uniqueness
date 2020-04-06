@@ -1,5 +1,4 @@
 import React, {Component} from 'react';
-import logo from './logo.svg';
 import './App.css';
 import InputMask from 'react-input-mask';
 import Spelling from './components/spelling.js'
@@ -20,7 +19,8 @@ class App extends Component {
 class WordAssociation extends Component {
     constructor(props) {
         super(props);
-        this.state = {response: '', cue: '', time: 0, corrections: null};
+        this.state = {response: '', cue: '', time: 0, corrections: null, showSpelling: false};
+        this.sendSpellingCorrection = this.sendSpellingCorrection.bind(this)
     }
 
     componentDidMount() {
@@ -46,8 +46,12 @@ class WordAssociation extends Component {
                 return res.json();
             }
         }).then((data) => {
+            console.log(data);
+            this.setState({'response_id': data['response_id']})
             if (data.hasOwnProperty('corrections')) {
-                this.spellingOptions(data);
+                // corrections must be set before showing the spelling component
+                this.setState({corrections: data['corrections']});
+                this.setState({showSpelling: true});
             } else {
                 this.reload()
             }
@@ -62,17 +66,9 @@ class WordAssociation extends Component {
         this.componentDidMount();
     }
 
-    spellingOptions(corrections_obj) {
-        console.log(corrections_obj);
-        // we must set the corrections before showing the component
-        this.setState({corrections: corrections_obj['corrections']});
-        this.setState({showSpelling: true});
-
-    }
-
     getFingerprint() {
         if (window.requestIdleCallback) {
-            let callbackId = requestIdleCallback(this.idleFingerprint());
+            requestIdleCallback(this.idleFingerprint());
         } else {
             setTimeout(this.idleFingerprint.bind(this), 500)
         }
@@ -86,6 +82,18 @@ class WordAssociation extends Component {
             });
             var murmur = Fingerprint2.x64hash128(values.join(''), 31)
             ls.set('user_id', murmur)
+        })
+    }
+
+    sendSpellingCorrection(response_id, correction) {
+        const that = this;
+        api.correctSpelling(response_id, correction).then((res) => {
+            if (res.status === 201) {
+                that.setState({
+                    showSpelling: false
+                });
+                this.reload()
+            }
         })
     }
 
@@ -106,7 +114,11 @@ class WordAssociation extends Component {
                             </div>
                             : null}
                         {this.state.showSpelling ?
-                            <SpellingCheck response={this.state.response} corrections={this.state.corrections}/> : null}
+                            <SpellingCheck response={this.state.response}
+                                           corrections={this.state.corrections}
+                                           response_id={this.state.response_id}
+                                           showSpelling={this.state.showSpelling}
+                                           sendSpellingCorrection={this.sendSpellingCorrection}/> : null}
                     </div>
                 </div>
             </form>

@@ -3,7 +3,7 @@ from flask_restful import reqparse, abort, Api, Resource
 from flask_cors import CORS
 import random
 import json
-from backend.lib.db import get_cue_response_pairs, save_cue_response_pair
+from backend.lib.db import get_cues, save_cue_response_pair, correct_cue_response_pair
 import logging
 from backend.lib.spelling import check_spelling
 import re
@@ -23,11 +23,14 @@ parser.add_argument('response')
 parser.add_argument('cue')
 parser.add_argument('time_duration')
 parser.add_argument('user_id')
+parser.add_argument('response_id')
+parser.add_argument('correction')
 
-CUE_RESPONSE_PAIRS = [x for x in get_cue_response_pairs()]
-print(CUE_RESPONSE_PAIRS[0])
-CUES = [x['cue'] for x in CUE_RESPONSE_PAIRS]
-logging.getLogger('flask_cors').level = logging.DEBUG
+print('getting cues...')
+CUES = get_cues()
+print('done')
+#logging.getLogger('flask_cors').level = logging.DEBUG
+logging.basicConfig(level=logging.DEBUG)
 HEADERS = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*'}
 
 
@@ -51,25 +54,33 @@ class CueResponse(Resource):
              'corrections': []}
         )
 
-        corrections = check_spelling(cue_response_pair['response'])
-
+        # just need to make this an iterable for the next line to be ok
+        corrections = check_spelling(cue_response_pair['response']) or set()
+        corrections_list = list(corrections)
+        cue_response_pair['corrections'] = corrections_list
         response_id = save_cue_response_pair(cue_response_pair)
-        if corrections:
-            corrections_list = list(corrections)
-            cue_response_pair['corrections'] = corrections_list
-            response = output_json({'corrections': corrections_list, 'response_id': response_id}, 201, HEADERS)
+        if len(corrections_list):
+            response = output_json({'response_id': response_id, 'msg': 'ok', 'corrections': corrections_list}, 201,
+                                   HEADERS)
         else:
-            response = output_json({'response_id': response_id}, 201, HEADERS)
+            response = output_json({'response_id': response_id, 'msg': 'ok'}, 201, HEADERS)
         return response
 
 
 class CorrectSpelling(Resource):
     def post(self):
-        args = parser.parse_args()
-        id = args.get('id')
-        correction = args.get('correction')
-        if id and correction:
-            print('saving correction!')
+        response = None
+        try:
+            args = parser.parse_args()
+            response_id = args.get('response_id')
+            correction = args.get('correction')
+            #logging.debug(msg='{},{}'.format(response_id, correction))
+            if response_id and correction:
+                correct_cue_response_pair(response_id, correction)
+                response = output_json({'msg': 'ok'}, 201, HEADERS)
+        except Exception as e:
+            response = output_json({'msg': e}, 500, HEADERS)
+        return response
 
 
 def output_json(data, code, headers=None):
