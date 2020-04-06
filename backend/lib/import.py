@@ -11,6 +11,9 @@ import pandas
 
 def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None, age=None,
             emotions=None):
+
+    #TODO Merge all of the ugent files into one DB table. Emotions, age of acquisition, concreteness, prevalence, etc.
+
     conn = db.connect()
     db.setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
              concreteness=concreteness, age=age, emotions=emotions)

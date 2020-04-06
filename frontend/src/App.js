@@ -2,6 +2,8 @@ import React, {Component} from 'react';
 import logo from './logo.svg';
 import './App.css';
 import InputMask from 'react-input-mask';
+import Spelling from './components/spelling.js'
+import Fingerprint2 from 'fingerprintjs2'
 
 class App extends Component {
     render() {
@@ -16,7 +18,7 @@ class App extends Component {
 class WordAssociation extends Component {
     constructor(props) {
         super(props);
-        this.state = {response: '', cue: '', time: 0};
+        this.state = {response: '', cue: '', time: 0, spelling: null};
     }
 
     componentDidMount() {
@@ -26,6 +28,7 @@ class WordAssociation extends Component {
                 response: '',
                 time_start: Date.now()
             })
+            this.getFingerprint();
         }).catch(err => console.log('There was an error:' + err));
     }
 
@@ -34,12 +37,18 @@ class WordAssociation extends Component {
         let response = this.state.response;
         let cue = this.state.cue;
         let time_duration = Date.now() - this.state.time_start;
-        saveResponseWord(cue, response, time_duration).then(saveResponseResult => {
-            if (saveResponseResult.status === 200) {
-                this.reload();
+        // TODO implement spelling options
+        saveResponseWord(cue, response, time_duration).then((res) => {
+            if (res.status === 201) {
+                this.reload()
+            } else if (res.status === 406) {
+                return res.json();
+            }
+        }).then((data) => {
+            if (data) {
+                this.spellingOptions(data);
             }
         });
-
     };
 
     myChangeHandler = (event) => {
@@ -50,17 +59,53 @@ class WordAssociation extends Component {
         this.componentDidMount();
     }
 
+    spellingOptions(corrections_obj) {
+        console.log(corrections_obj);
+        // we must set the corrections before showing the component
+        this.setState({corrections: corrections_obj['corrections']});
+        this.setState({showSpelling: true});
+
+    }
+
+    getFingerprint() {
+        if (window.requestIdleCallback) {
+            let callbackId = requestIdleCallback(this.idleFingerprint(this.setState.bind(this)));
+        } else {
+            setTimeout(function () {
+                Fingerprint2.get(function (components) {
+                    console.log(components); // an array of components: {key: ..., value: ...}
+
+                })
+            }.bind(this), 500)
+        }
+    }
+
+    idleFingerprint(setState) {
+        Fingerprint2.get(function (components) {
+            //console.log(components); // an array of components: {key: ..., value: ...}
+            console.log('inner');
+            setState({'user_id': components})
+        })
+    }
+
 
     render() {
         return (
             <form onSubmit={this.mySubmitHandler} className="display-1">
                 <div>
                     <div>
-                        <span id="cue" className="m-2">{this.state.cue}</span>
-                        <ResponseInput id="response" className="m-2" autoComplete="off"
-                                       onChange={this.myChangeHandler} type="text"
-                                       value={this.state.response}></ResponseInput>
-                        <input type="submit"/>
+                        {!this.state.showSpelling ?
+                            <div>
+                                <span id="cue" className="m-2">{this.state.cue}</span>
+                                <ResponseInput id="response" className="m-2" autoComplete="off"
+                                               onChange={this.myChangeHandler} type="text"
+                                               value={this.state.response}></ResponseInput>
+
+                                <input type="submit"/>
+                            </div>
+                            : null}
+                        {this.state.showSpelling ?
+                            <SpellingCheck response={this.state.response} corrections={this.state.corrections}/> : null}
                     </div>
                 </div>
             </form>
@@ -104,6 +149,13 @@ function saveResponseWord(cue, response, time_duration) {
     ).then(function (response) {
         return response
     });
+}
+
+
+class SpellingCheck extends React.Component {
+    render() {
+        return <Spelling {...this.props}/>
+    }
 }
 
 

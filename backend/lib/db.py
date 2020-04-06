@@ -8,7 +8,8 @@ def connect():
     return conn
 
 
-def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=None, concreteness=None, age=None, emotions=None):
+def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=None, concreteness=None, age=None,
+          emotions=None):
     # "id","participantID","created_at","age","nativeLanguage","gender","education","city","country","section","cue","R1Raw","R2Raw","R3Raw","R1","R2","R3"
     conn = connect()
     cur = conn.cursor()
@@ -44,6 +45,7 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
         created timestamp,
         cue text,
         response text,
+        user_id int,
         time_duration int)
         """)
         conn.commit()
@@ -146,7 +148,7 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
         conn.commit()
 
     if emotions:
-        #'word', 'valence', 'arousal', 'dominance'
+        # 'word', 'valence', 'arousal', 'dominance'
         # ---------------------------------------------- emotions -------------------------------------------#
 
         cur.execute("""DROP TABLE IF EXISTS emotions""")
@@ -239,3 +241,22 @@ def get_acquisition_ages():
         for w in list(word_set):
             age_dict[w] = x['age']
     return age_dict
+
+
+def get_emotions():
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """ SELECT word, valence, arousal, dominance
+                FROM emotions
+    """
+    cur.execute(query)
+    emotions = {x['word']: {'valence': x['valence'], 'arousal': x['arousal'], 'dominance': x['dominance']} for x in
+                cur}
+    return emotions
+
+
+def store_response(cue, response, user_id, time_duration):
+    conn = connect()
+    cur = conn.cursor()
+    query = """INSERT INTO responses cue, response, user_id, time_duration """
+    cur.execute(query, (cue, response, user_id, time_duration))

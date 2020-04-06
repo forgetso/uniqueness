@@ -5,6 +5,8 @@ import random
 import json
 from backend.lib.db import get_cue_response_pairs
 import logging
+from backend.lib.spelling import check_spelling
+import re
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -38,10 +40,14 @@ class CueResponse(Resource):
 
     def post(self):
         args = parser.parse_args()
-        print(args)
-        cue_response_pair = {'response': args['response'], 'cue': args['cue'], 'time_duration': args['time_duration']}
-        print(cue_response_pair)
-        response = output_json(201, HEADERS)
+        cue_response_pair = sanitise_response(
+            {'response': args['response'], 'cue': args['cue'], 'time_duration': args['time_duration']})
+
+        spelling = check_spelling(cue_response_pair['response'])
+        if spelling:
+            response = output_json({'corrections': list(spelling)}, 406, HEADERS)
+        else:
+            response = output_json(dict(), 201, HEADERS)
         return response
 
 
@@ -50,6 +56,13 @@ def output_json(data, code, headers=None):
     resp = make_response(json.dumps(data), code)
     resp.headers.extend(headers or {})
     return resp
+
+
+def sanitise_response(cue_response_pair):
+    cue_response_pair['response'] = re.sub('[^a-zA-Z]+', '', cue_response_pair['response'])
+    cue_response_pair['cue'] = re.sub('[^a-zA-Z]+', '', cue_response_pair['cue'])
+    cue_response_pair['time_duration'] = int(re.sub('[^0-9]+', '', cue_response_pair['time_duration']))
+    return cue_response_pair
 
 
 ##

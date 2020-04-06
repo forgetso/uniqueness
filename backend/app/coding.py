@@ -1,5 +1,5 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
-    get_acquisition_ages
+    get_acquisition_ages, get_emotions
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
@@ -8,11 +8,15 @@ import unidecode
 from backend.settings import SENSE2VEC_FOLDER
 from backend.lib.wordnet_relations import WordnetRelations
 from collections import Counter
+import pprint
+import numpy as np
+from decimal import Decimal
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
 CONCRETENESSES = get_concretenesses()
 ACQUISITION_AGES = get_acquisition_ages()
+EMOTIONS = get_emotions()
 COMMON_NORMS = get_common_norms()
 ps = PorterStemmer()
 TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent': 0}
@@ -36,9 +40,8 @@ def main():
         pair['cue'] = cue
         pair['response'] = response
         pair['key'] = (cue, response)
-        pair['basic'] = basic_coding(response, response_raw)
         cue_response_pairs.append(pair)
-        distinct_cue_response_pairs.add((pair['cue'], pair['response']))
+        distinct_cue_response_pairs.add((pair['cue'], pair['response'], pair['response_raw']))
 
     erratic = set()
     # code distinct list of cue response pairs
@@ -48,10 +51,13 @@ def main():
     for pair in distinct_cue_response_pairs:
         cue = pair[0]
         response = pair[1]
+        response_raw = pair[2]
+
         print(cue, response)
 
         if len(cue) > 3:
-            coded_pairs[(cue, response)] = {'other': {}, 'relations': None}
+            coded_pairs[(cue, response)] = {'other': {}, 'relations': None, 'basic': None}
+            coded_pairs[(cue, response)]['basic'] = basic_coding(response, response_raw)
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
 
@@ -63,7 +69,6 @@ def main():
             if check_prevalence(response):
                 totals['prevalent'] += 1
                 coded_pairs[(cue, response)]['other']['prevalent'] = True
-
 
             # TODO 'corpus_similarity': None,
             # TODO 'dictionary_similarity': None,
@@ -79,26 +84,40 @@ def main():
                 totals['age'] += 1
                 coded_pairs[(cue, response)]['other']['age'] = acquisition_age
 
-            # TODO 'emotion' (valence, arousal dominance)
-
-
+            # word emotions (valence, arousal dominance)
+            emotions = check_emotions(response)
+            if emotions:
+                totals['emotions'] += 1
+                coded_pairs[(cue, response)]['other']['valence'] = emotions['valence']
+                coded_pairs[(cue, response)]['other']['arousal'] = emotions['arousal']
+                coded_pairs[(cue, response)]['other']['dominance'] = emotions['dominance']
 
             # TODO 'subtitle_frequency': None,
+            # take this from
             # TODO 'orthographic_neighbourhood': None,
             # TODO 'phonograpic_neighbourhood': None,
             # TODO 'part_of_speech': None,
+            # take this from age of acquisition?
             # TODO 'morpheme': False,
             # TODO 'cultural_reference': None,
             # TODO 'active_brain_region': None,
 
     print(totals)
     print(sum(totals.values()))
-    print(coded_pairs[0:5])
+    count = 0
+    for k, v in coded_pairs.items():
+        if count > 5: break
+        # print(k)
+        # pprint.pprint(v)
+        count += 1
+        feature_vector = construct_feature_vector(v)
+        print(feature_vector)
+
 
 
 def basic_coding(response, response_raw):
     basic = {'length': None,
-             'response_time': None,
+             #'response_time': None,
              'syllables': None,
              'capitalised': False,
              'punctuation': False,
@@ -110,6 +129,7 @@ def basic_coding(response, response_raw):
     basic['punctuation'] = re.match(r'[\.\-\']', response_raw) or False
     basic['response'] = len(response.split('_'))
     basic['incorrect_spelling'] = response_raw.lower() != response
+    basic['number_of_words'] = len(response.split('_'))
     return basic
 
 
@@ -275,6 +295,32 @@ def check_acquisition_age(response):
         return round(ACQUISITION_AGES['age'], 1)
     return False
 
+
+def check_emotions(response):
+    if response in EMOTIONS:
+        return EMOTIONS[response]
+    return None
+
+def construct_feature_vector(encoding):
+    #feature_vector = np.array()
+    vector_list = []
+    for encoding_type in encoding:
+        for key in encoding[encoding_type]:
+            if encoding[encoding_type][key] == True:
+                vector_list.append(1)
+            elif encoding[encoding_type][key] == False:
+                vector_list.append(0)
+            elif isinstance(encoding[encoding_type][key], Decimal):
+                vector_list.append(encoding[encoding_type][key])
+            elif isinstance(encoding[encoding_type][key], int):
+                vector_list.append(encoding[encoding_type][key])
+            elif isinstance(encoding[encoding_type][key], float):
+                vector_list.append(encoding[encoding_type][key])
+            else:
+                print(encoding[encoding_type][key])
+                print('error')
+
+    return vector_list
 
 if __name__ == "__main__":
     main()

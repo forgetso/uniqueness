@@ -32,11 +32,13 @@ lemma_relations = [
     'pertainyms'
 ]
 
+nltk.download('wordnet')
+
 
 class WordnetRelations():
 
     def __init__(self, cue, response):
-        nltk.download('wordnet')
+
         self.cue = cue.lower()
         self.response = response.replace(' ', '_').replace('.', '').lower()
         self.synsets_cue = wn.synsets(self.cue)
@@ -95,8 +97,8 @@ class WordnetRelations():
                         result = True
                     if self.check_word_in_synsets(response, cue_related):
                         result = True
-                if cue_related:
-                    print('{} {}'.format(relation, cue_related))
+                # if cue_related:
+                #     print('{} {}'.format(relation, cue_related))
         return result
 
     def get_related_lemmas(self, relation, response):
@@ -112,6 +114,7 @@ class WordnetRelations():
                             if self.check_intersection(getattr(cue_lemma, relation)(),
                                                        getattr(response_lemma, relation)()):
                                 return True
+        return False
 
     def check_word_in_synsets(self, word, synsets):
         for synset in synsets:
