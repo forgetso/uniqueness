@@ -10,7 +10,6 @@ class Spelling extends Component {
     render() {
         return (
             <div>
-                <div>Did you mean</div>
                 <div>
                     <CorrectionsList response_id={this.props.response_id}
                                      corrections={this.props.corrections}

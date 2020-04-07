@@ -3,7 +3,7 @@ from flask_restful import reqparse, abort, Api, Resource
 from flask_cors import CORS
 import random
 import json
-from backend.lib.db import get_cues, save_cue_response_pair, correct_cue_response_pair
+from backend.lib.db import get_cues, save_cue_response_pair, update_correction
 import logging
 from backend.lib.spelling import Spelling
 import re
@@ -53,15 +53,21 @@ class CueResponse(Resource):
              'user_id': args['user_id'],
              'corrections': []}
         )
-        speller = Spelling(cue_response_pair['cue'], cue_response_pair['response'])
+        corrections_list = []
+        response_list = cue_response_pair['response'].split(' ')
+        corrections_dict = {}
+        for response_word in response_list:
+            speller = Spelling(cue_response_pair['cue'], response_word)
+            corrections = speller.get_corrections()
+            print(corrections)
+            corrections_dict[response_word] = corrections
+            corrections_list.append(corrections)
 
-        # just need to make this an iterable for the next line to be ok
-        corrections_list = speller.get_corrections()
-
-        cue_response_pair['corrections'] = corrections_list
+        print(corrections_dict)
+        cue_response_pair['corrections'] = corrections_dict
         response_id = save_cue_response_pair(cue_response_pair)
         if len(corrections_list):
-            response = output_json({'response_id': response_id, 'msg': 'ok', 'corrections': corrections_list}, 201,
+            response = output_json({'response_id': response_id, 'msg': 'ok', 'corrections': corrections_dict}, 201,
                                    HEADERS)
         else:
             response = output_json({'response_id': response_id, 'msg': 'ok'}, 201, HEADERS)
@@ -77,7 +83,7 @@ class CorrectSpelling(Resource):
             correction = args.get('correction')
             # logging.debug(msg='{},{}'.format(response_id, correction))
             if response_id and correction:
-                correct_cue_response_pair(response_id, correction)
+                update_correction(response_id, correction)
                 response = output_json({'msg': 'ok'}, 201, HEADERS)
         except Exception as e:
             response = output_json({'msg': e}, 500, HEADERS)
@@ -92,7 +98,7 @@ def output_json(data, code, headers=None):
 
 
 def sanitise_response(cue_response_pair):
-    cue_response_pair['response'] = re.sub('[^a-zA-Z]+', '', cue_response_pair['response'])
+    cue_response_pair['response'] = re.sub('[^a-zA-Z\s]+', '', cue_response_pair['response'])
     cue_response_pair['cue'] = re.sub('[^a-zA-Z]+', '', cue_response_pair['cue'])
     cue_response_pair['time_duration'] = int(re.sub('[^0-9]+', '', cue_response_pair['time_duration']))
     return cue_response_pair
