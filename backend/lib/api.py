@@ -5,7 +5,7 @@ import random
 import json
 from backend.lib.db import get_cues, save_cue_response_pair, correct_cue_response_pair
 import logging
-from backend.lib.spelling import check_spelling
+from backend.lib.spelling import Spelling
 import re
 from datetime import datetime as dt
 
@@ -26,10 +26,10 @@ parser.add_argument('user_id')
 parser.add_argument('response_id')
 parser.add_argument('correction')
 
-print('getting cues...')
+logging.info('getting cues...')
 CUES = get_cues()
-print('done')
-#logging.getLogger('flask_cors').level = logging.DEBUG
+logging.info('done')
+# logging.getLogger('flask_cors').level = logging.DEBUG
 logging.basicConfig(level=logging.DEBUG)
 HEADERS = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*'}
 
@@ -53,11 +53,11 @@ class CueResponse(Resource):
              'user_id': args['user_id'],
              'corrections': []}
         )
+        speller = Spelling(cue_response_pair['cue'], cue_response_pair['response'])
 
         # just need to make this an iterable for the next line to be ok
-        corrections = check_spelling(cue_response_pair['response']) or set()
-        #TODO restrict the number of spelling corrections returned to the page (perhaps phonetically?)
-        corrections_list = list(corrections)
+        corrections_list = speller.get_corrections()
+
         cue_response_pair['corrections'] = corrections_list
         response_id = save_cue_response_pair(cue_response_pair)
         if len(corrections_list):
@@ -75,7 +75,7 @@ class CorrectSpelling(Resource):
             args = parser.parse_args()
             response_id = args.get('response_id')
             correction = args.get('correction')
-            #logging.debug(msg='{},{}'.format(response_id, correction))
+            # logging.debug(msg='{},{}'.format(response_id, correction))
             if response_id and correction:
                 correct_cue_response_pair(response_id, correction)
                 response = output_json({'msg': 'ok'}, 201, HEADERS)

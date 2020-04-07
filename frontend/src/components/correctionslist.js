@@ -10,7 +10,7 @@ class CorrectionsList extends Component {
     listItems() {
         return this.props.corrections.map((correction) =>
             <li key={correction.toString()}>
-                <button type="button" className="btn btn-primary btn-lg"
+                <button type="button" className="btn btn-primary btn-lg btn-block"
                         onClick={this.handleClick}>{correction}</button>
             </li>
         )
@@ -26,10 +26,10 @@ class CorrectionsList extends Component {
 
     render() {
         return (
-            <ul className="list-group">
+            <ul className="list-group display-2">
                 {this.listItems()}
                 <li>
-                    <button type="button" className="btn btn-primary btn-lg"
+                    <button type="button" className="btn btn-secondary btn-lg btn-block"
                             onClick={this.props.reload}>None of the above
                     </button>
                 </li>
