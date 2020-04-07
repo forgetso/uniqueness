@@ -8,7 +8,7 @@ CORRECTIONS_LIMIT = 10
 
 
 # TODO add all known words from wordassoc cues and other sources
-
+# TODO work out if the response has spaces and check each word individually
 
 class Spelling():
     def __init__(self, cue, response):

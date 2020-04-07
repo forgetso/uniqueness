@@ -15,6 +15,7 @@ class App extends Component {
         );
     }
 }
+
 //TODO prevent form submission when field is blank
 //TODO allow spaces in form submission
 
@@ -143,7 +144,8 @@ class SpellingCheck extends React.Component {
 
 class ResponseInput extends React.Component {
     render() {
-        return <InputMask {...this.props} mask="aaaaaaaaaaaaaaaaaaaaaaaa" maskChar=""/>;
+        let mask = /^[a-z\s]{1,24}$/;
+        return <InputMask {...this.props} mask={mask} maskChar=""/>;
     }
 }
 
