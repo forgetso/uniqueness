@@ -24,7 +24,9 @@ parser.add_argument('cue')
 parser.add_argument('time_duration')
 parser.add_argument('user_id')
 parser.add_argument('response_id')
+parser.add_argument('original_word')
 parser.add_argument('correction')
+
 
 logging.info('getting cues...')
 CUES = get_cues()
@@ -81,9 +83,10 @@ class CorrectSpelling(Resource):
             args = parser.parse_args()
             response_id = args.get('response_id')
             correction = args.get('correction')
+            original_word = args.get('original_word')
             # logging.debug(msg='{},{}'.format(response_id, correction))
             if response_id and correction:
-                update_correction(response_id, correction)
+                update_correction(response_id, original_word, correction)
                 response = output_json({'msg': 'ok'}, 201, HEADERS)
         except Exception as e:
             response = output_json({'msg': e}, 500, HEADERS)

@@ -49,8 +49,7 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
         cue text,
         response text,
         time_duration int,
-        correction_ids int[],
-        correction text)
+        correction_ids int[])
         """)
         conn.commit()
 
