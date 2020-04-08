@@ -2,7 +2,7 @@ import os
 
 CWD = os.getcwd()
 PG_USER = 'backend'
-PG_PASSWORD = "bhVNUe7BsZ3mp2UV"
+PG_PASSWORD = "thewayoftheword"
 ZIP_FILE = ''.join([CWD, '/data/SWOW-EN.complete.csv.zip'])
 DATA_FILE = 'SWOW-EN.complete.csv'
 AFFIX_FILE = ''.join([CWD, '/data/affixes.csv'])

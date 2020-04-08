@@ -44,7 +44,7 @@ class WordAssociation extends Component {
         let response = this.state.response;
         let cue = this.state.cue;
         let time_duration = Date.now() - this.state.time_start;
-        let user_id = ls.get('user_id')
+        let user_id = ls.get('user_id');
         // TODO implement spelling options
         api.saveResponseWord(cue, response, time_duration, user_id).then((res) => {
             if (res.status === 201) {
