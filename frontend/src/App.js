@@ -1,6 +1,6 @@
 import React, {Component} from 'react';
 import './App.css';
-import InputMask from 'react-input-mask';
+import {IMaskInput} from 'react-imask';
 import Fingerprint2 from 'fingerprintjs2'
 import ls from 'local-storage'
 import * as api from "./helpers/api.js"
@@ -133,7 +133,7 @@ class WordAssociation extends Component {
 class ResponseInput extends React.Component {
     render() {
         let mask = /^[a-z\s]{1,24}$/;
-        return <InputMask {...this.props} mask={mask} maskChar=""/>;
+        return <IMaskInput {...this.props} mask={mask}/>
     }
 }
 
