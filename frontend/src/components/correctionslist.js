@@ -37,7 +37,8 @@ class CorrectionsList extends Component {
                             {this.listItems(word, this.props.corrections[word])}
                             <li key="none_of_the_above">
                                 <button type="button" className="btn btn-secondary btn-lg btn-block"
-                                        onClick={(event) => this.hideCorrections(word)}>None of the above
+                                        onClick={(event) => this.handleClick(event, word, null)}>None of the
+                                    above
                                 </button>
                             </li>
                         </ul>
@@ -58,8 +59,10 @@ class CorrectionsList extends Component {
     };
 
     handleClick = (event, original_word, correction) => {
-        this.props.sendSpellingCorrection(this.props.response_id, original_word, correction);
         this.hideCorrections(original_word);
+        if (correction) {
+            this.props.sendSpellingCorrection(this.props.response_id, original_word, correction);
+        }
         let next_index = this.state.word_array.indexOf(original_word) + 1;
         if (next_index < this.state.word_array.length) {
             let next_word = this.state.word_array[next_index];
@@ -71,6 +74,7 @@ class CorrectionsList extends Component {
 
 
     };
+
 
     hideCorrections = (word) => {
         this.setState({[word + '_show']: false});
