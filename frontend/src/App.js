@@ -1,10 +1,10 @@
 import React, {Component} from 'react';
 import './App.css';
 import InputMask from 'react-input-mask';
-import Spelling from './components/spelling.js'
 import Fingerprint2 from 'fingerprintjs2'
 import ls from 'local-storage'
 import * as api from "./helpers/api.js"
+import CorrectionsList from "./components/correctionslist";
 
 class App extends Component {
     render() {
@@ -95,11 +95,12 @@ class WordAssociation extends Component {
         const that = this;
 
         api.correctSpelling(response_id, correction).then((res) => {
-            if (res.status === 201) {
-                that.setState({
-                    showSpelling: false
-                });
-            }
+            // if (res.status === 201) {
+            //     that.setState({
+            //         showSpelling: false
+            //     });
+            // }
+            console.log('spelling sent');
         })
     }
 
@@ -120,7 +121,7 @@ class WordAssociation extends Component {
                             </div>
                             : null}
                         {this.state.showSpelling ?
-                            <SpellingCheck response={this.state.response}
+                            <CorrectionsList
                                            corrections={this.state.corrections}
                                            response_id={this.state.response_id}
                                            showSpelling={this.state.showSpelling}
@@ -130,13 +131,6 @@ class WordAssociation extends Component {
                 </div>
             </form>
         );
-    }
-}
-
-
-class SpellingCheck extends React.Component {
-    render() {
-        return <Spelling {...this.props}/>
     }
 }
 

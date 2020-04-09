@@ -8,10 +8,8 @@ class CorrectionsList extends Component {
     }
 
     componentDidMount() {
-        console.log(this.props.corrections);
         let count = 0;
         let word_array = Object.keys(this.props.corrections).sort();
-        console.log(word_array);
         this.setState({word_array: word_array})
         for (const word of word_array) {
             if (count === 0) {
@@ -36,7 +34,7 @@ class CorrectionsList extends Component {
                     <div key={word}>
                         <span className="display-4">By {word}, did you mean one of the following?</span>
                         <ul className="list-group display-2">
-                            {this.listItems(word, this.props.corrections[word], word_array.indexOf(word))}
+                            {this.listItems(word, this.props.corrections[word])}
                             <li key="none_of_the_above">
                                 <button type="button" className="btn btn-secondary btn-lg btn-block"
                                         onClick={(event) => this.hideCorrections(word)}>None of the above
@@ -48,39 +46,40 @@ class CorrectionsList extends Component {
         )
     };
 
-    listItems = function (original_word, corrections, index) {
+    listItems = function (original_word, corrections) {
         return (
             corrections.map((correction, index) =>
                 <li key={correction.toString()}>
                     <button type="button" className="btn btn-primary btn-lg btn-block"
-                            onClick={(event) => this.handleClick(event, original_word, correction, index)}>{correction}</button>
+                            onClick={(event) => this.handleClick(event, original_word, correction)}>{correction}</button>
                 </li>
             )
         )
     };
 
-    handleClick = (event, original_word, correction, index) => {
+    handleClick = (event, original_word, correction) => {
         this.props.sendSpellingCorrection(this.props.response_id, original_word, correction);
-        this.setState({[original_word + '_show']: false});
-        this.setState({[original_word + '_submitted']: true});
-        let next_index = this.state.word_array.indexOf(original_word) + 1
-        console.log(next_index);
-        let next_word = this.state.word_array[next_index];
-        console.log('settting ' + next_word + ' to true');
-        this.setState({[next_word + '_show']: true});
+        this.hideCorrections(original_word);
+        let next_index = this.state.word_array.indexOf(original_word) + 1;
+        if (next_index < this.state.word_array.length) {
+            let next_word = this.state.word_array[next_index];
+            this.showCorrections(next_word);
+        } else {
+            // reload the overall component and obtain a new cue
+            this.props.reload()
+        }
+
+
     };
 
     hideCorrections = (word) => {
         this.setState({[word + '_show']: false});
         this.setState({[word + '_submitted']: true});
-        for (const word of this.state.word_array) {
-            if (!this.state[word + '_submitted']) {
-                console.log('rendering');
+    };
 
-            } else {
-                this.props.reloadComponent();
-            }
-        }
+    showCorrections = (word) => {
+        this.setState({[word + '_show']: true});
+        this.setState({[word + '_submitted']: false});
     };
 
     render() {
