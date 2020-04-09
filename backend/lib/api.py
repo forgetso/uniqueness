@@ -59,13 +59,15 @@ class CueResponse(Resource):
         response_list = cue_response_pair['response'].split(' ')
         corrections_dict = {}
         for response_word in response_list:
+            print(response_word)
             speller = Spelling(cue_response_pair['cue'], response_word)
             corrections = speller.get_corrections()
             print(corrections)
-            corrections_dict[response_word] = corrections
-            corrections_list.append(corrections)
+            if corrections:
+                corrections_dict[response_word] = corrections
+                corrections_list.extend(corrections)
 
-        print(corrections_dict)
+        print(corrections_list)
         cue_response_pair['corrections'] = corrections_dict
         response_id = save_cue_response_pair(cue_response_pair)
         if len(corrections_list):

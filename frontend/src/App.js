@@ -99,7 +99,6 @@ class WordAssociation extends Component {
                 that.setState({
                     showSpelling: false
                 });
-                this.reload()
             }
         })
     }
