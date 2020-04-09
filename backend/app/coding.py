@@ -26,7 +26,7 @@ def main():
     # TODO consider lists of films, books and music
     # TODO consider the categories found in the Gallant Research:
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
-
+    # TODO consider when cue and response form one word, e.g. fear + less = fearless
     # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 
     cue_response_pairs = []
