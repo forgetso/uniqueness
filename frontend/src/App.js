@@ -23,7 +23,7 @@ class App extends Component {
 class WordAssociation extends Component {
     constructor(props) {
         super(props);
-        this.state = {response: '', cue: '', time: 0, corrections: null, showSpelling: false};
+        this.state = {response: '', cue: '', time: 0, corrections: null, showSpelling: false, showInput: true};
         this.sendSpellingCorrection = this.sendSpellingCorrection.bind(this)
         this.reload = this.reload.bind(this);
     }
@@ -36,6 +36,7 @@ class WordAssociation extends Component {
                 time_start: Date.now()
             });
             this.getFingerprint();
+            //this.textInput.getInputDOMNode().focus();
         }).catch(err => console.log('There was an error:' + err));
     }
 
@@ -45,6 +46,7 @@ class WordAssociation extends Component {
         let cue = this.state.cue;
         let time_duration = Date.now() - this.state.time_start;
         let user_id = ls.get('user_id');
+        this.setState({showInput: false})
         // TODO implement spelling options
         api.saveResponseWord(cue, response, time_duration, user_id).then((res) => {
             if (res.status === 201) {
@@ -69,6 +71,7 @@ class WordAssociation extends Component {
 
     reload() {
         this.setState({showSpelling: false});
+        this.setState({showInput: true});
         this.componentDidMount();
     }
 
@@ -105,12 +108,15 @@ class WordAssociation extends Component {
             <form onSubmit={this.mySubmitHandler} className="display-1">
                 <div>
                     <div>
-                        {!this.state.showSpelling ?
+                        {this.state.showInput ?
                             <div>
                                 <span id="cue" className="m-2">{this.state.cue}</span>
-                                <ResponseInput id="response" className="m-2" autoComplete="off"
-                                               onChange={this.myChangeHandler} type="text"
-                                               value={this.state.response}></ResponseInput>
+                                <ResponseInput id="response" className="m-2"
+                                               autoComplete="off"
+                                               onChange={this.myChangeHandler}
+                                               type="text"
+                                               value={this.state.response}
+                                               autoFocus></ResponseInput>
 
                                 <input type="submit"/>
                             </div>
