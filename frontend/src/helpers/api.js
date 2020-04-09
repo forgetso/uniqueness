@@ -36,12 +36,13 @@ var saveResponseWord = function (cue, response, time_duration, user_id) {
     });
 };
 
-var correctSpelling = function (response_id, correction) {
+var correctSpelling = function (response_id, original_word, correction) {
     return fetch(process.env.REACT_APP_API_URL + "correctspelling",
         {
             method: 'POST',
             body: JSON.stringify({
                 'response_id': response_id,
+                'original_word': original_word,
                 'correction': correction
             }),
             headers: {

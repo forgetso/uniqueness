@@ -74,7 +74,7 @@ class WordAssociation extends Component {
 
     getFingerprint() {
         if (window.requestIdleCallback) {
-            requestIdleCallback(this.idleFingerprint());
+            requestIdleCallback(this.idleFingerprint.bind(this));
         } else {
             setTimeout(this.idleFingerprint.bind(this), 500)
         }
@@ -86,21 +86,16 @@ class WordAssociation extends Component {
             var values = components.map(function (component) {
                 return component.value
             });
-            var murmur = Fingerprint2.x64hash128(values.join(''), 31)
+            var murmur = Fingerprint2.x64hash128(values.join(''), 31);
             ls.set('user_id', murmur)
         })
     }
 
-    sendSpellingCorrection(response_id, correction, reload) {
-        const that = this;
-
-        api.correctSpelling(response_id, correction).then((res) => {
-            // if (res.status === 201) {
-            //     that.setState({
-            //         showSpelling: false
-            //     });
-            // }
-            console.log('spelling sent');
+    sendSpellingCorrection(response_id, original__word, correction) {
+        api.correctSpelling(response_id, original__word, correction).then((res) => {
+            if (res.status === 201) {
+                console.log('spelling sent');
+            }
         })
     }
 
@@ -122,11 +117,11 @@ class WordAssociation extends Component {
                             : null}
                         {this.state.showSpelling ?
                             <CorrectionsList
-                                           corrections={this.state.corrections}
-                                           response_id={this.state.response_id}
-                                           showSpelling={this.state.showSpelling}
-                                           sendSpellingCorrection={this.sendSpellingCorrection}
-                                           reload={this.reload}/> : null}
+                                corrections={this.state.corrections}
+                                response_id={this.state.response_id}
+                                showSpelling={this.state.showSpelling}
+                                sendSpellingCorrection={this.sendSpellingCorrection}
+                                reload={this.reload}/> : null}
                     </div>
                 </div>
             </form>
