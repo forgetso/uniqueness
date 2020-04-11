@@ -1,5 +1,5 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
-    get_acquisition_ages, get_emotions
+    get_acquisition_ages, get_emotions, execute_values_wrap, connect, delete_coded_pairs
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
@@ -11,6 +11,11 @@ from collections import Counter
 import pprint
 import numpy as np
 from decimal import Decimal
+import pandas as pd
+from backend.lib.logistic_regression import logisticRegression
+from backend.lib.multiprocessor import dispatch_jobs, jobs_running
+import time
+import multiprocessing as mp
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -23,15 +28,28 @@ TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent':
 
 
 def main():
+    delete_coded_pairs()
+    all_pairs = [x for x in get_cue_response_pairs(limit=10000)]
+    start = time.perf_counter()
+    job_number = mp.cpu_count() - 1
+    jobs = dispatch_jobs(all_pairs, 1, get_coding)
+    while jobs_running(jobs):
+        print('Jobs running')
+        time.sleep(5)
+    else:
+        end = time.perf_counter()
+        print('time taken {}'.format(end - start))
+
+
+def get_coding(all_pairs):
     # TODO consider lists of films, books and music
     # TODO consider the categories found in the Gallant Research:
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
     # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
-
     cue_response_pairs = []
     distinct_cue_response_pairs = set()
-    all_pairs = get_cue_response_pairs(limit=100)
+
     for pair in all_pairs:
         pair = dict(pair)
         cue = pair['cue'].lower()
@@ -48,50 +66,51 @@ def main():
     coded_pairs = {}
 
     totals = Counter(TOTALS)
+    fieldnames = None
     for pair in distinct_cue_response_pairs:
         cue = pair[0]
         response = pair[1]
         response_raw = pair[2]
 
-        print(cue, response)
+        # print(cue, response)
 
         if len(cue) > 3:
-            coded_pairs[(cue, response)] = {'other': {}, 'relations': None, 'basic': None}
-            coded_pairs[(cue, response)]['basic'] = basic_coding(response, response_raw)
+            coded_pairs[(cue, response)] = basic_coding(response, response_raw)
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
 
-            coded_pairs[(cue, response)]['relations'] = relations_coding
+            coded_pairs[(cue, response)].update(relations_coding)
 
             ############## Other Categories ##############
 
             # prevalence
-            if check_prevalence(response):
+            word_found, prevalent = check_prevalence(response)
+            if word_found:
                 totals['prevalent'] += 1
-                coded_pairs[(cue, response)]['other']['prevalent'] = True
+            coded_pairs[(cue, response)]['prevalent'] = prevalent
 
             # TODO 'corpus_similarity': None,
             # TODO 'dictionary_similarity': None,
 
             # concreteness
-            if check_concreteness(response):
+            word_found, concrete = check_concreteness(response)
+            if word_found:
                 totals['concrete'] += 1
-                coded_pairs[(cue, response)]['other']['concrete'] = True
+            coded_pairs[(cue, response)]['concrete'] = concrete
 
             # age_of_acquisition
-            acquisition_age = check_acquisition_age(response)
-            if acquisition_age:
+            word_found, acquisition_age = check_acquisition_age(response)
+            if word_found:
                 totals['age'] += 1
-                coded_pairs[(cue, response)]['other']['age'] = acquisition_age
+            coded_pairs[(cue, response)]['age'] = acquisition_age
 
             # word emotions (valence, arousal dominance)
-            emotions = check_emotions(response)
-            if emotions:
+            word_found, emotions = check_emotions(response)
+            if word_found:
                 totals['emotions'] += 1
-                coded_pairs[(cue, response)]['other']['valence'] = emotions['valence']
-                coded_pairs[(cue, response)]['other']['arousal'] = emotions['arousal']
-                coded_pairs[(cue, response)]['other']['dominance'] = emotions['dominance']
-
+            coded_pairs[(cue, response)]['valence'] = emotions['valence']
+            coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
+            coded_pairs[(cue, response)]['dominance'] = emotions['dominance']
             # TODO 'subtitle_frequency': None,
             # take this from
             # TODO 'orthographic_neighbourhood': None,
@@ -101,23 +120,50 @@ def main():
             # TODO 'morpheme': False,
             # TODO 'cultural_reference': None,
             # TODO 'active_brain_region': None,
+            # create the vector for the machine learning algorithm
+            # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
+            if not fieldnames:
+                fieldnames = coded_pairs[(cue, response)].keys()
+    store_coded_pairs(coded_pairs, fieldnames)
+    return coded_pairs
+    # dataset = []
+    # for pair in cue_response_pairs:
+    #     data_dict = coded_pairs[pair['key']]
+    #     data_dict.update({'age_bracket': get_age_bracket(int(pair['age']))})
+    #     dataset.append(data_dict)
+    # df = pd.DataFrame(dataset)
+    # # converts True/False to 1/0
+    # df = df * 1
+    # print(df)
+    # logisticRegression(df)
 
-    print(totals)
-    print(sum(totals.values()))
-    count = 0
-    for k, v in coded_pairs.items():
-        if count > 5: break
-        # print(k)
-        # pprint.pprint(v)
-        count += 1
-        feature_vector = construct_feature_vector(v)
-        print(feature_vector)
+# TODO move to db
+def store_coded_pairs(coded_pairs, fieldnames):
+    conn = connect()
+    cur = conn.cursor()
+    execute_values_wrap(cur, 'coding', fieldnames, [list(x.values()) for x in coded_pairs.values()])
+    conn.commit()
 
+def get_age_bracket(age):
+    bracket = None
+    if age < 25:
+        bracket = '<25'
+    elif age >= 25 and age < 35:
+        bracket = '25-34'
+    elif age >= 35 and age < 45:
+        bracket = '35-44'
+    elif age >= 45 and age < 55:
+        bracket = '45-54'
+    elif age >= 55 and age < 65:
+        bracket = '55-64'
+    elif age >= 65:
+        bracket = '>=65'
+    return bracket
 
 
 def basic_coding(response, response_raw):
     basic = {'length': None,
-             #'response_time': None,
+             # 'response_time': None,
              'syllables': None,
              'capitalised': False,
              'punctuation': False,
@@ -126,7 +172,7 @@ def basic_coding(response, response_raw):
     basic['length'] = len(response)
     basic['syllables'] = syllables(response)
     basic['capitalised'] = str.isupper(response[0])
-    basic['punctuation'] = re.match(r'[\.\-\']', response_raw) or False
+    basic['punctuation'] = True if re.match(r'[\.\-\']', response_raw) else False
     basic['response'] = len(response.split('_'))
     basic['incorrect_spelling'] = response_raw.lower() != response
     basic['number_of_words'] = len(response.split('_'))
@@ -144,16 +190,19 @@ def relation_coding(cue, response):
             totals[type] += 1
 
     # phonology
+    relations['phonology'] = False
     phonology, type = check_phonology(cue, response)
     if phonology:
         totals['phonology'] += 1
         relations['phonology'] = True
 
     # exact
+    relations['exact'] = False
     if cue == response:
         totals['exact'] += 1
 
     # syntagmatic
+    relations['syntagmatic'] = False
     syntagmatic, type = check_syntagmatic(cue, response)
     if syntagmatic:
         totals['syntagmatic'] += 1
@@ -164,6 +213,7 @@ def relation_coding(cue, response):
     # add proverb check for syntagmatic
 
     # affix
+    relations['affix'] = False
     if check_affix(cue, response):
         totals['affix'] += 1
         relations['affix'] = True
@@ -245,9 +295,8 @@ def check_phonology(cue, response):
     if cue_soundex == response_soundex:
         return 3, 'soundex'
 
-    if jellyfish.levenshtein_distance(cue, response) < 3:
-        print(cue, response, 'levenshtein')
-        return 3, 'levenshtein'
+    if jellyfish.levenshtein_distance(cue, response) < 2:
+        return 2, 'levenshtein'
 
     return 0, None
 
@@ -272,8 +321,10 @@ def check_prevalence(response):
     # 0,1,1.5,2,2.5
     if response in PREVALENCES:
         if PREVALENCES[response] > 0:
-            return True
-    return False
+            return True, True
+        else:
+            return False, False
+    return False, False
 
 
 def check_concreteness(response):
@@ -281,28 +332,33 @@ def check_concreteness(response):
     stem = ps.stem(response)
     if response in CONCRETENESSES:
         if CONCRETENESSES[response] >= 3:
-            return True
+            return True, True
+        else:
+            return True, False
     elif stem in CONCRETENESSES:
         if CONCRETENESSES[stem] >= 3:
-            return True
+            return True, True
+        else:
+            return True, False
     # else:
     #     raise KeyError('{} missing from concretenesses'.format(response))
-    return False
+    return False, False
 
 
 def check_acquisition_age(response):
     if response in ACQUISITION_AGES:
-        return round(ACQUISITION_AGES['age'], 1)
-    return False
+        return True, round(ACQUISITION_AGES['age'], 1)
+    return False, 0
 
 
 def check_emotions(response):
     if response in EMOTIONS:
-        return EMOTIONS[response]
-    return None
+        return True, EMOTIONS[response]
+    return False, {'valence': 0, 'arousal': 0, 'dominance': 0}
+
 
 def construct_feature_vector(encoding):
-    #feature_vector = np.array()
+    # feature_vector = np.array()
     vector_list = []
     for encoding_type in encoding:
         for key in encoding[encoding_type]:
@@ -321,6 +377,7 @@ def construct_feature_vector(encoding):
                 print('error')
 
     return vector_list
+
 
 if __name__ == "__main__":
     main()
