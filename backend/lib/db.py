@@ -387,6 +387,7 @@ def delete_coded_pairs():
 
 
 def get_coded_pairs():
+    # TODO construct the cue, response tuple key plus values before returning
     conn = connect()
     cur = conn.cursor()
     query = """SELECT * FROM coding"""

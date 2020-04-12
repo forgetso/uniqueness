@@ -42,7 +42,7 @@ Thumbs.db
 # Settings file #
 ######################
 apikeys.py
-
+settings_private.py
 
 # Test files #
 __pycache__*

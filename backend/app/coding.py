@@ -28,7 +28,7 @@ TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent':
 
 def main():
     delete_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs(limit=100)]
+    all_pairs = [x for x in get_cue_response_pairs()]
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
     jobs = dispatch_jobs(all_pairs, 1, get_coding)

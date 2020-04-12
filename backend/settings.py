@@ -1,5 +1,5 @@
 import os
-
+from backend.settings_private import *
 CWD = os.getcwd()
 PG_USER = 'backend'
 PG_PASSWORD = "bhVNUe7BsZ3mp2UV"
