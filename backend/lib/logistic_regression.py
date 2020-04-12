@@ -2,11 +2,19 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
+from backend.lib.db import get_coded_pairs, get_cue_response_pairs
+from backend.app.coding import get_cue_response_pairs as formatted_cue_response_pairs
+import pandas as pd
+
+
+def main():
+    data = getData()
+    logisticRegression(data)
 
 
 def logisticRegression(data):
-    X_train, X_test, y_train, y_test = train_test_split(data.drop('age_bracket', axis=1),
-                                                        data['age_bracket'], test_size=0.30,
+    X_train, X_test, y_train, y_test = train_test_split(data.drop('participantID', axis=1),
+                                                        data['participantID'], test_size=0.30,
                                                         random_state=101)
     X__train_scaled = preprocessing.scale(X_train)
     X_test_scaled = preprocessing.scale(X_test)
@@ -19,3 +27,22 @@ def logisticRegression(data):
     # predictions
     predictions = logmodel.predict(X_test_scaled)
     print(classification_report(y_test, predictions))
+
+
+def getData():
+    dataset = []
+    coded_pairs = get_coded_pairs()
+    all_pairs = [x for x in get_cue_response_pairs()]
+    cue_response_pairs, distinct_cue_response_pairs = formatted_cue_response_pairs(all_pairs)
+    for pair in cue_response_pairs:
+        data_dict = coded_pairs[pair['key']]
+        data_dict.update({'participantID': pair['participantID']})
+        dataset.append(data_dict)
+    df = pd.DataFrame(dataset)
+    # converts True/False to 1/0
+    df = df * 1
+    print(df)
+
+
+if __name__ == "__main__":
+    main()

@@ -223,6 +223,7 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
     """)
     conn.commit()
 
+
 def execute_values_wrap(cur, table, fieldnametuple, values):
     fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
     query = "INSERT INTO %(table)s %(fieldnames)s VALUES" % {'table': table, 'fieldnames': fieldnames}
@@ -245,12 +246,12 @@ def get_cues(min_length=None, limit=None):
 def get_cue_response_pairs(min_length=None, limit=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """ SELECT participantID,age,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
+    query = """ SELECT participantID, age, education,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
                     FROM wordassoc
                     WHERE r1 != 'Unknown word'
                     AND LENGTH(r1) > 3
                     AND LENGTH(cue) > 3
-                    GROUP BY participantID, age, cue, r1, r1raw
+                    GROUP BY participantID, age, education, cue, r1, r1raw
                     ORDER BY cue, response ASC"""
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
@@ -368,12 +369,29 @@ def update_correction(response_id, original_word, correction):
     cur.execute(query, (correction, original_word, response_id))
     conn.commit()
 
+
+def save_coded_pairs(coded_pairs, fieldnames):
+    conn = connect()
+    cur = conn.cursor()
+    execute_values_wrap(cur, 'coding', fieldnames, [list(x.values()) for x in coded_pairs.values()])
+    conn.commit()
+
+
 def delete_coded_pairs():
     conn = connect()
     cur = conn.cursor()
-    query = """DELETE * FROM coding"""
+    query = """DELETE FROM coding"""
     cur.execute(query)
     conn.commit()
+
+
+def get_coded_pairs():
+    conn = connect()
+    cur = conn.cursor()
+    query = """SELECT * FROM coding"""
+    cur.execute(query)
+    return [x for x in cur]
+
 
 if __name__ == "__main__":
     setup()

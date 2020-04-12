@@ -1,5 +1,5 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
-    get_acquisition_ages, get_emotions, execute_values_wrap, connect, delete_coded_pairs
+    get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
@@ -29,7 +29,7 @@ TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent':
 
 def main():
     delete_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs(limit=10000)]
+    all_pairs = [x for x in get_cue_response_pairs()]
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
     jobs = dispatch_jobs(all_pairs, 1, get_coding)
@@ -47,23 +47,11 @@ def get_coding(all_pairs):
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
     # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
-    cue_response_pairs = []
-    distinct_cue_response_pairs = set()
-
-    for pair in all_pairs:
-        pair = dict(pair)
-        cue = pair['cue'].lower()
-        response = pair['response'].replace(' ', '_').replace('.', '').lower()
-        response_raw = pair['response_raw'].replace(' ', '_').lower()
-        pair['cue'] = cue
-        pair['response'] = response
-        pair['key'] = (cue, response)
-        cue_response_pairs.append(pair)
-        distinct_cue_response_pairs.add((pair['cue'], pair['response'], pair['response_raw']))
 
     erratic = set()
     # code distinct list of cue response pairs
     coded_pairs = {}
+    cue_response_pairs, distinct_cue_response_pairs = get_cue_response_pairs(all_pairs)
 
     totals = Counter(TOTALS)
     fieldnames = None
@@ -124,25 +112,26 @@ def get_coding(all_pairs):
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
             if not fieldnames:
                 fieldnames = coded_pairs[(cue, response)].keys()
-    store_coded_pairs(coded_pairs, fieldnames)
+    save_coded_pairs(coded_pairs, fieldnames)
     return coded_pairs
-    # dataset = []
-    # for pair in cue_response_pairs:
-    #     data_dict = coded_pairs[pair['key']]
-    #     data_dict.update({'age_bracket': get_age_bracket(int(pair['age']))})
-    #     dataset.append(data_dict)
-    # df = pd.DataFrame(dataset)
-    # # converts True/False to 1/0
-    # df = df * 1
-    # print(df)
-    # logisticRegression(df)
 
-# TODO move to db
-def store_coded_pairs(coded_pairs, fieldnames):
-    conn = connect()
-    cur = conn.cursor()
-    execute_values_wrap(cur, 'coding', fieldnames, [list(x.values()) for x in coded_pairs.values()])
-    conn.commit()
+
+def get_cue_response_pairs(all_pairs):
+    cue_response_pairs = []
+    distinct_cue_response_pairs = set()
+
+    for pair in all_pairs:
+        pair = dict(pair)
+        cue = pair['cue'].lower()
+        response = pair['response'].replace(' ', '_').replace('.', '').lower()
+        response_raw = pair['response_raw'].replace(' ', '_').lower()
+        pair['cue'] = cue
+        pair['response'] = response
+        pair['key'] = (cue, response)
+        cue_response_pairs.append(pair)
+        distinct_cue_response_pairs.add((pair['cue'], pair['response'], pair['response_raw']))
+    return cue_response_pairs, distinct_cue_response_pairs
+
 
 def get_age_bracket(age):
     bracket = None
