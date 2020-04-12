@@ -41,7 +41,7 @@ Thumbs.db
 
 # Settings file #
 ######################
-backend/settings_private.py
+*_private.py
 
 # Test files #
 __pycache__*
