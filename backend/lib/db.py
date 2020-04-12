@@ -373,7 +373,8 @@ def update_correction(response_id, original_word, correction):
 def save_coded_pairs(coded_pairs, fieldnames):
     conn = connect()
     cur = conn.cursor()
-    execute_values_wrap(cur, 'coding', fieldnames, [list(x.values()) for x in coded_pairs.values()])
+    execute_values_wrap(cur, 'coding', fieldnames,
+                        [[key[0], key[1]] + list(x.values()) for key, x in coded_pairs.items()])
     conn.commit()
 
 

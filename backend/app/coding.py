@@ -12,7 +12,6 @@ import pprint
 import numpy as np
 from decimal import Decimal
 import pandas as pd
-from backend.lib.logistic_regression import logisticRegression
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
 import multiprocessing as mp
@@ -29,7 +28,7 @@ TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent':
 
 def main():
     delete_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs()]
+    all_pairs = [x for x in get_cue_response_pairs(limit=100)]
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
     jobs = dispatch_jobs(all_pairs, 1, get_coding)
@@ -51,7 +50,7 @@ def get_coding(all_pairs):
     erratic = set()
     # code distinct list of cue response pairs
     coded_pairs = {}
-    cue_response_pairs, distinct_cue_response_pairs = get_cue_response_pairs(all_pairs)
+    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
 
     totals = Counter(TOTALS)
     fieldnames = None
@@ -110,13 +109,15 @@ def get_coding(all_pairs):
             # TODO 'active_brain_region': None,
             # create the vector for the machine learning algorithm
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
-            if not fieldnames:
-                fieldnames = coded_pairs[(cue, response)].keys()
+    if not fieldnames:
+        first_key = next(iter(coded_pairs))
+        fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
+
     save_coded_pairs(coded_pairs, fieldnames)
     return coded_pairs
 
 
-def get_cue_response_pairs(all_pairs):
+def format_cue_response_pairs(all_pairs):
     cue_response_pairs = []
     distinct_cue_response_pairs = set()
 
@@ -162,7 +163,6 @@ def basic_coding(response, response_raw):
     basic['syllables'] = syllables(response)
     basic['capitalised'] = str.isupper(response[0])
     basic['punctuation'] = True if re.match(r'[\.\-\']', response_raw) else False
-    basic['response'] = len(response.split('_'))
     basic['incorrect_spelling'] = response_raw.lower() != response
     basic['number_of_words'] = len(response.split('_'))
     return basic
