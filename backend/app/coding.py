@@ -110,11 +110,15 @@ def get_coding(all_pairs):
             # take this from age of acquisition?
             # TODO 'morpheme': False,
             # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands]
+
             # active_brain_region
-            # TODO check when semantic area differs from cue semantic area
-            word_found, semantic_area = getSemanticArea(response)
-            coded_pairs[(cue, response)]['semantic_area'] = semantic_area
+            word_found, response_semantic_area = getSemanticArea(response)
+            coded_pairs[(cue, response)]['semantic_area'] = response_semantic_area
             totals['semantic_areas'] += 1 * word_found
+            _, cue_semantic_area = getSemanticArea(cue)
+            changes = response_semantic_area != cue_semantic_area
+            coded_pairs[(cue, response)]['semantic_area_changes'] = changes
+            totals['semantic_area_changes'] += 1 * changes
 
             # create the vector for the machine learning algorithm
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
@@ -122,7 +126,9 @@ def get_coding(all_pairs):
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
+    # save data to the db
     save_coded_pairs(coded_pairs, fieldnames)
+
     pprint.pprint(totals)
     c = totals
     l = all_pairs
@@ -139,6 +145,7 @@ def format_cue_response_pairs(all_pairs):
         pair = dict(pair)
         cue = str(pair['cue'].lower())
         response = pair['response'].replace(' ', '_').replace('.', '').lower()
+        # this is only really relevant for the wordassoc table
         response_raw = pair['response_raw'].replace(' ', '_').lower()
         pair['cue'] = cue
         pair['response'] = response
@@ -296,7 +303,7 @@ def check_affix(cue, response):
 
     remainder = response.split(cue)
     if len(remainder) == 2 and (len(remainder[0]) == 0 or len(remainder[1]) == 0):
-        #print(cue, response, '... response attached to the start or to the end of the cue')
+        # print(cue, response, '... response attached to the start or to the end of the cue')
         return True
 
     if ps.stem(cue) == ps.stem(response):

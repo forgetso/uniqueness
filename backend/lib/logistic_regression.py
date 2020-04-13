@@ -29,7 +29,8 @@ def logisticRegression(data):
     # predictions
     predictions = logmodel.predict(X_test_scaled)
     print(classification_report(y_test, predictions))
-
+    print(logmodel.coef_)
+    print(data.columns)
 
 def getData(responses=None):
     dataset = []
@@ -44,7 +45,7 @@ def getData(responses=None):
         dataset.append(data_dict)
     df = pd.DataFrame(dataset)
     # converts True/False to 1/0
-    df = df.drop(columns=['cue', 'response'])
+    df = df.drop(columns=['cue', 'response', 'id'])
     df = df * 1
     label_encoder = preprocessing.LabelEncoder()
     print(df['semantic_area'])
