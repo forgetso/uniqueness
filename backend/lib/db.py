@@ -368,7 +368,7 @@ def save_cue_response_pairs(cue_response_pairs):
     values = [list(x.values()) for x in cue_response_pairs]
     fieldnametuple = tuple(cue_response_pairs[0].keys())
     execute_values_wrap(cur, 'responses', fieldnametuple, values)
-
+    conn.commit()
 
 def save_corrections(conn, response_id, original_word, corrections):
     cur = conn.cursor()
