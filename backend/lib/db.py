@@ -220,7 +220,8 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
     age decimal,
     valence decimal,
     arousal decimal,
-    dominance decimal
+    dominance decimal,
+    semantic_area text
     )
     """)
     conn.commit()

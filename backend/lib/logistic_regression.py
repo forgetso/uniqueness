@@ -17,6 +17,7 @@ def logisticRegression(data):
     X_train, X_test, y_train, y_test = train_test_split(data.drop('participantid', axis=1),
                                                         data['participantid'], test_size=0.30,
                                                         random_state=101)
+
     X__train_scaled = preprocessing.scale(X_train)
     X_test_scaled = preprocessing.scale(X_test)
     # create an instance and fit the model
@@ -45,7 +46,9 @@ def getData(responses=None):
     # converts True/False to 1/0
     df = df.drop(columns=['cue', 'response'])
     df = df * 1
-
+    label_encoder = preprocessing.LabelEncoder()
+    print(df['semantic_area'])
+    df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
     print(df)
     return df
 

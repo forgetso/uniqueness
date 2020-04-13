@@ -1,6 +1,5 @@
 from spellchecker import SpellChecker
 import re
-from backend.app.coding import check_phonology
 import jellyfish
 
 spell = SpellChecker()

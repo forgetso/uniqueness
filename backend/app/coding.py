@@ -4,18 +4,15 @@ from nltk.stem import PorterStemmer
 import re
 import jellyfish
 import unidecode
-# from sense2vec import Sense2Vec
-from backend.settings import SENSE2VEC_FOLDER
 from backend.lib.wordnet_relations import WordnetRelations
 from collections import Counter
 import pprint
-import numpy as np
 from decimal import Decimal
-import pandas as pd
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
-import multiprocessing as mp
 import argparse
+from backend.importers.semantic_atlas import getSemanticArea
+from backend.lib.spelling import Spelling
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -32,7 +29,8 @@ def main(responses=None):
     print(responses)
     all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
     start = time.perf_counter()
-    job_number = mp.cpu_count() - 1
+    # job_number = mp.cpu_count() - 1
+    job_number = 1
     jobs = dispatch_jobs(all_pairs, job_number, get_coding)
     while jobs_running(jobs):
         print('Jobs running')
@@ -72,10 +70,16 @@ def get_coding(all_pairs):
 
             ############## Other Categories ##############
 
+            # incorrect spelling
+            incorrect_spelling = check_spelling(cue, response_raw)
+            totals['incorrect_spelling'] += incorrect_spelling * 1
+            coded_pairs[(cue, response)]['incorrect_spelling'] = incorrect_spelling
+            if incorrect_spelling:
+                print(cue, response_raw)
+
             # prevalence
             word_found, prevalent = check_prevalence(response)
-            if word_found:
-                totals['prevalent'] += 1
+            totals['prevalent'] += 1 * word_found
             coded_pairs[(cue, response)]['prevalent'] = prevalent
 
             # TODO 'corpus_similarity': None,
@@ -83,20 +87,18 @@ def get_coding(all_pairs):
 
             # concreteness
             word_found, concrete = check_concreteness(response)
-            if word_found:
-                totals['concrete'] += 1
+            totals['concrete'] += 1 * word_found
             coded_pairs[(cue, response)]['concrete'] = concrete
 
             # age_of_acquisition
             word_found, acquisition_age = check_acquisition_age(response)
-            if word_found:
-                totals['age'] += 1
+            totals['age'] += 1 * word_found
             coded_pairs[(cue, response)]['age'] = acquisition_age
 
             # word emotions (valence, arousal dominance)
             word_found, emotions = check_emotions(response)
-            if word_found:
-                totals['emotions'] += 1
+
+            totals['emotions'] += 1 * word_found
             coded_pairs[(cue, response)]['valence'] = emotions['valence']
             coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
             coded_pairs[(cue, response)]['dominance'] = emotions['dominance']
@@ -107,8 +109,13 @@ def get_coding(all_pairs):
             # TODO 'part_of_speech': None,
             # take this from age of acquisition?
             # TODO 'morpheme': False,
-            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows]
-            # TODO 'active_brain_region': None,
+            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands]
+            # active_brain_region
+            # TODO check when semantic area differs from cue semantic area
+            word_found, semantic_area = getSemanticArea(response)
+            coded_pairs[(cue, response)]['semantic_area'] = semantic_area
+            totals['semantic_areas'] += 1 * word_found
+
             # create the vector for the machine learning algorithm
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
     if not fieldnames:
@@ -116,6 +123,11 @@ def get_coding(all_pairs):
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
     save_coded_pairs(coded_pairs, fieldnames)
+    pprint.pprint(totals)
+    c = totals
+    l = all_pairs
+    d = [(i, c[i] / len(l) * 100.0) for i, count in c.most_common()]
+    pprint.pprint(d)
     return coded_pairs
 
 
@@ -126,7 +138,7 @@ def format_cue_response_pairs(all_pairs):
     for pair in all_pairs:
         pair = dict(pair)
         cue = str(pair['cue'].lower())
-        response = str(pair['response'].replace(' ', '_').replace('.', '').lower())
+        response = pair['response'].replace(' ', '_').replace('.', '').lower()
         response_raw = pair['response_raw'].replace(' ', '_').lower()
         pair['cue'] = cue
         pair['response'] = response
@@ -159,14 +171,13 @@ def basic_coding(response, response_raw):
              'syllables': None,
              'capitalised': False,
              'punctuation': False,
-             'number_of_words': None,
-             'incorrect_spelling': False}
+             'number_of_words': None}
     basic['length'] = len(response)
     basic['syllables'] = syllables(response)
     basic['capitalised'] = str.isupper(response[0])
     basic['punctuation'] = True if re.match(r'[\.\-\']', response_raw) else False
-    basic['incorrect_spelling'] = response_raw.lower() != response
     basic['number_of_words'] = len(response.split('_'))
+
     return basic
 
 
@@ -253,22 +264,6 @@ def check_syntagmatic(cue, response):
     return 0, None
 
 
-def form_based(cue, response):
-    if cue == response:
-        return 3, 'exact'
-
-    # check to see if y is x plus or minux an affix
-    if check_affix(cue, response):
-        return 3, 'affix'
-
-    remainder = response.split(cue)
-    if len(remainder) == 2:
-        print(cue, response, 'other_form')
-        return 3, 'other_form'
-
-    return 0, None
-
-
 # Soundex similarity check
 def check_phonology(cue, response):
     # Try to get a cue soundex
@@ -292,16 +287,17 @@ def check_phonology(cue, response):
     return 0, None
 
 
-def erratic_association(cue, response):
-    return
-
-
 def check_affix(cue, response):
     if cue in response:
         remainder = response.split(cue)
         for r in remainder:
             if r in AFFIXES:
                 return True
+
+    remainder = response.split(cue)
+    if len(remainder) == 2 and (len(remainder[0]) == 0 or len(remainder[1]) == 0):
+        #print(cue, response, '... response attached to the start or to the end of the cue')
+        return True
 
     if ps.stem(cue) == ps.stem(response):
         return True
@@ -346,6 +342,21 @@ def check_emotions(response):
     if response in EMOTIONS:
         return True, EMOTIONS[response]
     return False, {'valence': 0, 'arousal': 0, 'dominance': 0}
+
+
+def check_spelling(cue, response):
+    if '_' in response:
+        wordlist = response.split('_')
+    elif ' ' in response:
+        wordlist = response.split(' ')
+    else:
+        wordlist = []
+    for word in wordlist:
+        spellcheck = Spelling(cue, word)
+        corrections = spellcheck.get_corrections()
+        if len(corrections):
+            return True
+    return False
 
 
 def construct_feature_vector(encoding):
