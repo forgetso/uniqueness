@@ -251,16 +251,26 @@ def get_cues(min_length=None, limit=None):
     return [x for x in cur]
 
 
-def get_cue_response_pairs(min_length=None, limit=None):
+def get_cue_response_pairs(min_length=None, limit=None, responses=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """ SELECT participantID, age, education,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
-                    FROM wordassoc
-                    WHERE r1 != 'Unknown word'
-                    AND LENGTH(r1) > 3
-                    AND LENGTH(cue) > 3
-                    GROUP BY participantID, age, education, cue, r1, r1raw
-                    ORDER BY cue, response ASC"""
+    if responses:
+        query = """ SELECT user_id as participantID, cue, response AS response_raw, response AS response, count(response) AS count
+                        FROM responses
+                        WHERE LENGTH(response) > 3
+                        AND LENGTH(cue) > 3
+                        AND user_id IN ('325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
+                        GROUP BY user_id, cue, response
+                        ORDER BY cue, response ASC"""
+    else:
+        query = """ SELECT participantID, age, education,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
+                        FROM wordassoc
+                        WHERE r1 != 'Unknown word'
+                        AND LENGTH(r1) > 3
+                        AND LENGTH(cue) > 3
+                        GROUP BY participantID, age, education, cue, r1, r1raw
+                        ORDER BY cue, response ASC"""
+
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)
@@ -337,6 +347,15 @@ def get_emotions():
     return emotions
 
 
+def get_coded_pairs():
+    # TODO construct the cue, response tuple key plus values before returning
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """SELECT * FROM coding"""
+    cur.execute(query)
+    return {(x.get('cue'), x.get('response')): x for x in cur}
+
+
 def save_cue_response_pair(cue_response_pair):
     cue = cue_response_pair['cue']
     response = cue_response_pair['response']
@@ -369,6 +388,7 @@ def save_cue_response_pairs(cue_response_pairs):
     fieldnametuple = tuple(cue_response_pairs[0].keys())
     execute_values_wrap(cur, 'responses', fieldnametuple, values)
     conn.commit()
+
 
 def save_corrections(conn, response_id, original_word, corrections):
     cur = conn.cursor()
@@ -409,15 +429,6 @@ def delete_responses(source):
     query = """DELETE FROM responses WHERE source = %s"""
     cur.execute(query, (source,))
     conn.commit()
-
-
-def get_coded_pairs():
-    # TODO construct the cue, response tuple key plus values before returning
-    conn = connect()
-    cur = conn.cursor()
-    query = """SELECT * FROM coding"""
-    cur.execute(query)
-    return [x for x in cur]
 
 
 if __name__ == "__main__":

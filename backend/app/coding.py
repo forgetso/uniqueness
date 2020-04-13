@@ -15,6 +15,7 @@ import pandas as pd
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
 import multiprocessing as mp
+import argparse
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -26,12 +27,13 @@ ps = PorterStemmer()
 TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent': 0}
 
 
-def main():
+def main(responses=None):
     delete_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs()]
+    print(responses)
+    all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
-    jobs = dispatch_jobs(all_pairs, 1, get_coding)
+    jobs = dispatch_jobs(all_pairs, job_number, get_coding)
     while jobs_running(jobs):
         print('Jobs running')
         time.sleep(5)
@@ -105,7 +107,7 @@ def get_coding(all_pairs):
             # TODO 'part_of_speech': None,
             # take this from age of acquisition?
             # TODO 'morpheme': False,
-            # TODO 'cultural_reference': None,
+            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows]
             # TODO 'active_brain_region': None,
             # create the vector for the machine learning algorithm
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
@@ -123,8 +125,8 @@ def format_cue_response_pairs(all_pairs):
 
     for pair in all_pairs:
         pair = dict(pair)
-        cue = pair['cue'].lower()
-        response = pair['response'].replace(' ', '_').replace('.', '').lower()
+        cue = str(pair['cue'].lower())
+        response = str(pair['response'].replace(' ', '_').replace('.', '').lower())
         response_raw = pair['response_raw'].replace(' ', '_').lower()
         pair['cue'] = cue
         pair['response'] = response
@@ -368,5 +370,12 @@ def construct_feature_vector(encoding):
     return vector_list
 
 
+def setup():
+    parser = argparse.ArgumentParser(description='Import various types of word data')
+    parser.add_argument('--responses', action='store_true', help='use responses table for coding')
+    args = parser.parse_args()
+    main(args.responses)
+
+
 if __name__ == "__main__":
-    main()
+    setup()
