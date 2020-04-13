@@ -2,6 +2,7 @@ import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 import logging
+import getpass
 
 
 def connect():
@@ -49,7 +50,8 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
         cue text,
         response text,
         time_duration int,
-        correction_ids int[])
+        correction_ids int[],
+        source text)
         """)
         conn.commit()
 
@@ -223,6 +225,12 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
     """)
     conn.commit()
 
+    ########## USER PRIVILEGES ########## This allows the normal linux user to access all tables in the backend database
+    currentuser = getpass.getuser()
+    query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {};""".format(currentuser)
+    cur.execute(query)
+    conn.commit()
+
 
 def execute_values_wrap(cur, table, fieldnametuple, values):
     fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
@@ -336,12 +344,13 @@ def save_cue_response_pair(cue_response_pair):
     time_duration = cue_response_pair['time_duration']
     corrections = cue_response_pair['corrections']
     created = cue_response_pair['created']
+    source = cue_response_pair['source']
     conn = connect()
     cur = conn.cursor()
-    query = """INSERT INTO responses (user_id, cue, response, time_duration, created)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id"""
+    query = """INSERT INTO responses (user_id, cue, response, time_duration, created, source)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id"""
 
-    cur.execute(query, (user_id, cue, response, time_duration, created))
+    cur.execute(query, (user_id, cue, response, time_duration, created, source))
     id_of_new_row = cur.fetchone()[0]
     correction_ids = []
     for original_word, corrections in corrections.items():
@@ -351,6 +360,14 @@ def save_cue_response_pair(cue_response_pair):
     cur.execute(query, (correction_ids, id_of_new_row))
     conn.commit()
     return id_of_new_row
+
+
+def save_cue_response_pairs(cue_response_pairs):
+    conn = connect()
+    cur = conn.cursor()
+    values = [list(x.values()) for x in cue_response_pairs]
+    fieldnametuple = tuple(cue_response_pairs[0].keys())
+    execute_values_wrap(cur, 'responses', fieldnametuple, values)
 
 
 def save_corrections(conn, response_id, original_word, corrections):
@@ -383,6 +400,14 @@ def delete_coded_pairs():
     cur = conn.cursor()
     query = """DELETE FROM coding"""
     cur.execute(query)
+    conn.commit()
+
+
+def delete_responses(source):
+    conn = connect()
+    cur = conn.cursor()
+    query = """DELETE FROM responses WHERE source = %s"""
+    cur.execute(query, (source,))
     conn.commit()
 
 

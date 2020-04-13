@@ -27,7 +27,6 @@ parser.add_argument('response_id')
 parser.add_argument('original_word')
 parser.add_argument('correction')
 
-
 logging.info('getting cues...')
 CUES = get_cues()
 logging.info('done')
@@ -66,6 +65,7 @@ class CueResponse(Resource):
                 corrections_list.extend(corrections)
 
         cue_response_pair['corrections'] = corrections_dict
+        cue_response_pair['source'] = 'ui'
         response_id = save_cue_response_pair(cue_response_pair)
         if len(corrections_list):
             response = output_json({'response_id': response_id, 'msg': 'ok', 'corrections': corrections_dict}, 201,
