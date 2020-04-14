@@ -119,9 +119,10 @@ def get_coding(all_pairs):
             totals['semantic_area_changes'] += 1 * changes
 
             # brain coordinates
+            coded_pairs[(cue, response)]['semantic_distance'] = 0
             if changes and cue_semantic_area and response_semantic_area:
                 coded_pairs[(cue, response)]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
-                    cue_semantic_area, response_semantic_area)
+                    cue_semantic_area, response_semantic_area).astype(float)
                 totals['semantic_distance'] += 1
             # create the vector for the machine learning algorithm
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
@@ -129,6 +130,7 @@ def get_coding(all_pairs):
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
+    print(coded_pairs)
     # save data to the db
     save_coded_pairs(coded_pairs, fieldnames)
 

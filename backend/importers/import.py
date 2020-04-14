@@ -1,6 +1,7 @@
 from zipfile import ZipFile
 import backend.settings as settings
 import backend.lib.db as db
+from backend.lib.setup import db_setup
 import io
 import csv
 import datetime
@@ -15,7 +16,7 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
     #TODO Merge all of the ugent files into one DB table. Emotions, age of acquisition, concreteness, prevalence, etc.
 
     conn = db.connect()
-    db.setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
+    db_setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
              concreteness=concreteness, age=age, emotions=emotions)
     cur = conn.cursor()
     if wordassoc:

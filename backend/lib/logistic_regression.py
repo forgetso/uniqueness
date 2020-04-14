@@ -32,6 +32,7 @@ def logisticRegression(data):
     print(logmodel.coef_)
     print(data.columns)
 
+
 def getData(responses=None):
     dataset = []
     coded_pairs = get_coded_pairs()
@@ -45,11 +46,20 @@ def getData(responses=None):
         dataset.append(data_dict)
     df = pd.DataFrame(dataset)
     # converts True/False to 1/0
-    df = df.drop(columns=['cue', 'response', 'id'])
+    df = df.drop(columns=['cue', 'response', 'id', 'semantic_area'])
+    # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
+    #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
+    #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
+    #                  'member_meronyms', 'substance_meronyms', 'part_meronyms',
+    #                  'topic_domains', 'region_domains', 'usage_domains', 'attributes',
+    #                  'entailments', 'causes', 'also_sees', 'verb_groups', 'similar_tos',
+    #                  'hypernyms', 'root_hypernyms', 'synonym', 'antonyms', 'phonology',
+    #                  'exact', 'syntagmatic'])
+
     df = df * 1
     label_encoder = preprocessing.LabelEncoder()
-    print(df['semantic_area'])
-    df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
+    # print(df['semantic_area'])
+    # df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
     print(df)
     return df
 
