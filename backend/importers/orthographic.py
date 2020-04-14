@@ -1,13 +1,10 @@
-from pathlib import Path
 import csv
 from backend.lib.db import connect, execute_values_wrap
 from backend.lib.setup import db_setup
-
+from backend.settings import ORTHOGRAPHIC_FILE
 
 def main():
-    home = str(Path.home())
-    target = '{}/dev/uniqueness/data'.format(home)
-    target_file = '{}/orthographic_neighbourhoods.csv'.format(target)
+    target_file = ORTHOGRAPHIC_FILE
     process_data(target_file)
 
 
@@ -50,9 +47,9 @@ def main():
 def process_data(target_file):
     with open(target_file, 'r') as f:
         reader = csv.DictReader(f)
+        # headers
         # STRING	LEN	FREQ	Orth	Orth_F	N1_F	N1_C	N2_F	N2_C	N3_F	N3_C	UN1_F	UN1_C	UN2_F	UN2_C	UN3_F	UN3_C
         records = []
-        ids = set()
         for row in reader:
             record = {}
             record['word'] = replace_NA(row['STRING'])
@@ -72,7 +69,6 @@ def process_data(target_file):
             record['unconstrained_trigram_freq'] = replace_NA(row['UN3_F'])
             record['unconstrained_trigram_count'] = replace_NA(row['UN3_C'])
             records.append(record)
-    # print(records)
     db_setup(orthographic=True)
     save_orthographic_records(records)
 
@@ -93,9 +89,6 @@ def save_orthographic_records(records):
 
 
 def setup():
-    # parser = argparse.ArgumentParser(description='Import human brain cloud data')
-    # parser.add_argument('--download', action='store_true', help='Download the data from AWS')
-    # args = parser.parse_args()
     main()
 
 
