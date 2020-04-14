@@ -1,5 +1,5 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
-    get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs
+    get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
@@ -19,6 +19,8 @@ PREVALENCES = get_prevalences()
 CONCRETENESSES = get_concretenesses()
 ACQUISITION_AGES = get_acquisition_ages()
 EMOTIONS = get_emotions()
+ORTHOGRAPHIC = get_orthographic()
+PHONOGRAPHIC = get_phonographic()
 COMMON_NORMS = get_common_norms()
 ps = PorterStemmer()
 TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent': 0}
@@ -95,14 +97,17 @@ def get_coding(all_pairs):
 
             # word emotions (valence, arousal dominance)
             word_found, emotions = check_emotions(response)
-
             totals['emotions'] += 1 * word_found
             coded_pairs[(cue, response)]['valence'] = emotions['valence']
             coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
             coded_pairs[(cue, response)]['dominance'] = emotions['dominance']
             # TODO 'subtitle_frequency': None,
-            # take this from
-            # TODO 'orthographic_neighbourhood': None,
+
+            # orthographic_neighbourhood
+            word_found, orthographic_features = check_orthographic(cue, response)
+            coded_pairs[(cue, response)].update(orthographic_features)
+            totals['orthographic'] += 1 * word_found
+
             # TODO 'phonograpic_neighbourhood': None,
             # TODO 'part_of_speech': None,
             # take this from age of acquisition?
@@ -119,7 +124,7 @@ def get_coding(all_pairs):
             totals['semantic_area_changes'] += 1 * changes
 
             # brain coordinates
-            coded_pairs[(cue, response)]['semantic_distance'] = 0
+            coded_pairs[(cue, response)]['semantic_distance'] = None
             if changes and cue_semantic_area and response_semantic_area:
                 coded_pairs[(cue, response)]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
                     cue_semantic_area, response_semantic_area).astype(float)
@@ -130,7 +135,7 @@ def get_coding(all_pairs):
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
-    print(coded_pairs)
+    print(fieldnames)
     # save data to the db
     save_coded_pairs(coded_pairs, fieldnames)
 
@@ -369,6 +374,31 @@ def check_spelling(cue, response):
         if len(corrections):
             return True
     return False
+
+
+def check_orthographic(cue, response):
+    features = {'response_ortho_neighbours': None,
+                'unigram_count': None,
+                'bigram_count': None,
+                'trigram_count': None,
+                'unconstrained_unigram_count': None,
+                'unconstrained_bigram_freq': None,
+                'unconstrained_trigram_freq': None,
+                'ortho_neighbours_diff': None
+                }
+    if response in ORTHOGRAPHIC:
+        features['response_ortho_neighbours'] = ORTHOGRAPHIC[response]['ortho_neighbours']
+        features['unigram_count'] = ORTHOGRAPHIC[response]['unigram_count']
+        features['bigram_count'] = ORTHOGRAPHIC[response]['bigram_count']
+        features['trigram_count'] = ORTHOGRAPHIC[response]['trigram_count']
+        features['unconstrained_unigram_count'] = ORTHOGRAPHIC[response]['unconstrained_unigram_count']
+        features['unconstrained_bigram_freq'] = ORTHOGRAPHIC[response]['unconstrained_bigram_freq']
+        features['unconstrained_trigram_freq'] = ORTHOGRAPHIC[response]['unconstrained_trigram_freq']
+        if cue in ORTHOGRAPHIC:
+            cue_ortho_neighbours = ORTHOGRAPHIC[cue]['ortho_neighbours']
+            features['ortho_neighbours_diff'] = features['response_ortho_neighbours'] - cue_ortho_neighbours
+        return True, features
+    return False, features
 
 
 def construct_feature_vector(encoding):

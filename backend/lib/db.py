@@ -15,6 +15,7 @@ def execute_values_wrap(cur, table, fieldnametuple, values):
     result = execute_values(cur, query, values)
     return result
 
+
 ################################################### DB METHODS #########################################################
 
 def get_cues(min_length=None, limit=None):
@@ -74,6 +75,7 @@ def get_common_norms():
     for pair in cur:
         cue_pair_dict.setdefault(pair['cue'], [])
         cue_pair_dict[pair['cue']].append(pair['response'])
+    conn.close()
     return cue_pair_dict
 
 
@@ -109,6 +111,7 @@ def get_acquisition_ages():
         word_set = {x['word'], x['word_alternative'], x['word_lemma']}
         for w in list(word_set):
             age_dict[w] = x['age']
+    conn.close()
     return age_dict
 
 
@@ -121,11 +124,37 @@ def get_emotions():
     cur.execute(query)
     emotions = {x['word']: {'valence': x['valence'], 'arousal': x['arousal'], 'dominance': x['dominance']} for x in
                 cur}
+    conn.close()
     return emotions
 
 
+def get_orthographic():
+    # TODO some formatting of orthographic names before returning>
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """ SELECT *
+                FROM orthographic
+    """
+    cur.execute(query)
+    orthographic = {x['word']: x for x in cur}
+    conn.close()
+    return orthographic
+
+
+def get_phonographic():
+    # TODO some formatting of phonographic names before returning>
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """ SELECT *
+                FROM phonographic
+    """
+    cur.execute(query)
+    phonographic = {x['word']: x for x in cur}
+    conn.close()
+    return phonographic
+
+
 def get_coded_pairs():
-    # TODO construct the cue, response tuple key plus values before returning
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     query = """SELECT * FROM coding"""
@@ -187,6 +216,7 @@ def update_correction(response_id, original_word, correction):
 def save_coded_pairs(coded_pairs, fieldnames):
     conn = connect()
     cur = conn.cursor()
+    print(fieldnames)
     execute_values_wrap(cur, 'coding', fieldnames,
                         [[key[0], key[1]] + list(x.values()) for key, x in coded_pairs.items()])
     conn.commit()
@@ -206,7 +236,3 @@ def delete_responses(source):
     query = """DELETE FROM responses WHERE source = %s"""
     cur.execute(query, (source,))
     conn.commit()
-
-
-if __name__ == "__main__":
-    setup()

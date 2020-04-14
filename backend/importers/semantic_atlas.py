@@ -39,7 +39,7 @@ class BrainMap():
         return coordinates
 
     def get_semantic_area(self, word):
-        result = ''
+        result = None
         found = False
         byte_word = bytes(word, encoding="ascii")
         if np.where(self.english1000_vocab == byte_word)[0].size != 0:

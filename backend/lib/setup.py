@@ -294,6 +294,14 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     valence decimal,
     arousal decimal,
     dominance decimal,
+    response_ortho_neighbours int,
+    unigram_count decimal,
+    bigram_count decimal,
+    trigram_count decimal,
+    unconstrained_unigram_count decimal,
+    unconstrained_bigram_freq decimal,
+    unconstrained_trigram_freq decimal,
+    ortho_neighbours_diff decimal,
     semantic_area text,
     semantic_area_changes bool,
     semantic_distance decimal
@@ -306,3 +314,7 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {};""".format(currentuser)
     cur.execute(query)
     conn.commit()
+
+
+if __name__ == "__main__":
+    db_setup()
