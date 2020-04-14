@@ -143,6 +143,7 @@ def get_orthographic():
 
 def get_phonographic():
     # TODO some formatting of phonographic names before returning>
+    # TODO remove ID and get the keys included in return
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     query = """ SELECT *
@@ -216,9 +217,22 @@ def update_correction(response_id, original_word, correction):
 def save_coded_pairs(coded_pairs, fieldnames):
     conn = connect()
     cur = conn.cursor()
-    print(fieldnames)
-    execute_values_wrap(cur, 'coding', fieldnames,
-                        [[key[0], key[1]] + list(x.values()) for key, x in coded_pairs.items()])
+    print(coded_pairs)
+    values = []
+    for key, x in coded_pairs.items():
+        value = [key[0], key[1]] + list(x.values())
+        values.append(value)
+        if len(value) != len(fieldnames):
+            import pprint
+            pprint.pprint(value)
+            print(len(value))
+            pprint.pprint(fieldnames)
+            print(len(fieldnames))
+            print('error')
+            exit(0)
+    execute_values_wrap(cur, 'coding', fieldnames, values)
+    # execute_values_wrap(cur, 'coding', fieldnames,
+    #                b      [[key[0], key[1]] + list(x.values()) for key, x in coded_pairs.items()])
     conn.commit()
 
 

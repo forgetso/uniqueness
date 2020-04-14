@@ -60,6 +60,7 @@ def getData(responses=None):
     label_encoder = preprocessing.LabelEncoder()
     # print(df['semantic_area'])
     # df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
+    df = pd.DataFrame(df).fillna(value=0)
     print(df)
     return df
 

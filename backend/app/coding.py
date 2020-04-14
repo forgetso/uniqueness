@@ -72,49 +72,45 @@ def get_coding(all_pairs):
 
             ############## Other Categories ##############
 
-            # incorrect spelling
+            ### incorrect spelling
             incorrect_spelling = check_spelling(cue, response_raw)
             totals['incorrect_spelling'] += incorrect_spelling * 1
             coded_pairs[(cue, response)]['incorrect_spelling'] = incorrect_spelling
 
-            # prevalence
+            ### prevalence
             word_found, prevalent = check_prevalence(response)
             totals['prevalent'] += 1 * word_found
             coded_pairs[(cue, response)]['prevalent'] = prevalent
 
-            # TODO 'corpus_similarity': None,
-            # TODO 'dictionary_similarity': None,
-
-            # concreteness
+            ### concreteness
             word_found, concrete = check_concreteness(response)
             totals['concrete'] += 1 * word_found
             coded_pairs[(cue, response)]['concrete'] = concrete
 
-            # age_of_acquisition
+            ### age_of_acquisition
             word_found, acquisition_age = check_acquisition_age(response)
             totals['age'] += 1 * word_found
             coded_pairs[(cue, response)]['age'] = acquisition_age
 
-            # word emotions (valence, arousal dominance)
+            ### word emotions (valence, arousal dominance)
             word_found, emotions = check_emotions(response)
             totals['emotions'] += 1 * word_found
             coded_pairs[(cue, response)]['valence'] = emotions['valence']
             coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
             coded_pairs[(cue, response)]['dominance'] = emotions['dominance']
-            # TODO 'subtitle_frequency': None,
 
-            # orthographic_neighbourhood
+
+            ### orthographic_neighbourhood
             word_found, orthographic_features = check_orthographic(cue, response)
             coded_pairs[(cue, response)].update(orthographic_features)
             totals['orthographic'] += 1 * word_found
 
-            # TODO 'phonograpic_neighbourhood': None,
-            # TODO 'part_of_speech': None,
-            # take this from age of acquisition?
-            # TODO 'morpheme': False,
-            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands]
+            ### phonograpic_neighbourhood and subtitle frequency
+            word_found, phonographic_features = check_phonographic(response)
+            coded_pairs[(cue, response)].update(phonographic_features)
+            totals['phonographic'] += 1 * word_found
 
-            # active_brain_region
+            ### semantic atlas from Gallant et. al
             word_found, response_semantic_area = brain_map.get_semantic_area(response)
             coded_pairs[(cue, response)]['semantic_area'] = response_semantic_area
             totals['semantic_areas'] += 1 * word_found
@@ -124,14 +120,17 @@ def get_coding(all_pairs):
             totals['semantic_area_changes'] += 1 * changes
 
             # brain coordinates
-            coded_pairs[(cue, response)]['semantic_distance'] = None
+            coded_pairs[(cue, response)]['semantic_distance'] = 0
             if changes and cue_semantic_area and response_semantic_area:
                 coded_pairs[(cue, response)]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
                     cue_semantic_area, response_semantic_area).astype(float)
                 totals['semantic_distance'] += 1
-            print(coded_pairs[(cue, response)]['semantic_distance'])
-            # create the vector for the machine learning algorithm
-            # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
+
+            # TODO 'part_of_speech': take this from age of acquisition?
+            # TODO 'morpheme': False,
+            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands]
+            # TODO 'corpus_similarity': None,
+            # TODO 'dictionary_similarity': None,
     if not fieldnames:
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
@@ -398,6 +397,30 @@ def check_orthographic(cue, response):
         if cue in ORTHOGRAPHIC:
             cue_ortho_neighbours = ORTHOGRAPHIC[cue]['ortho_neighbours']
             features['ortho_neighbours_diff'] = features['response_ortho_neighbours'] - cue_ortho_neighbours
+        return True, features
+    return False, features
+
+
+# TODO phoneme count difference between cue and response
+def check_phonographic(response):
+    features = {'NPHON': None,
+                'unsDENS': None,
+                'strDENS': None,
+                'unsBPAV': None,
+                'strBPAV': None,
+                'unsTPAV': None,
+                'strTPAV': None,
+                'unsPOSPAV': None,
+                'strPOSPAV': None,
+                'unsLCPOSPAV': None,
+                'strLCPOSPAV': None,
+                'SFreq': None,
+                'SCDcnt': None
+                }
+    if response in PHONOGRAPHIC:
+        print(PHONOGRAPHIC[response])
+        exit(0)
+        features = {k: v for k, v in PHONOGRAPHIC[response].items() if k in features.keys()}
         return True, features
     return False, features
 
