@@ -11,7 +11,7 @@ from decimal import Decimal
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
 import argparse
-from backend.importers.semantic_atlas import getSemanticArea
+from backend.importers.semantic_atlas import BrainMap
 from backend.lib.spelling import Spelling
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
@@ -26,7 +26,6 @@ TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent':
 
 def main(responses=None):
     delete_coded_pairs()
-    print(responses)
     all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
     start = time.perf_counter()
     # job_number = mp.cpu_count() - 1
@@ -46,7 +45,8 @@ def get_coding(all_pairs):
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
     # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
-
+    # initialise brain data
+    brain_map = BrainMap()
     erratic = set()
     # code distinct list of cue response pairs
     coded_pairs = {}
@@ -74,8 +74,6 @@ def get_coding(all_pairs):
             incorrect_spelling = check_spelling(cue, response_raw)
             totals['incorrect_spelling'] += incorrect_spelling * 1
             coded_pairs[(cue, response)]['incorrect_spelling'] = incorrect_spelling
-            if incorrect_spelling:
-                print(cue, response_raw)
 
             # prevalence
             word_found, prevalent = check_prevalence(response)
@@ -112,14 +110,19 @@ def get_coding(all_pairs):
             # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands]
 
             # active_brain_region
-            word_found, response_semantic_area = getSemanticArea(response)
+            word_found, response_semantic_area = brain_map.get_semantic_area(response)
             coded_pairs[(cue, response)]['semantic_area'] = response_semantic_area
             totals['semantic_areas'] += 1 * word_found
-            _, cue_semantic_area = getSemanticArea(cue)
+            _, cue_semantic_area = brain_map.get_semantic_area(cue)
             changes = response_semantic_area != cue_semantic_area
             coded_pairs[(cue, response)]['semantic_area_changes'] = changes
             totals['semantic_area_changes'] += 1 * changes
 
+            # brain coordinates
+            if changes and cue_semantic_area and response_semantic_area:
+                coded_pairs[(cue, response)]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
+                    cue_semantic_area, response_semantic_area)
+                totals['semantic_distance'] += 1
             # create the vector for the machine learning algorithm
             # coded_pairs[(cue, response)]['feature_vector'] = construct_feature_vector(v)
     if not fieldnames:

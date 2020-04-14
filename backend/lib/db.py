@@ -221,7 +221,9 @@ def setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=
     valence decimal,
     arousal decimal,
     dominance decimal,
-    semantic_area text
+    semantic_area text,
+    semantic_area_changes bool,
+    semantic_distance decimal
     )
     """)
     conn.commit()
