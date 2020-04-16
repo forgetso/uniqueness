@@ -6,11 +6,14 @@ from backend.lib.db import get_coded_pairs, get_cue_response_pairs
 from backend.app.coding import format_cue_response_pairs
 import pandas as pd
 import argparse
-
+import numpy as np
+SAMPLE_SIZE = 5
 
 def main(responses=None):
     data = getData(responses=responses)
-    logisticRegression(data)
+    batched_data = batch_data(data, SAMPLE_SIZE)
+    coefs, columns = logisticRegression(batched_data)
+    return coefs, columns
 
 
 def logisticRegression(data):
@@ -29,8 +32,7 @@ def logisticRegression(data):
     # predictions
     predictions = logmodel.predict(X_test_scaled)
     print(classification_report(y_test, predictions))
-    print(logmodel.coef_)
-    print(data.columns)
+    return logmodel.coef_, data.columns
 
 
 def getData(responses=None):
@@ -61,8 +63,23 @@ def getData(responses=None):
     # print(df['semantic_area'])
     # df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
     df = pd.DataFrame(df).fillna(value=0)
-    print(df)
+    df = df.sort_values(by='participantid')
     return df
+
+
+def batch_data(df, size):
+    # GROUP BY participantid
+    # GROUP BY n rows and calculate mean
+    groups = {key: df.loc[value] for key, value in df.groupby("participantid").groups.items()}
+    batched = pd.DataFrame()
+    for key, group in groups.items():
+        group = group.reset_index(drop=True)
+        group = group.groupby(group.index // size).mean()
+        group['participantid'] = key
+        column_order = ['participantid'] + group.columns.tolist()[:-1]
+        group = group[column_order]
+        batched = pd.concat([batched, group])
+    return batched
 
 
 def setup():

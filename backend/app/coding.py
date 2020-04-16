@@ -99,7 +99,6 @@ def get_coding(all_pairs):
             coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
             coded_pairs[(cue, response)]['dominance'] = emotions['dominance']
 
-
             ### orthographic_neighbourhood
             word_found, orthographic_features = check_orthographic(cue, response)
             coded_pairs[(cue, response)].update(orthographic_features)
@@ -128,14 +127,14 @@ def get_coding(all_pairs):
 
             # TODO 'part_of_speech': take this from age of acquisition?
             # TODO 'morpheme': False,
-            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands]
+            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands, historical dates]
             # TODO 'corpus_similarity': None,
             # TODO 'dictionary_similarity': None,
     if not fieldnames:
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
-    print(fieldnames)
+    # print(fieldnames)
     # save data to the db
     save_coded_pairs(coded_pairs, fieldnames)
 
@@ -231,9 +230,9 @@ def relation_coding(cue, response):
 
     # add proverb check for syntagmatic
 
-    # affix
+    # affix - the words are equal plus or minus an affix
     relations['affix'] = False
-    if check_affix(cue, response):
+    if check_affix(cue, response) or check_affix(response, cue):
         totals['affix'] += 1
         relations['affix'] = True
     return relations, totals
@@ -266,19 +265,24 @@ def create_s2v_keys(word):
 
 
 def check_syntagmatic(cue, response):
+    # TODO make this work for compounds, common phrases that are not complete in the response
+    # e.g. cue is "back" and response is "and forth" (use s2v)
     if '_' in response:
         response_split = response.split('_')
         if cue in response:
-            cue_index = response.index(cue)
+            if cue in response_split:
+                cue_index = response_split.index(cue)
 
-            if cue_index == 0 and response.index(response) == len(cue) + 1:
-                return 2, 'consecutivexy'
-            elif cue_index > 0 and len(response_split) == 2:
-                return 2, 'consecutiveyx'
+                if cue_index == 0:
+                    return True, 'consecutivexy'
+                elif cue_index == 1:
+                    return True, 'consecutiveyx'
+                else:
+                    return True, 'othercollocational'
             else:
-                return 2, 'othercollocational'
+                return True, 'othercollocational'
 
-    return 0, None
+    return False, None
 
 
 # Soundex similarity check
@@ -294,17 +298,40 @@ def check_phonology(cue, response):
     response_soundex = jellyfish.soundex(response_decoded)
     # response_letters = re.sub(r'[0-9]', '', response_soundex)
     # response_numbers = response_soundex.replace(response_letters, '')
-
+    print(cue_soundex, response_soundex)
     if cue_soundex == response_soundex:
-        return 3, 'soundex'
+        return True, 'soundex'
 
-    if jellyfish.levenshtein_distance(cue, response) < 2:
-        return 2, 'levenshtein'
+    levenshtein_distance = jellyfish.levenshtein_distance(cue, response)
+    if cue_soundex[1:] == response_soundex[1:] and levenshtein_distance <= 3:
+        return True, 'soundex'
 
-    return 0, None
+    # if cue_soundex[-2:] == response_soundex[-2:] and levenshtein_distance <= 3:
+    #     return True, 'soundex'
+
+    # TODO add zero to the end of shorter  last two?
+    try:
+        # e.g. C630 M300
+        if response_soundex[-3:].index(cue_soundex[-2:]) > -1 and levenshtein_distance <= 3:
+            return True, 'soundex'
+    except ValueError:
+        pass
+
+    try:
+        # e.g. C630 M300
+        if cue_soundex[-3:].index(response_soundex[-2:]) > -1 and levenshtein_distance <= 3:
+            return True, 'soundex'
+    except ValueError:
+        pass
+
+    if levenshtein_distance < 2:
+        return True, 'levenshtein'
+
+    return False, None
 
 
 def check_affix(cue, response):
+    # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
     if cue in response:
         remainder = response.split(cue)
         for r in remainder:
@@ -316,12 +343,14 @@ def check_affix(cue, response):
         # print(cue, response, '... response attached to the start or to the end of the cue')
         return True
 
+
     if ps.stem(cue) == ps.stem(response):
         return True
 
 
 def check_prevalence(response):
     # TODO come up with a more in depth analysis of prevalence values.
+    # TODO handle multiple words for prevalences
     # 0,1,1.5,2,2.5
     if response in PREVALENCES:
         if PREVALENCES[response] > 0:
@@ -403,23 +432,21 @@ def check_orthographic(cue, response):
 
 # TODO phoneme count difference between cue and response
 def check_phonographic(response):
-    features = {'NPHON': None,
-                'unsDENS': None,
-                'strDENS': None,
-                'unsBPAV': None,
-                'strBPAV': None,
-                'unsTPAV': None,
-                'strTPAV': None,
-                'unsPOSPAV': None,
-                'strPOSPAV': None,
-                'unsLCPOSPAV': None,
-                'strLCPOSPAV': None,
-                'SFreq': None,
-                'SCDcnt': None
+    features = {'nphon': None,
+                'unsdens': None,
+                'strdens': None,
+                'unsbpav': None,
+                'strbpav': None,
+                'unstpav': None,
+                'strtpav': None,
+                'unspospav': None,
+                'strpospav': None,
+                'unslcpospav': None,
+                'strlcpospav': None,
+                'sfreq': None,
+                'scdcnt': None
                 }
     if response in PHONOGRAPHIC:
-        print(PHONOGRAPHIC[response])
-        exit(0)
         features = {k: v for k, v in PHONOGRAPHIC[response].items() if k in features.keys()}
         return True, features
     return False, features

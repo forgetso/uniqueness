@@ -37,9 +37,15 @@ def get_cue_response_pairs(min_length=None, limit=None, responses=None):
                         FROM responses
                         WHERE LENGTH(response) > 3
                         AND LENGTH(cue) > 3
-                        AND user_id IN ('325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
+                        AND user_id IN (
+                            SELECT user_id FROM (
+                                SELECT user_id, count(user_id) user_count FROM responses GROUP BY user_id
+                            ) a
+                            WHERE a.user_count > 100
+                        )
                         GROUP BY user_id, cue, response
                         ORDER BY cue, response ASC"""
+        # Top 10 '325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
     else:
         query = """ SELECT participantID, age, education,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
                         FROM wordassoc
@@ -143,14 +149,13 @@ def get_orthographic():
 
 def get_phonographic():
     # TODO some formatting of phonographic names before returning>
-    # TODO remove ID and get the keys included in return
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """ SELECT *
+    query = """ SELECT word, nphon, unsdens, strdens, unsbpav, strbpav, unstpav, strtpav, unspospav, strpospav, unslcpospav, strlcpospav, sfreq, scdcnt
                 FROM phonographic
     """
     cur.execute(query)
-    phonographic = {x['word']: x for x in cur}
+    phonographic = {x['word']: {k: v for k, v in x.items() if k not in ['word']} for x in cur}
     conn.close()
     return phonographic
 

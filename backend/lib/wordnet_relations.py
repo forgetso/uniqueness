@@ -32,7 +32,7 @@ lemma_relations = [
     'pertainyms'
 ]
 
-nltk.download('wordnet')
+#nltk.download('wordnet')
 
 
 class WordnetRelations():
