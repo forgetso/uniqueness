@@ -35,7 +35,7 @@ lemma_relations = [
 #nltk.download('wordnet')
 
 
-class WordnetRelations():
+class WordnetRelations:
 
     def __init__(self, cue, response):
 

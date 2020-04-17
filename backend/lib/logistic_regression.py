@@ -41,13 +41,12 @@ def getData(responses=None):
     all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
 
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
-    print(cue_response_pairs[0])
     for pair in cue_response_pairs:
         data_dict = dict(coded_pairs[pair['key']])
         data_dict.update({'participantid': pair['participantid']})
         dataset.append(data_dict)
     df = pd.DataFrame(dataset)
-    # converts True/False to 1/0
+
     df = df.drop(columns=['cue', 'response', 'id', 'semantic_area'])
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
@@ -57,7 +56,7 @@ def getData(responses=None):
     #                  'entailments', 'causes', 'also_sees', 'verb_groups', 'similar_tos',
     #                  'hypernyms', 'root_hypernyms', 'synonym', 'antonyms', 'phonology',
     #                  'exact', 'syntagmatic'])
-
+    # converts True/False to 1/0
     df = df * 1
     label_encoder = preprocessing.LabelEncoder()
     # print(df['semantic_area'])

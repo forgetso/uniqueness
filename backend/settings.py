@@ -1,5 +1,6 @@
 import os
 from backend.settings_private import *
+
 CWD = os.getcwd()
 PG_USER = 'backend'
 PG_PASSWORD = "bhVNUe7BsZ3mp2UV"
@@ -15,3 +16,4 @@ SENSE2VEC_FOLDER = ''.join([CWD, '/data/s2v_reddit_2019_lg'])
 SEMANTIC_SPACE_FOLDER = ''.join([CWD, '/data/pragmatic_atlas'])
 ORTHOGRAPHIC_FILE = ''.join([CWD, '/data/orthographic_neighbourhoods.csv'])
 PHONOGRAPHIC_FILE = ''.join([CWD, '/data/IPhOD2_Words.txt'])
+ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])

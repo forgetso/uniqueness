@@ -1,5 +1,6 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
-    get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic
+    get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic, \
+    get_all_words
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
@@ -22,6 +23,7 @@ EMOTIONS = get_emotions()
 ORTHOGRAPHIC = get_orthographic()
 PHONOGRAPHIC = get_phonographic()
 COMMON_NORMS = get_common_norms()
+ALL_WORDS = get_all_words()
 ps = PorterStemmer()
 TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent': 0}
 
@@ -125,6 +127,13 @@ def get_coding(all_pairs):
                     cue_semantic_area, response_semantic_area).astype(float)
                 totals['semantic_distance'] += 1
 
+            ### list of all words
+            if response in ALL_WORDS:
+                coded_pairs[(cue, response)]['all_words'] = True
+                totals['all_words'] += 1
+            elif len(response.split('_')) == 1:
+                print(response)
+
             # TODO 'part_of_speech': take this from age of acquisition?
             # TODO 'morpheme': False,
             # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands, historical dates]
@@ -136,7 +145,7 @@ def get_coding(all_pairs):
 
     # print(fieldnames)
     # save data to the db
-    save_coded_pairs(coded_pairs, fieldnames)
+    # save_coded_pairs(coded_pairs, fieldnames)
 
     pprint.pprint(totals)
     c = totals
@@ -152,7 +161,7 @@ def format_cue_response_pairs(all_pairs):
 
     for pair in all_pairs:
         pair = dict(pair)
-        cue = str(pair['cue'].lower())
+        cue = str(pair['cue']).replace(' ', '_').replace('.', '').lower()
         response = pair['response'].replace(' ', '_').replace('.', '').lower()
         # this is only really relevant for the wordassoc table
         response_raw = pair['response_raw'].replace(' ', '_').lower()
@@ -298,7 +307,6 @@ def check_phonology(cue, response):
     response_soundex = jellyfish.soundex(response_decoded)
     # response_letters = re.sub(r'[0-9]', '', response_soundex)
     # response_numbers = response_soundex.replace(response_letters, '')
-    print(cue_soundex, response_soundex)
     if cue_soundex == response_soundex:
         return True, 'soundex'
 
@@ -342,7 +350,6 @@ def check_affix(cue, response):
     if len(remainder) == 2 and (len(remainder[0]) == 0 or len(remainder[1]) == 0):
         # print(cue, response, '... response attached to the start or to the end of the cue')
         return True
-
 
     if ps.stem(cue) == ps.stem(response):
         return True

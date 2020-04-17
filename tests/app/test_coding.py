@@ -56,5 +56,3 @@ def test_check_affix():
     response = 'lighter'
     affix = check_affix(cue, response)
     assert(affix)
-
-def test

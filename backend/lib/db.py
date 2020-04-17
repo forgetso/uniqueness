@@ -9,11 +9,14 @@ def connect():
 
 
 def execute_values_wrap(cur, table, fieldnametuple, values):
+    if not isinstance(values[0], list):
+        raise TypeError('values must be a list of lists, not {} [{}]'.format(type(values, type(values[0]))))
     fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
     query = "INSERT INTO %(table)s %(fieldnames)s VALUES" % {'table': table, 'fieldnames': fieldnames}
-    query = ' '.join([query, "%s"])
+    query = ' '.join([query, "%s RETURNING id"])
     result = execute_values(cur, query, values)
-    return result
+    ids = [row[0] for row in cur.fetchall()]
+    return ids
 
 
 ################################################### DB METHODS #########################################################
@@ -43,6 +46,7 @@ def get_cue_response_pairs(min_length=None, limit=None, responses=None):
                             ) a
                             WHERE a.user_count > 100
                         )
+                        AND cue IN (SELECT DISTINCT cue FROM wordassoc)
                         GROUP BY user_id, cue, response
                         ORDER BY cue, response ASC"""
         # Top 10 '325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
@@ -168,6 +172,17 @@ def get_coded_pairs():
     return {(x.get('cue'), x.get('response')): x for x in cur}
 
 
+def get_all_words():
+    # TODO should I be returning cursors and letting the script evaluate them when it needs them?
+    conn = connect()
+    cur = conn.cursor()
+    query = """SELECT word FROM all_words"""
+    cur.execute(query)
+    result = set([x[0] for x in cur])
+    conn.close()
+    return result
+
+
 def save_cue_response_pair(cue_response_pair):
     cue = cue_response_pair['cue']
     response = cue_response_pair['response']
@@ -207,6 +222,15 @@ def save_corrections(conn, response_id, original_word, corrections):
     query = """INSERT INTO corrections (response_id, original_word, corrections)
                 VALUES (%s, %s, %s) RETURNING id"""
     cur.execute(query, (response_id, original_word, corrections))
+    id_of_new_row = cur.fetchone()[0]
+    return id_of_new_row
+
+
+def save_corrections_and_correction(conn, response_id, original_word, corrections, correction):
+    cur = conn.cursor()
+    query = """INSERT INTO corrections (response_id, original_word, corrections, correction)
+                VALUES (%s, %s, %s) RETURNING id"""
+    cur.execute(query, (response_id, original_word, corrections, correction))
     id_of_new_row = cur.fetchone()[0]
     return id_of_new_row
 

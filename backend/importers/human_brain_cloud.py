@@ -4,7 +4,8 @@ import time
 import json
 import argparse
 import pprint
-from backend.lib.db import save_cue_response_pairs, delete_responses
+from backend.lib.db import save_cue_response_pairs, delete_responses, save_corrections_and_correction
+from backend.lib.spelling import Spelling
 
 SOURCE = 'humanbraincloud'
 
@@ -53,8 +54,15 @@ def process_human_brain_cloud_data(target_file):
                     responses.append(format_record(sub_record))
     if responses:
         delete_responses(SOURCE)
-        save_cue_response_pairs(responses)
-    print('{} records saved'.format(len(responses)))
+        ids = save_cue_response_pairs(responses)
+        for idx, response in enumerate(responses):
+            if 'corrections' in response:
+                correction = None
+                if len(response['corrections']) == 1:
+                    correction = response['corrections'][0]
+                save_corrections_and_correction(ids[idx], response['response'], response['corrections'], correction)
+
+    print('{} records saved'.format(len(ids)))
 
 
 def format_record(record):
@@ -64,9 +72,12 @@ def format_record(record):
     response['response'] = record['w2']
     response['user_id'] = record['playerId']
     response['time_duration'] = 0
-    # TODO work out corrections for these
     response['created'] = record['t']
     response['source'] = SOURCE
+    speller = Spelling(response['cue'], response['response'])
+    corrections = speller.get_corrections()
+    if corrections:
+        response['corrections'] = corrections
     # TODO include these later and store country for players using UI
     # response['country'] = record['playerCc']
     # response['playerName'] = record['playerName']
