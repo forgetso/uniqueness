@@ -70,7 +70,9 @@ def get_coding(all_pairs):
         cue = pair[0]
         response = pair[1]
         response_raw = pair[2]
-        #TODO use this throughout instead of splitting multiple times
+        cue_stem = ps.stem(cue)
+        response_stem = ps.stem(response)
+        # TODO use this throughout instead of splitting multiple times
         response_split = response.split('_')
         if len(cue) > 3:
 
@@ -83,22 +85,22 @@ def get_coding(all_pairs):
             ############## Other Categories ##############
 
             ### prevalence
-            word_found, prevalent = check_prevalence(response)
+            word_found, prevalent = check_prevalence(response, response_stem)
             totals['prevalent'] += 1 * word_found
             coded_pairs[(cue, response)]['prevalent'] = prevalent
 
             ### concreteness
-            word_found, concrete = check_concreteness(response)
+            word_found, concrete = check_concreteness(response, response_stem)
             totals['concrete'] += 1 * word_found
             coded_pairs[(cue, response)]['concrete'] = concrete
 
             ### age_of_acquisition
-            word_found, acquisition_age = check_acquisition_age(response)
+            word_found, acquisition_age = check_acquisition_age(response, response_stem)
             totals['age'] += 1 * word_found
             coded_pairs[(cue, response)]['age'] = acquisition_age
 
             ### word emotions (valence, arousal dominance)
-            word_found, emotions = check_emotions(response)
+            word_found, emotions = check_emotions(response, response_stem)
             totals['emotions'] += 1 * word_found
             coded_pairs[(cue, response)]['valence'] = emotions['valence']
             coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
@@ -106,16 +108,22 @@ def get_coding(all_pairs):
 
             ### orthographic_neighbourhood
             word_found, orthographic_features = check_orthographic(cue, response)
+            if not word_found:
+                word_found, orthographic_features = check_orthographic(cue, response_stem)
             coded_pairs[(cue, response)].update(orthographic_features)
             totals['orthographic'] += 1 * word_found
 
             ### phonograpic_neighbourhood and subtitle frequency
             word_found, phonographic_features = check_phonographic(response)
+            if not word_found:
+                word_found, phonographic_features = check_phonographic(response_stem)
             coded_pairs[(cue, response)].update(phonographic_features)
             totals['phonographic'] += 1 * word_found
 
             ### semantic atlas from Gallant et. al
             word_found, response_semantic_area = brain_map.get_semantic_area(response)
+            if not word_found:
+                word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
             coded_pairs[(cue, response)]['semantic_area'] = response_semantic_area
             totals['semantic_areas'] += 1 * word_found
             _, cue_semantic_area = brain_map.get_semantic_area(cue)
@@ -123,7 +131,8 @@ def get_coding(all_pairs):
             coded_pairs[(cue, response)]['semantic_area_changes'] = changes
             totals['semantic_area_changes'] += 1 * changes
 
-            # brain coordinates
+            # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
+            # between them
             coded_pairs[(cue, response)]['semantic_distance'] = 0
             if changes and cue_semantic_area and response_semantic_area:
                 coded_pairs[(cue, response)]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
@@ -176,7 +185,7 @@ def get_coding(all_pairs):
     c = totals
     l = all_pairs
     d = [(i, c[i] / len(l) * 100.0) for i, count in c.most_common()]
-    # pprint.pprint(d)
+    pprint.pprint(d)
     return coded_pairs
 
 
@@ -380,21 +389,24 @@ def check_affix(cue, response):
         return True
 
 
-def check_prevalence(response):
+def check_prevalence(response, stem):
     # TODO come up with a more in depth analysis of prevalence values.
     # TODO handle multiple words for prevalences
     # 0,1,1.5,2,2.5
+    present = False
     if response in PREVALENCES:
         if PREVALENCES[response] > 0:
-            return True, True
-        else:
-            return False, False
-    return False, False
+            present = True
+            return present, True
+    elif stem in PREVALENCES:
+        if PREVALENCES[stem] > 0:
+            present = True
+            return present, True
+    return present, False
 
 
-def check_concreteness(response):
+def check_concreteness(response, stem):
     # TODO maybe make use of other measures in concreteness table
-    stem = ps.stem(response)
     if response in CONCRETENESSES:
         if CONCRETENESSES[response] >= 3:
             return True, True
@@ -410,15 +422,19 @@ def check_concreteness(response):
     return False, False
 
 
-def check_acquisition_age(response):
+def check_acquisition_age(response, stem):
     if response in ACQUISITION_AGES:
-        return True, round(ACQUISITION_AGES['age'], 1)
+        return True, round(ACQUISITION_AGES[response], 1)
+    elif stem in ACQUISITION_AGES:
+        return True, round(ACQUISITION_AGES[stem], 1)
     return False, 0
 
 
-def check_emotions(response):
+def check_emotions(response, stem):
     if response in EMOTIONS:
         return True, EMOTIONS[response]
+    elif stem in EMOTIONS:
+        return True, EMOTIONS[stem]
     return False, {'valence': 0, 'arousal': 0, 'dominance': 0}
 
 

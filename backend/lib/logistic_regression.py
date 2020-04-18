@@ -8,12 +8,13 @@ import pandas as pd
 import argparse
 import numpy as np
 
-SAMPLE_SIZE = 5
+SAMPLE_SIZE = 20
 
 
-def main(responses=None):
+def main(responses=None, sample_size=None):
     data = getData(responses=responses)
-    batched_data = batch_data(data, SAMPLE_SIZE)
+    sample_size = sample_size or SAMPLE_SIZE
+    batched_data = batch_data(data, sample_size)
     coefs, columns = logisticRegression(batched_data)
     return coefs, columns
 
@@ -96,7 +97,7 @@ def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
     parser.add_argument('--responses', action='store_true', help='use responses table for coding')
     args = parser.parse_args()
-    main(args.responses)
+    main(responses=args.responses)
 
 
 if __name__ == "__main__":

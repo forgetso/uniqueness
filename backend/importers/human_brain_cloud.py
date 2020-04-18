@@ -97,6 +97,7 @@ def format_record(record):
     corrections_dict = {k: [x.term for x in v] for k, v in corrections_dict.items()}
     response['corrections'] = corrections_dict
     if len(corrections) == 1 and corrections[0].term != response['response']:
+        #TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
         response['correction'] = corrections[0].term
     # TODO include these later and store country for players using UI
     # response['country'] = record['playerCc']
@@ -107,7 +108,6 @@ def format_record(record):
 def setup():
     parser = argparse.ArgumentParser(description='Import human brain cloud data')
     parser.add_argument('--download', action='store_true', help='Download the data from AWS')
-
     args = parser.parse_args()
     main(download=args.download)
 
