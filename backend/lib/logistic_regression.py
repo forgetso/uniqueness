@@ -7,7 +7,9 @@ from backend.app.coding import format_cue_response_pairs
 import pandas as pd
 import argparse
 import numpy as np
+
 SAMPLE_SIZE = 5
+
 
 def main(responses=None):
     data = getData(responses=responses)
@@ -39,12 +41,21 @@ def getData(responses=None):
     dataset = []
     coded_pairs = get_coded_pairs()
     all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
-
+    # TODO put the incorrect spelling check in here
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
+    missing_pair = 0
     for pair in cue_response_pairs:
-        data_dict = dict(coded_pairs[pair['key']])
-        data_dict.update({'participantid': pair['participantid']})
-        dataset.append(data_dict)
+        coded_pair = coded_pairs.get(pair['key'])
+        if coded_pair:
+            data_dict = dict(coded_pair)
+            data_dict.update({'participantid': pair['participantid']})
+            dataset.append(data_dict)
+        else:
+            print('Key pair {} not present in coding table'.format(pair['key']))
+            missing_pair += 1
+    if missing_pair > 100:
+        print('Rerun the coding algorithm')
+        exit()
     df = pd.DataFrame(dataset)
 
     df = df.drop(columns=['cue', 'response', 'id', 'semantic_area'])

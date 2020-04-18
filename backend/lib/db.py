@@ -36,19 +36,25 @@ def get_cue_response_pairs(min_length=None, limit=None, responses=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     if responses:
-        query = """ SELECT user_id as participantID, cue, response AS response_raw, response AS response, count(response) AS count
-                        FROM responses
-                        WHERE LENGTH(response) > 3
-                        AND LENGTH(cue) > 3
-                        AND user_id IN (
+        query = """ SELECT r.user_id AS participantID, 
+                            cue AS cue,
+                            r.response AS response_raw, 
+                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
+                            CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
+                            COUNT(r.response) AS count
+                        FROM responses r
+                        LEFT JOIN corrections c ON r.id = c.response_id
+                        WHERE LENGTH(r.response) > 3
+                        AND LENGTH(r.cue) > 3
+                        AND r.user_id IN (
                             SELECT user_id FROM (
                                 SELECT user_id, count(user_id) user_count FROM responses GROUP BY user_id
                             ) a
                             WHERE a.user_count > 100
                         )
-                        AND cue IN (SELECT DISTINCT cue FROM wordassoc)
-                        GROUP BY user_id, cue, response
-                        ORDER BY cue, response ASC"""
+                        AND r.cue IN (SELECT DISTINCT cue FROM wordassoc)
+                        GROUP BY r.user_id, r.cue, r.response, c.correction
+                        ORDER BY r.cue, r.response ASC"""
         # Top 10 '325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
     else:
         query = """ SELECT participantID, age, education,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
@@ -205,6 +211,10 @@ def save_cue_response_pair(cue_response_pair):
     query = """UPDATE responses SET correction_ids = %s WHERE id = %s"""
     cur.execute(query, (correction_ids, id_of_new_row))
     conn.commit()
+
+    if 'correction' in cue_response_pair:
+        update_correction(response_id=id_of_new_row, original_word=response, correction=cue_response_pair['correction'])
+
     return id_of_new_row
 
 
@@ -213,8 +223,10 @@ def save_cue_response_pairs(cue_response_pairs):
     cur = conn.cursor()
     values = [list(x.values()) for x in cue_response_pairs]
     fieldnametuple = tuple(cue_response_pairs[0].keys())
-    execute_values_wrap(cur, 'responses', fieldnametuple, values)
+    inserted_ids = execute_values_wrap(cur, 'responses', fieldnametuple, values)
     conn.commit()
+    conn.close()
+    return inserted_ids
 
 
 def save_corrections(conn, response_id, original_word, corrections):
@@ -246,7 +258,6 @@ def update_correction(response_id, original_word, correction):
 def save_coded_pairs(coded_pairs, fieldnames):
     conn = connect()
     cur = conn.cursor()
-    print(coded_pairs)
     values = []
     for key, x in coded_pairs.items():
         value = [key[0], key[1]] + list(x.values())

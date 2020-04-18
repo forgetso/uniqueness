@@ -8,6 +8,7 @@ import logging
 from backend.lib.spelling import Spelling
 import re
 from datetime import datetime as dt
+from backend.app.coding import check_spelling
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -54,16 +55,9 @@ class CueResponse(Resource):
              'user_id': args['user_id'],
              'corrections': []}
         )
-        corrections_list = []
-        response_list = cue_response_pair['response'].split(' ')
-        corrections_dict = {}
-        for response_word in response_list:
-            speller = Spelling(cue_response_pair['cue'], response_word)
-            corrections = speller.get_corrections()
-            if corrections:
-                corrections_dict[response_word] = corrections
-                corrections_list.extend(corrections)
-
+        cue = cue_response_pair['cue'].replace(' ', '_')
+        response = cue_response_pair['response'].replace(' ', '_')
+        incorrect_spelling, corrections_list, corrections_dict = check_spelling(cue, response)
         cue_response_pair['corrections'] = corrections_dict
         cue_response_pair['source'] = 'ui'
         response_id = save_cue_response_pair(cue_response_pair)

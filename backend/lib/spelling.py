@@ -1,15 +1,21 @@
-from spellchecker import SpellChecker
+from symspellpy import SymSpell, Verbosity
 import re
 import jellyfish
+import pkg_resources
 
-spell = SpellChecker()
+sym_spell = SymSpell(max_dictionary_edit_distance=2, prefix_length=7)
+dictionary_path = pkg_resources.resource_filename(
+    "symspellpy", "frequency_dictionary_en_82_765.txt")
+sym_spell.load_dictionary(dictionary_path, term_index=0, count_index=1)
+dictionary_path = pkg_resources.resource_filename(
+    "symspellpy", "frequency_dictionary_en_82_765.txt")
+sym_spell.load_bigram_dictionary(dictionary_path, 0, 2)
 CORRECTIONS_LIMIT = 10
 
 
 # TODO add all known words from wordassoc cues and other sources
-# TODO work out if the response has spaces and check each word individually
 
-class Spelling():
+class Spelling:
     def __init__(self, cue, response):
         self.cue = cue
         self.response = response
@@ -23,12 +29,12 @@ class Spelling():
         return corrections_list
 
     def check_spelling(self, word):
-        # checks the spelling of a word and returns the spelling candidates if a mistake was detected
+        # checks the spelling of a word and returns the spelling suggestions if a mistake was detected
         word_reduced = self.remove_extra_chars(word)
-        mispelled = spell.unknown([word_reduced])
-        for word in mispelled:
-            if spell.correction(word):
-                return spell.candidates(word)
+        suggestions = sym_spell.lookup(word_reduced, Verbosity.CLOSEST, max_edit_distance=2)
+        if suggestions:
+            if suggestions[0].term != word:
+                return suggestions
         return None
 
     def remove_extra_chars(self, text):
@@ -47,10 +53,10 @@ class Spelling():
     def reduce_correction_options(self, cue, response, corrections):
         new_corrections = corrections
         if cue[0] == response[0]:
-            new_corrections = [x for x in corrections if x[0] == cue[0]]
+            new_corrections = [x for x in corrections if x.term[0] == cue[0]]
         if len(new_corrections) > CORRECTIONS_LIMIT:
             cue_phonology = jellyfish.soundex(cue)
-            new_corrections = [x for x in new_corrections if cue_phonology == jellyfish.soundex(x)]
+            new_corrections = [x for x in new_corrections if cue_phonology == jellyfish.soundex(x.term)]
         return new_corrections
 
     def sort_corrections(self, corrections):

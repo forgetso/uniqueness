@@ -1,6 +1,7 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
     get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic, \
     get_all_words
+from backend.lib.contractions import replace_contraction
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
@@ -14,6 +15,7 @@ import time
 import argparse
 from backend.importers.semantic_atlas import BrainMap
 from backend.lib.spelling import Spelling
+import multiprocessing as mp
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -31,9 +33,11 @@ TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent':
 def main(responses=None):
     delete_coded_pairs()
     all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
+    if not all_pairs:
+        raise ValueError('No responses to code...')
     start = time.perf_counter()
-    # job_number = mp.cpu_count() - 1
-    job_number = 1
+    job_number = mp.cpu_count() - 1
+    # job_number = 1
     jobs = dispatch_jobs(all_pairs, job_number, get_coding)
     while jobs_running(jobs):
         print('Jobs running')
@@ -44,7 +48,10 @@ def main(responses=None):
 
 
 def get_coding(all_pairs):
-    # TODO consider lists of films, books and music
+    # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
+    # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
+    # phonographic neighbourhoods, active brain region.
+
     # TODO consider the categories found in the Gallant Research:
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
@@ -58,14 +65,15 @@ def get_coding(all_pairs):
 
     totals = Counter(TOTALS)
     fieldnames = None
+
     for pair in distinct_cue_response_pairs:
         cue = pair[0]
         response = pair[1]
         response_raw = pair[2]
-
-        # print(cue, response)
-
+        #TODO use this throughout instead of splitting multiple times
+        response_split = response.split('_')
         if len(cue) > 3:
+
             coded_pairs[(cue, response)] = basic_coding(response, response_raw)
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
@@ -73,11 +81,6 @@ def get_coding(all_pairs):
             coded_pairs[(cue, response)].update(relations_coding)
 
             ############## Other Categories ##############
-
-            ### incorrect spelling
-            incorrect_spelling = check_spelling(cue, response_raw)
-            totals['incorrect_spelling'] += incorrect_spelling * 1
-            coded_pairs[(cue, response)]['incorrect_spelling'] = incorrect_spelling
 
             ### prevalence
             word_found, prevalent = check_prevalence(response)
@@ -127,31 +130,53 @@ def get_coding(all_pairs):
                     cue_semantic_area, response_semantic_area).astype(float)
                 totals['semantic_distance'] += 1
 
-            ### list of all words
+            ### list of all words ### this should come last
+            coded_pairs[(cue, response)]['contraction'] = False
             if response in ALL_WORDS:
-                coded_pairs[(cue, response)]['all_words'] = True
+                # coded_pairs[(cue, response)]['all_words'] = True
                 totals['all_words'] += 1
+            elif replace_contraction(response) != response:
+                # include the word but note that it happened
+                coded_pairs[(cue, response)]['contraction'] = True
+                totals['contractions'] += 1
             elif len(response.split('_')) == 1:
-                print(response)
+                print('Word missing from all_words = {}. Removing from coded_pairs.'.format(response))
+                coded_pairs.pop((cue, response))
 
-            # TODO 'part_of_speech': take this from age of acquisition?
-            # TODO 'morpheme': False,
-            # TODO 'cultural_reference': [movies, music, famous people, books, poems, computer games, tv shows, brands, historical dates]
-            # TODO 'corpus_similarity': None,
-            # TODO 'dictionary_similarity': None,
+            # TODO  obscene words
+            # TODO  part_of_speech: take this from age of acquisition?
+            # TODO  morpheme
+            # TODO  cultural_reference:
+            #  [movies,
+            #   music,
+            #   famous people,
+            #   books,
+            #   poems,
+            #   computer games,
+            #   tv shows,
+            #   brands,
+            #   historical dates,
+            #   characters,
+            #   superheroes,
+            #   religion
+            #   ]
+            # TODO  company reference [walmart, asda, etc.]
+            # TODO  geographical_reference [country, state, city, town, village, post code]
+            # TODO  corpus_similarity
+            # TODO  dictionary_similarity
     if not fieldnames:
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
     # print(fieldnames)
     # save data to the db
-    # save_coded_pairs(coded_pairs, fieldnames)
+    save_coded_pairs(coded_pairs, fieldnames)
 
-    pprint.pprint(totals)
+    # pprint.pprint(totals)
     c = totals
     l = all_pairs
     d = [(i, c[i] / len(l) * 100.0) for i, count in c.most_common()]
-    pprint.pprint(d)
+    # pprint.pprint(d)
     return coded_pairs
 
 
@@ -398,18 +423,22 @@ def check_emotions(response):
 
 
 def check_spelling(cue, response):
+    corrections_list = []
     if '_' in response:
-        wordlist = response.split('_')
-    elif ' ' in response:
-        wordlist = response.split(' ')
+        response_list = response.split('_')
     else:
-        wordlist = []
-    for word in wordlist:
-        spellcheck = Spelling(cue, word)
-        corrections = spellcheck.get_corrections()
-        if len(corrections):
-            return True
-    return False
+        response_list = response.split(' ')
+    corrections_dict = {}
+    for response_word in response_list:
+        speller = Spelling(cue, response_word)
+        corrections = speller.get_corrections()
+        if corrections:
+            corrections_dict[response_word] = corrections
+            corrections_list.extend(corrections)
+
+    if len(corrections_list):
+        return True, corrections_list, corrections_dict
+    return False, corrections_list, corrections_dict
 
 
 def check_orthographic(cue, response):
