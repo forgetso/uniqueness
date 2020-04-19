@@ -8,12 +8,12 @@ import datetime
 import argparse
 import os
 import pandas
+import re
 
 
 def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=None, concreteness=None, age=None,
             emotions=None):
-
-    #TODO Merge all of the ugent files into one DB table. Emotions, age of acquisition, concreteness, prevalence, etc.
+    # TODO Merge all of the ugent files into one DB table. Emotions, age of acquisition, concreteness, prevalence, etc.
 
     conn = db.connect()
     db_setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
@@ -136,12 +136,35 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
 
     if age:
         age_of_acquisitions = []
+        # this is to match up with the sense2vec data
+        part_of_speech_mapping = {
+            'adjective': 'adj',
+            'adposition': 'adp',
+            'adverb': 'adv',
+            'auxiliary': 'aux',
+            'conjunction': 'conj',
+            'determiner': 'det',
+            'interjection': 'intj',
+            'numeral': 'num',
+            'particle': 'part',
+            'pronoun': 'pron',
+            'proper noun': 'propn',
+            'punctuation': 'punct',
+            'subordinating conjunction': 'sconj',
+            'symbol': 'sym',
+            'to': 'adp',
+            'ex': 'adv',
+            'article': 'det',
+            'not': 'adv'
+        }
         with open(settings.AGE_FILE, mode='r', encoding='ISO-8859-1') as age_file:
             # Word	Alternative.spelling	Freq_pm	Dom_PoS_SUBTLEX	Nletters	Nphon	Nsyll	Lemma_highest_PoS	AoA_Kup	Perc_known	AoA_Kup_lem	Perc_known_lem
             reader = csv.DictReader(age_file, delimiter=',')
             for row in reader:
                 row['Freq_pm'] = row['Freq_pm'].replace('#N/A', '0')
-                row['Dom_PoS_SUBTLEX'] = row['Dom_PoS_SUBTLEX'].replace('#N/A', '0')
+                row['Dom_PoS_SUBTLEX'] = re.sub(r'(#N\/A)*(\d+\.\d+)*', '', row['Dom_PoS_SUBTLEX']).lower()
+                if row['Dom_PoS_SUBTLEX'] in part_of_speech_mapping:
+                    row['Dom_PoS_SUBTLEX'] = part_of_speech_mapping[row['Dom_PoS_SUBTLEX']]
                 row['AoA_Kup_lem'] = row['AoA_Kup_lem'].replace('NA', '0')
                 rowlist = list(row.values())
                 edited_row = rowlist[0:8]

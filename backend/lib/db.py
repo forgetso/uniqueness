@@ -41,7 +41,8 @@ def get_cue_response_pairs(min_length=None, limit=None, responses=None):
                             r.response AS response_raw, 
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
                             CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
-                            COUNT(r.response) AS count
+                            COUNT(r.response) AS count,
+                            source AS source
                         FROM responses r
                         LEFT JOIN corrections c ON r.id = c.response_id
                         WHERE LENGTH(r.response) > 3
@@ -53,7 +54,7 @@ def get_cue_response_pairs(min_length=None, limit=None, responses=None):
                             WHERE a.user_count > 100
                         )
                         AND r.cue IN (SELECT DISTINCT cue FROM wordassoc)
-                        GROUP BY r.user_id, r.cue, r.response, c.correction
+                        GROUP BY r.user_id, r.cue, r.response, c.correction, r.source
                         ORDER BY r.cue, r.response ASC"""
         # Top 10 '325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
     else:
@@ -118,7 +119,11 @@ def get_concretenesses():
 def get_acquisition_ages():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """ SELECT word, alternative_spelling as word_alternative, lemma_highest_pos as word_lemma, aoa_kup_lemma as age
+    query = """ SELECT word,
+                        alternative_spelling as word_alternative,
+                        lemma_highest_pos as word_lemma,
+                        aoa_kup_lemma as age,
+                        dom_pos_subtlex as part_of_speech
                 FROM acquisition_age
     """
     cur.execute(query)
@@ -129,6 +134,26 @@ def get_acquisition_ages():
             age_dict[w] = x['age']
     conn.close()
     return age_dict
+
+
+def get_part_of_speech():
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """ SELECT word,
+                        alternative_spelling as word_alternative,
+                        lemma_highest_pos as word_lemma,
+                        aoa_kup_lemma as age,
+                        dom_pos_subtlex as part_of_speech
+                FROM acquisition_age
+    """
+    cur.execute(query)
+    pos_dict = {}
+    for x in cur:
+        word_set = {x['word'], x['word_alternative'], x['word_lemma']}
+        for w in list(word_set):
+            pos_dict[w] = x['part_of_speech']
+    conn.close()
+    return pos_dict
 
 
 def get_emotions():

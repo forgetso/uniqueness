@@ -8,7 +8,8 @@ import pandas as pd
 import argparse
 import numpy as np
 
-SAMPLE_SIZE = 20
+
+SAMPLE_SIZE = 10
 
 
 def main(responses=None, sample_size=None):
@@ -20,8 +21,8 @@ def main(responses=None, sample_size=None):
 
 
 def logisticRegression(data):
-    X_train, X_test, y_train, y_test = train_test_split(data.drop('participantid', axis=1),
-                                                        data['participantid'], test_size=0.30,
+    X_train, X_test, y_train, y_test = train_test_split(data.drop('source', axis=1),
+                                                        data['source'], test_size=0.30,
                                                         random_state=101)
 
     X__train_scaled = preprocessing.scale(X_train)
@@ -50,6 +51,7 @@ def getData(responses=None):
         if coded_pair:
             data_dict = dict(coded_pair)
             data_dict.update({'participantid': pair['participantid']})
+            data_dict.update({'source':pair['source']})
             dataset.append(data_dict)
         else:
             print('Key pair {} not present in coding table'.format(pair['key']))
@@ -59,7 +61,9 @@ def getData(responses=None):
         exit()
     df = pd.DataFrame(dataset)
 
-    df = df.drop(columns=['cue', 'response', 'id', 'semantic_area'])
+    df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'participantid'])
+    print(df.columns)
+    exit(0)
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
     #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
@@ -70,24 +74,27 @@ def getData(responses=None):
     #                  'exact', 'syntagmatic'])
     # converts True/False to 1/0
     df = df * 1
+    # drop any columns with only zeroes
+    df = df.loc[:, (df != 0).any(axis=0)]
     label_encoder = preprocessing.LabelEncoder()
     # print(df['semantic_area'])
     # df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
     df = pd.DataFrame(df).fillna(value=0)
-    df = df.sort_values(by='participantid')
+    print(df)
+    df = df.sort_values(by='source')
     return df
 
 
 def batch_data(df, size):
     # GROUP BY participantid
     # GROUP BY n rows and calculate mean
-    groups = {key: df.loc[value] for key, value in df.groupby("participantid").groups.items()}
+    groups = {key: df.loc[value] for key, value in df.groupby("source").groups.items()}
     batched = pd.DataFrame()
     for key, group in groups.items():
         group = group.reset_index(drop=True)
         group = group.groupby(group.index // size).mean()
-        group['participantid'] = key
-        column_order = ['participantid'] + group.columns.tolist()[:-1]
+        group['source'] = key
+        column_order = ['source'] + group.columns.tolist()[:-1]
         group = group[column_order]
         batched = pd.concat([batched, group])
     return batched

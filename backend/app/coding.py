@@ -1,6 +1,6 @@
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
     get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic, \
-    get_all_words
+    get_all_words, get_part_of_speech
 from backend.lib.contractions import replace_contraction
 from nltk.stem import PorterStemmer
 import re
@@ -16,23 +16,38 @@ import argparse
 from backend.importers.semantic_atlas import BrainMap
 from backend.lib.spelling import Spelling
 import multiprocessing as mp
+from sense2vec import Sense2Vec
+from backend.settings import SENSE2VEC_FOLDER
+import random
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
 CONCRETENESSES = get_concretenesses()
 ACQUISITION_AGES = get_acquisition_ages()
+PARTS_OF_SPEECH = get_part_of_speech()
 EMOTIONS = get_emotions()
 ORTHOGRAPHIC = get_orthographic()
 PHONOGRAPHIC = get_phonographic()
 COMMON_NORMS = get_common_norms()
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
-TOTALS = {'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0, 'prevalent': 0}
+s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+
+TOTALS = {
+    'phonology': 0,
+    'exact': 0,
+    'syntagmatic': 0,
+    'affix': 0,
+    'prevalent': 0,
+    'part_of_speech': 0,
+    'part_of_speech_changes': 0
+}
 
 
 def main(responses=None):
-    delete_coded_pairs()
+    # TODO batch up the totals returned by the processes and print those instead of all the individual totals
     all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
+    delete_coded_pairs()
     if not all_pairs:
         raise ValueError('No responses to code...')
     start = time.perf_counter()
@@ -70,6 +85,8 @@ def get_coding(all_pairs):
         cue = pair[0]
         response = pair[1]
         response_raw = pair[2]
+        # TODO work out what to do with collisions between sources. shouldn't be that many reallky
+        source = pair[3]
         cue_stem = ps.stem(cue)
         response_stem = ps.stem(response)
         # TODO use this throughout instead of splitting multiple times
@@ -77,6 +94,7 @@ def get_coding(all_pairs):
         if len(cue) > 3:
 
             coded_pairs[(cue, response)] = basic_coding(response, response_raw)
+            #coded_pairs[(cue, response)]['source'] = source
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
 
@@ -85,22 +103,30 @@ def get_coding(all_pairs):
             ############## Other Categories ##############
 
             ### prevalence
-            word_found, prevalent = check_prevalence(response, response_stem)
+            word_found, prevalent = check_prevalence(response)
+            if not word_found:
+                word_found, prevalent = check_prevalence(response_stem)
             totals['prevalent'] += 1 * word_found
             coded_pairs[(cue, response)]['prevalent'] = prevalent
 
             ### concreteness
-            word_found, concrete = check_concreteness(response, response_stem)
+            word_found, concrete = check_concreteness(response)
+            if not word_found:
+                word_found, concrete = check_concreteness(response_stem)
             totals['concrete'] += 1 * word_found
             coded_pairs[(cue, response)]['concrete'] = concrete
 
             ### age_of_acquisition
-            word_found, acquisition_age = check_acquisition_age(response, response_stem)
+            word_found, acquisition_age = check_acquisition_age(response)
+            if not word_found:
+                word_found, acquisition_age = check_acquisition_age(response_stem)
             totals['age'] += 1 * word_found
             coded_pairs[(cue, response)]['age'] = acquisition_age
 
             ### word emotions (valence, arousal dominance)
-            word_found, emotions = check_emotions(response, response_stem)
+            word_found, emotions = check_emotions(response)
+            if not word_found:
+                word_found, emotions = check_emotions(response_stem)
             totals['emotions'] += 1 * word_found
             coded_pairs[(cue, response)]['valence'] = emotions['valence']
             coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
@@ -139,16 +165,31 @@ def get_coding(all_pairs):
                     cue_semantic_area, response_semantic_area).astype(float)
                 totals['semantic_distance'] += 1
 
+            ### part_of_speech
+            word_found, part_of_speech_response = check_part_of_speech(response)
+            if not word_found:
+                word_found, part_of_speech_response = check_part_of_speech(response_stem)
+            totals['part_of_speech'] += 1 * word_found
+            coded_pairs[(cue, response)]['part_of_speech'] = part_of_speech_response
+            word_found, part_of_speech_cue = check_part_of_speech(cue)
+            if not word_found:
+                word_found, part_of_speech_cue = check_part_of_speech(cue_stem)
+            coded_pairs[(cue, response)]['part_of_speech_changes'] = False
+            if word_found and part_of_speech_response != part_of_speech_cue:
+                totals['part_of_speech_changes'] += 1
+                coded_pairs[(cue, response)]['part_of_speech_changes'] = True
+
             ### list of all words ### this should come last
             coded_pairs[(cue, response)]['contraction'] = False
             if response in ALL_WORDS:
-                # coded_pairs[(cue, response)]['all_words'] = True
+                # the word appears in the giant list of english words
                 totals['all_words'] += 1
             elif replace_contraction(response) != response:
                 # include the word but note that it happened
                 coded_pairs[(cue, response)]['contraction'] = True
                 totals['contractions'] += 1
-            elif len(response.split('_')) == 1:
+            elif len(response.split('_')) == 1 and not part_of_speech_response:
+                # this is basically a list of responses that need addressed by future changes
                 print('Word missing from all_words = {}. Removing from coded_pairs.'.format(response))
                 coded_pairs.pop((cue, response))
 
@@ -167,7 +208,8 @@ def get_coding(all_pairs):
             #   historical dates,
             #   characters,
             #   superheroes,
-            #   religion
+            #   religion,
+            #   web sites
             #   ]
             # TODO  company reference [walmart, asda, etc.]
             # TODO  geographical_reference [country, state, city, town, village, post code]
@@ -203,7 +245,7 @@ def format_cue_response_pairs(all_pairs):
         pair['response'] = response
         pair['key'] = (cue, response)
         cue_response_pairs.append(pair)
-        distinct_cue_response_pairs.add((pair['cue'], pair['response'], pair['response_raw']))
+        distinct_cue_response_pairs.add((pair['cue'], pair['response'], pair['response_raw'], pair['source']))
     return cue_response_pairs, distinct_cue_response_pairs
 
 
@@ -302,7 +344,9 @@ def create_s2v_keys(word):
     keys = []
     word_types = ['ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN',
                   'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
-    for word_type in word_types:
+    named_entities = ['PERSON', 'NORP', 'FACILITY', 'ORG', 'GPE', 'LOC', 'PRODUCT', 'EVENT' 'WORK_OF_ART', 'LANGUAGE']
+    all_things = word_types + named_entities
+    for word_type in all_things:
         keys.append(''.join([word, '|', word_type]))
     return keys
 
@@ -389,7 +433,7 @@ def check_affix(cue, response):
         return True
 
 
-def check_prevalence(response, stem):
+def check_prevalence(response):
     # TODO come up with a more in depth analysis of prevalence values.
     # TODO handle multiple words for prevalences
     # 0,1,1.5,2,2.5
@@ -398,22 +442,13 @@ def check_prevalence(response, stem):
         if PREVALENCES[response] > 0:
             present = True
             return present, True
-    elif stem in PREVALENCES:
-        if PREVALENCES[stem] > 0:
-            present = True
-            return present, True
     return present, False
 
 
-def check_concreteness(response, stem):
+def check_concreteness(response):
     # TODO maybe make use of other measures in concreteness table
     if response in CONCRETENESSES:
         if CONCRETENESSES[response] >= 3:
-            return True, True
-        else:
-            return True, False
-    elif stem in CONCRETENESSES:
-        if CONCRETENESSES[stem] >= 3:
             return True, True
         else:
             return True, False
@@ -422,19 +457,26 @@ def check_concreteness(response, stem):
     return False, False
 
 
-def check_acquisition_age(response, stem):
+def check_acquisition_age(response):
     if response in ACQUISITION_AGES:
         return True, round(ACQUISITION_AGES[response], 1)
-    elif stem in ACQUISITION_AGES:
-        return True, round(ACQUISITION_AGES[stem], 1)
     return False, 0
 
 
-def check_emotions(response, stem):
+def check_part_of_speech(response):
+    if response in PARTS_OF_SPEECH and PARTS_OF_SPEECH[response] != 0:
+        return True, PARTS_OF_SPEECH[response].lower()
+    else:
+        best_sense = s2v.get_best_sense(response)
+        if best_sense:
+            return True, best_sense.split('|')[1].lower()
+
+    return False, 0
+
+
+def check_emotions(response):
     if response in EMOTIONS:
         return True, EMOTIONS[response]
-    elif stem in EMOTIONS:
-        return True, EMOTIONS[stem]
     return False, {'valence': 0, 'arousal': 0, 'dominance': 0}
 
 

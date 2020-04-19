@@ -1,0 +1,45 @@
+from backend.lib.db import get_part_of_speech, get_cue_response_pairs, execute_values_wrap, connect, delete_responses
+import random
+import argparse
+PARTS_OF_SPEECH = get_part_of_speech()
+from datetime import datetime as dt
+
+def main(responses=None):
+    all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
+    bot_data = create_bot_data(len(all_pairs))
+    delete_responses(source='bot')
+    conn = connect()
+    cur = conn.cursor()
+    execute_values_wrap(cur, 'responses', tuple(bot_data[0].keys()), [list(x.values()) for x in bot_data])
+    conn.commit()
+    conn.close()
+
+def create_bot_data(length):
+    print('Creating {} dummy pairs'.format(length))
+    bot_data = []
+    words = list(PARTS_OF_SPEECH.keys())
+    for i in range(0, length - 1):
+        template = {'cue': None,
+                    'response': None,
+                    'source': 'bot',
+                    'user_id': 'bot',
+                    'created': dt.utcnow(),
+                    'time_duration': 0
+                    }
+        rand_x = words[random.randint(0, len(words) - 1)]
+        rand_y = words[random.randint(0, len(words) - 1)]
+        template['cue'] = rand_x
+        template['response'] = rand_y
+        bot_data.append(template)
+    return bot_data
+
+
+def setup():
+    parser = argparse.ArgumentParser(description='Import various types of word data')
+    parser.add_argument('--responses', action='store_true', help='use responses table for coding')
+    args = parser.parse_args()
+    main(args.responses)
+
+
+if __name__ == "__main__":
+    setup()

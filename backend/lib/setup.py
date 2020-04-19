@@ -245,8 +245,7 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
         strLLCPOSPAV	decimal	,
         strCLCPOSPAV	decimal	,
         SFreq	decimal	,
-        SCDcnt	int,
-        contraction bool)
+        SCDcnt	int)
         """)
         conn.commit()
 
@@ -330,7 +329,10 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     SCDcnt decimal,
     semantic_area text,
     semantic_area_changes bool,
-    semantic_distance decimal
+    semantic_distance decimal,
+    contraction bool,
+    part_of_speech text,
+    part_of_speech_changes bool
     )
     """)
     conn.commit()
