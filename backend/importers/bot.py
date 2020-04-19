@@ -4,8 +4,8 @@ import argparse
 PARTS_OF_SPEECH = get_part_of_speech()
 from datetime import datetime as dt
 
-def main(responses=None):
-    all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
+def main():
+    all_pairs = [x for x in get_cue_response_pairs()]
     bot_data = create_bot_data(len(all_pairs))
     delete_responses(source='bot')
     conn = connect()
@@ -36,9 +36,8 @@ def create_bot_data(length):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
-    parser.add_argument('--responses', action='store_true', help='use responses table for coding')
     args = parser.parse_args()
-    main(args.responses)
+    main()
 
 
 if __name__ == "__main__":

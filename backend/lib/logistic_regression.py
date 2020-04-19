@@ -6,14 +6,11 @@ from backend.lib.db import get_coded_pairs, get_cue_response_pairs
 from backend.app.coding import format_cue_response_pairs
 import pandas as pd
 import argparse
-import numpy as np
-
 
 SAMPLE_SIZE = 10
 
-
-def main(responses=None, sample_size=None):
-    data = getData(responses=responses)
+def main(sample_size=None):
+    data = getData()
     sample_size = sample_size or SAMPLE_SIZE
     batched_data = batch_data(data, sample_size)
     coefs, columns = logisticRegression(batched_data)
@@ -39,10 +36,10 @@ def logisticRegression(data):
     return logmodel.coef_, data.columns
 
 
-def getData(responses=None):
+def getData():
     dataset = []
     coded_pairs = get_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
+    all_pairs = [x for x in get_cue_response_pairs()]
     # TODO put the incorrect spelling check in here
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
     missing_pair = 0
@@ -51,7 +48,7 @@ def getData(responses=None):
         if coded_pair:
             data_dict = dict(coded_pair)
             data_dict.update({'participantid': pair['participantid']})
-            data_dict.update({'source':pair['source']})
+            data_dict.update({'source': pair['source']})
             dataset.append(data_dict)
         else:
             print('Key pair {} not present in coding table'.format(pair['key']))
@@ -62,8 +59,7 @@ def getData(responses=None):
     df = pd.DataFrame(dataset)
 
     df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'participantid'])
-    print(df.columns)
-    exit(0)
+
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
     #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
@@ -102,9 +98,8 @@ def batch_data(df, size):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
-    parser.add_argument('--responses', action='store_true', help='use responses table for coding')
     args = parser.parse_args()
-    main(responses=args.responses)
+    main()
 
 
 if __name__ == "__main__":

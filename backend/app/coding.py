@@ -15,10 +15,11 @@ import time
 import argparse
 from backend.importers.semantic_atlas import BrainMap
 from backend.lib.spelling import Spelling
-import multiprocessing as mp
+from multiprocessing import shared_memory, cpu_count
 from sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER
-import random
+import logging
+import numpy as np
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -31,7 +32,13 @@ PHONOGRAPHIC = get_phonographic()
 COMMON_NORMS = get_common_norms()
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
-s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+print('loading sense2vec')
+s2v_a = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+shared_memory = shared_memory.SharedMemory(create=True, size=s2v_a.nbytes)
+s2v_b = np.ndarray(s2v_a.shape, dtype=s2v_a.dtype, buffer=shared_memory.buf)
+s2v_b[:] = s2v_a[:]
+print(shared_memory.name)
+print('loaded sense2vec')
 
 TOTALS = {
     'phonology': 0,
@@ -44,14 +51,17 @@ TOTALS = {
 }
 
 
-def main(responses=None):
+def main():
     # TODO batch up the totals returned by the processes and print those instead of all the individual totals
-    all_pairs = [x for x in get_cue_response_pairs(responses=responses)]
+    print('loading cue response pairs')
+    all_pairs = [x for x in get_cue_response_pairs(limit=20000)]
+    print('loaded cue response pairs')
+    exit(0)
     delete_coded_pairs()
     if not all_pairs:
         raise ValueError('No responses to code...')
     start = time.perf_counter()
-    job_number = mp.cpu_count() - 1
+    job_number = cpu_count() - 1
     # job_number = 1
     jobs = dispatch_jobs(all_pairs, job_number, get_coding)
     while jobs_running(jobs):
@@ -87,20 +97,47 @@ def get_coding(all_pairs):
         response_raw = pair[2]
         # TODO work out what to do with collisions between sources. shouldn't be that many reallky
         source = pair[3]
-        cue_stem = ps.stem(cue)
-        response_stem = ps.stem(response)
+        response_decoded = unidecode.unidecode(response)
+        cue_decoded = unidecode.unidecode(cue)
+        response_stem = ps.stem(response_decoded)
+        cue_stem = ps.stem(cue_decoded)
         # TODO use this throughout instead of splitting multiple times
         response_split = response.split('_')
         if len(cue) > 3:
 
             coded_pairs[(cue, response)] = basic_coding(response, response_raw)
-            #coded_pairs[(cue, response)]['source'] = source
+            # coded_pairs[(cue, response)]['source'] = source
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
 
             coded_pairs[(cue, response)].update(relations_coding)
 
             ############## Other Categories ##############
+
+            ### exact match
+            exact = cue == response
+            coded_pairs[(cue, response)]['exact'] = exact
+            totals['exact'] += 1 * exact
+
+            ### phonology (sound the same)
+            phonology, type = check_phonology(cue_decoded, response_decoded)
+            coded_pairs[(cue, response)]['phonology'] = phonology
+            totals['phonology'] += 1 * phonology
+
+            ### syntagmatic (x follows y, y follows x)
+            syntagmatic, type = check_syntagmatic(cue, response)
+            coded_pairs[(cue, response)]['syntagmatic'] = syntagmatic
+            totals['syntagmatic'] += 1 * syntagmatic
+
+            # TODO add s2v check for syntagmatic
+            # TODO add proverb check for syntagmatic
+
+            ### affix - the words are equal plus or minus an affix
+            cue_affix = check_affix(cue, response)
+            response_affix = check_affix(response, cue)
+            affix = cue_affix or response_affix
+            coded_pairs[(cue, response)]['affix'] = affix
+            totals['affix'] += 1 * affix
 
             ### prevalence
             word_found, prevalent = check_prevalence(response)
@@ -147,12 +184,14 @@ def get_coding(all_pairs):
             totals['phonographic'] += 1 * word_found
 
             ### semantic atlas from Gallant et. al
-            word_found, response_semantic_area = brain_map.get_semantic_area(response)
+            word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
             if not word_found:
                 word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
             coded_pairs[(cue, response)]['semantic_area'] = response_semantic_area
             totals['semantic_areas'] += 1 * word_found
-            _, cue_semantic_area = brain_map.get_semantic_area(cue)
+            word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
+            if not word_found:
+                word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
             changes = response_semantic_area != cue_semantic_area
             coded_pairs[(cue, response)]['semantic_area_changes'] = changes
             totals['semantic_area_changes'] += 1 * changes
@@ -211,6 +250,9 @@ def get_coding(all_pairs):
             #   religion,
             #   web sites
             #   ]
+            #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
+            #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
+            #   game, Portal.
             # TODO  company reference [walmart, asda, etc.]
             # TODO  geographical_reference [country, state, city, town, village, post code]
             # TODO  corpus_similarity
@@ -284,42 +326,13 @@ def basic_coding(response, response_raw):
 
 def relation_coding(cue, response):
     # First do the relations
-    totals = Counter({'phonology': 0, 'exact': 0, 'syntagmatic': 0, 'affix': 0})
+    totals = Counter()
     relation_obj = WordnetRelations(cue, response)
     relations = relation_obj.relations
-    for type in relation_obj.relation_types:
-        if relation_obj.relations[type]:
-            totals.setdefault(type, 0)
-            totals[type] += 1
-
-    # phonology
-    relations['phonology'] = False
-    phonology, type = check_phonology(cue, response)
-    if phonology:
-        totals['phonology'] += 1
-        relations['phonology'] = True
-
-    # exact
-    relations['exact'] = False
-    if cue == response:
-        totals['exact'] += 1
-
-    # syntagmatic
-    relations['syntagmatic'] = False
-    syntagmatic, type = check_syntagmatic(cue, response)
-    if syntagmatic:
-        totals['syntagmatic'] += 1
-        relations['syntagmatic'] = True
-
-    # add s2v check for syntagmatic
-
-    # add proverb check for syntagmatic
-
-    # affix - the words are equal plus or minus an affix
-    relations['affix'] = False
-    if check_affix(cue, response) or check_affix(response, cue):
-        totals['affix'] += 1
-        relations['affix'] = True
+    for relation_type in relation_obj.relation_types:
+        if relation_obj.relations[relation_type]:
+            totals.setdefault(relation_type, 0)
+            totals[relation_type] += 1
     return relations, totals
 
 
@@ -375,16 +388,10 @@ def check_syntagmatic(cue, response):
 # Soundex similarity check
 def check_phonology(cue, response):
     # Try to get a cue soundex
-    cue_decoded = unidecode.unidecode(cue)
-    cue_soundex = jellyfish.soundex(cue_decoded)
-    # cue_letters = re.sub(r'[0-9]', '', cue_soundex)
-    # cue_numbers = cue_soundex.replace(cue_letters, '')
+    cue_soundex = jellyfish.soundex(cue)
 
     # Try to get a response soundex
-    response_decoded = unidecode.unidecode(response.replace('_', ''))
-    response_soundex = jellyfish.soundex(response_decoded)
-    # response_letters = re.sub(r'[0-9]', '', response_soundex)
-    # response_numbers = response_soundex.replace(response_letters, '')
+    response_soundex = jellyfish.soundex(response)
     if cue_soundex == response_soundex:
         return True, 'soundex'
 
@@ -431,6 +438,8 @@ def check_affix(cue, response):
 
     if ps.stem(cue) == ps.stem(response):
         return True
+
+    return False
 
 
 def check_prevalence(response):
@@ -570,9 +579,8 @@ def construct_feature_vector(encoding):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
-    parser.add_argument('--responses', action='store_true', help='use responses table for coding')
     args = parser.parse_args()
-    main(args.responses)
+    main()
 
 
 if __name__ == "__main__":

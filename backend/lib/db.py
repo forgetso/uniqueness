@@ -32,11 +32,11 @@ def get_cues(min_length=None, limit=None):
     return [x for x in cur]
 
 
-def get_cue_response_pairs(min_length=None, limit=None, responses=None):
+def get_cue_response_pairs(limit=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    if responses:
-        query = """ SELECT r.user_id AS participantID, 
+    query = """ SELECT * FROM (
+                    SELECT r.user_id AS participantID, 
                             cue AS cue,
                             r.response AS response_raw, 
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
@@ -47,25 +47,11 @@ def get_cue_response_pairs(min_length=None, limit=None, responses=None):
                         LEFT JOIN corrections c ON r.id = c.response_id
                         WHERE LENGTH(r.response) > 3
                         AND LENGTH(r.cue) > 3
-                        AND r.user_id IN (
-                            SELECT user_id FROM (
-                                SELECT user_id, count(user_id) user_count FROM responses GROUP BY user_id
-                            ) a
-                            WHERE a.user_count > 100
-                        )
                         AND r.cue IN (SELECT DISTINCT cue FROM wordassoc)
+                        AND r.response != 'Unknown word'
                         GROUP BY r.user_id, r.cue, r.response, c.correction, r.source
-                        ORDER BY r.cue, r.response ASC"""
-        # Top 10 '325696','325422','325809','325631' ,'325599','325388','325869','325795','325359','325449')
-    else:
-        query = """ SELECT participantID, age, education,  cue, r1raw AS response_raw, r1 AS response, count(r1) AS count
-                        FROM wordassoc
-                        WHERE r1 != 'Unknown word'
-                        AND LENGTH(r1) > 3
-                        AND LENGTH(cue) > 3
-                        GROUP BY participantID, age, education, cue, r1, r1raw
-                        ORDER BY cue, response ASC"""
-
+                        ORDER BY r.cue, r.response ASC
+                ) responses_group"""
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)

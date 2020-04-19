@@ -26,6 +26,7 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
 
             reader = csv.DictReader(infile)
             formatted = []
+            formatted_responses = []
             for row in reader:
                 row.pop('')
                 row['id'] = int(row['id'])
@@ -33,8 +34,11 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
                 row['age'] = int(row['age'])
                 row['created_at'] = datetime.datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S')
                 formatted.append(list(row.values()))
+                formatted_responses.append([row['participantID'],row['created_at'],row['cue'], row['R1'],'smallworldofwords'])
 
+        # import the full data and also a trimmed version for running through the logistic regression
         db.execute_values_wrap(cur, 'wordassoc', reader.fieldnames[1:], formatted)
+        db.execute_values_wrap(cur, 'responses', ('user_id', 'created', 'cue', 'response', 'source'), formatted_responses)
         conn.commit()
 
     if affix:
