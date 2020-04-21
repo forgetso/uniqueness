@@ -8,15 +8,38 @@ def connect():
     return conn
 
 
-def execute_values_wrap(cur, table, fieldnametuple, values):
-    if not isinstance(values[0], list):
-        raise TypeError('values must be a list of lists, not {} [{}]'.format(type(values, type(values[0]))))
-    fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
-    query = "INSERT INTO %(table)s %(fieldnames)s VALUES" % {'table': table, 'fieldnames': fieldnames}
-    query = ' '.join([query, "%s RETURNING id"])
-    result = execute_values(cur, query, values)
-    ids = [row[0] for row in cur.fetchall()]
-    return ids
+def execute_values_wrap(table, fieldnametuple, values):
+    conn = connect()
+    ids = []
+    page_size = 1000
+    try:
+
+        cur = conn.cursor()
+        if not isinstance(values[0], tuple):
+            raise TypeError('values must be a list of tuples, not {} [{}]'.format(type(values), type(values[0])))
+        fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
+        query = "INSERT INTO %(table)s %(fieldnames)s VALUES" % {'table': table, 'fieldnames': fieldnames}
+        query = ' '.join([query, "%s RETURNING id"])
+
+        # execute_values batches the queries into page size page_size so we need to do the same to catch all of the ids
+        value_chunks = chunks(values, page_size)
+
+        for value_chunk in value_chunks:
+            result = execute_values(cur, query, value_chunk, page_size=page_size)
+            ids.extend([row[0] for row in cur.fetchall()])
+        conn.commit()
+    except (Exception, pg.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+        return ids
+
+
+def chunks(lst, n):
+    # Yield successive n-sized chunks from list
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 ################################################### DB METHODS #########################################################
@@ -217,10 +240,10 @@ def save_cue_response_pair(cue_response_pair):
     id_of_new_row = cur.fetchone()[0]
     correction_ids = []
     for original_word, corrections in corrections.items():
-        correction_ids.append(save_corrections(conn, id_of_new_row, original_word, corrections))
-    # put the newly created correction ids in the responses table, for good measure
-    query = """UPDATE responses SET correction_ids = %s WHERE id = %s"""
-    cur.execute(query, (correction_ids, id_of_new_row))
+        correction_ids.append(save_corrections([original_word, corrections, None, id_of_new_row]))
+    # # put the newly created correction ids in the responses table, for good measure
+    # query = """UPDATE responses SET correction_ids = %s WHERE id = %s"""
+    # cur.execute(query, (correction_ids, id_of_new_row))
     conn.commit()
 
     if 'correction' in cue_response_pair:
@@ -229,33 +252,50 @@ def save_cue_response_pair(cue_response_pair):
     return id_of_new_row
 
 
-def save_cue_response_pairs(cue_response_pairs):
-    conn = connect()
-    cur = conn.cursor()
-    values = [list(x.values()) for x in cue_response_pairs]
-    fieldnametuple = tuple(cue_response_pairs[0].keys())
-    inserted_ids = execute_values_wrap(cur, 'responses', fieldnametuple, values)
-    conn.commit()
-    conn.close()
-    return inserted_ids
+def save_cue_response_pairs_and_corrections(cue_response_pairs):
+    response_values = []
+    corrections_values = []
+    for cue_response_pair in cue_response_pairs:
+        corrections_values.append([cue_response_pair.get('response'),
+                                   cue_response_pair.get('corrections'),
+                                   cue_response_pair.get('correction')])
+        cue_response_pair.pop('corrections', [])
+        cue_response_pair.pop('correction', None)
+        response_values.append(tuple(cue_response_pair.values()))
+    fieldnamelist = list(cue_response_pairs[0].keys())
+    fieldnametuple = tuple(fieldnamelist)
+    response_ids = execute_values_wrap('responses', fieldnametuple, response_values)
+    if len(response_ids) != len(response_values):
+        raise ValueError('Number of database rows inserted does not equal original number of records')
+    for idx, response_id in enumerate(response_ids):
+        corrections_values[idx].append(response_id)
+        if len(corrections_values[idx]) != 4:
+            raise ValueError('Field(s) missing from corrections record')
+        # cast to tuple to avoid this https://github.com/psycopg/psycopg2/issues/537
+        corrections_values[idx] = tuple(corrections_values[idx])
+    # get rid of empty list corrections
+    corrections_values = [c for c in corrections_values if len(c[1])]
+    correction_ids = save_corrections(corrections_values)
+    # cleanup old corrections
+    delete_corrections()
+    return response_ids, correction_ids
 
 
-def save_corrections(conn, response_id, original_word, corrections):
-    cur = conn.cursor()
-    query = """INSERT INTO corrections (response_id, original_word, corrections)
-                VALUES (%s, %s, %s) RETURNING id"""
-    cur.execute(query, (response_id, original_word, corrections))
-    id_of_new_row = cur.fetchone()[0]
-    return id_of_new_row
-
-
-def save_corrections_and_correction(conn, response_id, original_word, corrections, correction):
-    cur = conn.cursor()
-    query = """INSERT INTO corrections (response_id, original_word, corrections, correction)
-                VALUES (%s, %s, %s) RETURNING id"""
-    cur.execute(query, (response_id, original_word, corrections, correction))
-    id_of_new_row = cur.fetchone()[0]
-    return id_of_new_row
+def save_corrections(corrections_values):
+    # todo better checks or maybe pass in dict instead, check all values...
+    # original word
+    assert (type(corrections_values[0][0]) is str)
+    # corrections
+    assert (type(corrections_values[0][1]) is list)
+    # correction
+    assert (type(corrections_values[0][2]) is str or corrections_values[0][2] is None)
+    # response id
+    assert (type(corrections_values[0][3]) is int)
+    fieldnametuple = ('original_word', 'corrections', 'correction', 'response_id')
+    correction_ids = execute_values_wrap('corrections', fieldnametuple, corrections_values)
+    if len(corrections_values) != len(correction_ids):
+        raise ValueError('Number of database rows inserted does not equal original number of records')
+    return correction_ids
 
 
 def update_correction(response_id, original_word, correction):
@@ -300,4 +340,16 @@ def delete_responses(source):
     cur = conn.cursor()
     query = """DELETE FROM responses WHERE source = %s"""
     cur.execute(query, (source,))
+    conn.commit()
+
+
+def delete_corrections():
+    conn = connect()
+    cur = conn.cursor()
+    query = """DELETE FROM corrections
+                WHERE response_id NOT IN (
+                    SELECT DISTINCT response_id
+                    FROM responses
+                ) ids"""
+    cur.execute(query)
     conn.commit()

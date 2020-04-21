@@ -4,7 +4,7 @@ import time
 import json
 import argparse
 import pprint
-from backend.lib.db import save_cue_response_pairs, delete_responses, save_cue_response_pair, connect
+from backend.lib.db import delete_responses, save_cue_response_pairs_and_corrections
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 from backend.app.coding import check_spelling
 import multiprocessing as mp
@@ -76,9 +76,7 @@ def process_data(json_data):
                     responses.append(formatted_sub_record)
                     # distinct_responses.add(formatted_sub_record['response'])
     if responses:
-        for response in responses:
-            # TODO batch this query using execute values
-            save_cue_response_pair(response)
+        save_cue_response_pairs_and_corrections(responses)
     print('{} records saved'.format(len(responses)))
 
 
@@ -92,13 +90,13 @@ def format_record(record):
     response['created'] = record['t']
     response['source'] = SOURCE
 
-    incorrect_spelling, corrections, corrections_dict = check_spelling(response['cue'], response['response'])
+    incorrect_spelling, corrections_list, corrections_dict = check_spelling(response['cue'], response['response'])
     # pull out the actual corrections strings into a list instead of the SuggestItem class
     corrections_dict = {k: [x.term for x in v] for k, v in corrections_dict.items()}
-    response['corrections'] = corrections_dict
-    if len(corrections) == 1 and corrections[0].term != response['response']:
+    response['corrections'] = [x.term for x in corrections_list]
+    if len(corrections_list) == 1 and corrections_list[0].term != response['response']:
         #TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
-        response['correction'] = corrections[0].term
+        response['correction'] = corrections_list[0].term
     # TODO include these later and store country for players using UI
     # response['country'] = record['playerCc']
     # response['playerName'] = record['playerName']

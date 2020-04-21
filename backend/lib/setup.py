@@ -1,7 +1,7 @@
 from backend.lib.db import connect
 import logging
 import getpass
-
+import argparse
 
 def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=None, concreteness=None, age=None,
              emotions=None, orthographic=None, phonographic=None, all_words=None):
@@ -343,5 +343,11 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     conn.commit()
 
 
+def setup():
+    parser = argparse.ArgumentParser(description='DB setup')
+    parser.add_argument('--responses', action='store_true', help='Delete the responses table')
+    args = parser.parse_args()
+    db_setup(responses=args.responses)
+
 if __name__ == "__main__":
-    db_setup()
+    setup()

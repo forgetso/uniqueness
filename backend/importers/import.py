@@ -15,32 +15,8 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
             emotions=None):
     # TODO Merge all of the ugent files into one DB table. Emotions, age of acquisition, concreteness, prevalence, etc.
 
-    conn = db.connect()
-    db_setup(wordassoc=wordassoc, responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
+    db_setup(responses=responses, affixes=affix, norms=norms, prevalences=prevalences,
              concreteness=concreteness, age=age, emotions=emotions)
-    cur = conn.cursor()
-    if wordassoc:
-        with ZipFile(settings.ZIP_FILE) as zf:
-            infile = zf.open(settings.DATA_FILE, mode='r')
-            infile = io.TextIOWrapper(infile, encoding='utf8', newline='')
-
-            reader = csv.DictReader(infile)
-            formatted = []
-            formatted_responses = []
-            for row in reader:
-                row.pop('')
-                row['id'] = int(row['id'])
-                row['participantID'] = int(row['participantID'])
-                row['age'] = int(row['age'])
-                row['created_at'] = datetime.datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S')
-                formatted.append(list(row.values()))
-                formatted_responses.append([row['participantID'],row['created_at'],row['cue'], row['R1'],'smallworldofwords'])
-
-        # import the full data and also a trimmed version for running through the logistic regression
-        db.execute_values_wrap(cur, 'wordassoc', reader.fieldnames[1:], formatted)
-        db.execute_values_wrap(cur, 'responses', ('user_id', 'created', 'cue', 'response', 'source'), formatted_responses)
-        conn.commit()
-
     if affix:
         affixes = []
         with open(settings.AFFIX_FILE, mode='r') as affixfile:
@@ -54,8 +30,7 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
                         affix = affix.replace('-', '')
                     affixes.append([affix, affix_type])
 
-        db.execute_values_wrap(cur, 'affixes', ('affix', 'type'), affixes)
-        conn.commit()
+        db.execute_values_wrap('affixes', ('affix', 'type'), affixes)
 
     if norms:
         normsvalues = []
@@ -112,8 +87,7 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
             newrow.append(bool(int(row[1][reader.columns.get_loc('TUC')])))
             normsvalues.append(newrow)
 
-        db.execute_values_wrap(cur, 'norms', keys, normsvalues)
-        conn.commit()
+        db.execute_values_wrap('norms', keys, normsvalues)
 
     if prevalences:
         prevalences = []
@@ -122,9 +96,8 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
             reader = csv.DictReader(prevalences_file)
             for row in reader:
                 prevalences.append(list(row.values()))
-            db.execute_values_wrap(cur, 'prevalences', ('word', 'pknown', 'nobs', 'prevalence', 'freqzipfus'),
+            db.execute_values_wrap('prevalences', ('word', 'pknown', 'nobs', 'prevalence', 'freqzipfus'),
                                    prevalences)
-            conn.commit()
 
     if concreteness:
         concretenesses = []
@@ -133,10 +106,9 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
             reader = csv.DictReader(concreteness_file, delimiter='\t', quoting=csv.QUOTE_NONE)
             for row in reader:
                 concretenesses.append(list(row.values()))
-            db.execute_values_wrap(cur, 'concreteness', (
+            db.execute_values_wrap('concreteness', (
                 'word', 'bigram', 'concreteness_measure', 'concreteness_standard_dev', 'unknown', 'total',
                 'percent_known', 'subtlex', 'dom_pos'), concretenesses)
-            conn.commit()
 
     if age:
         age_of_acquisitions = []
@@ -174,10 +146,9 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
                 edited_row = rowlist[0:8]
                 edited_row.extend(rowlist[10:12])
                 age_of_acquisitions.append(edited_row)
-            db.execute_values_wrap(cur, 'acquisition_age', (
+            db.execute_values_wrap('acquisition_age', (
                 'word', 'alternative_spelling', 'freq_pm', 'dom_pos_subtlex', 'num_letters', 'num_phon',
                 'num_syllables', 'lemma_highest_pos', 'aoa_kup_lemma', 'percent_known_lemma',), age_of_acquisitions)
-            conn.commit()
 
     if emotions:
         emotions = []
@@ -188,9 +159,8 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
             for row in reader:
                 final_row = [row['Word'], row['V.Mean.Sum'], row['A.Mean.Sum'], row['D.Mean.Sum']]
                 emotions.append(final_row)
-            db.execute_values_wrap(cur, 'emotions', (
+            db.execute_values_wrap('emotions', (
                 'word', 'valence', 'arousal', 'dominance'), emotions)
-            conn.commit()
 
 
 def setup():

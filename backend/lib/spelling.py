@@ -19,10 +19,14 @@ class Spelling:
     def __init__(self, cue, response):
         self.cue = cue
         self.response = response
+        if not isinstance(self.cue, str) or not isinstance(self.response, str):
+            raise TypeError('Cue and Response must be strings: {},  {}'.format(cue, response))
 
     def get_corrections(self):
-        corrections = self.check_spelling(self.response)
         corrections_list = []
+        if len(self.response) == 0:
+            return corrections_list
+        corrections = self.check_spelling(self.response)
         if corrections:
             corrections = self.reduce_correction_options(self.cue, self.response, corrections)
             corrections_list = sorted(list(corrections))
@@ -41,7 +45,8 @@ class Spelling:
         # replaces any instance of 3 or more of the same character with a single character
         result = text
         for char in set(text):
-            pattern = re.compile(''.join([char, '{3,}']))
+            raw_regex = ''.join([re.escape(char), '{3,}'])
+            pattern = re.compile(raw_regex)
             match_result = re.findall(pattern, text)
             if match_result:
                 match_result_len = len(match_result[0])

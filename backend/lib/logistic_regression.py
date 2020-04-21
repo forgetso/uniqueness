@@ -9,6 +9,7 @@ import argparse
 
 SAMPLE_SIZE = 10
 
+
 def main(sample_size=None):
     data = getData()
     sample_size = sample_size or SAMPLE_SIZE
@@ -51,11 +52,9 @@ def getData():
             data_dict.update({'source': pair['source']})
             dataset.append(data_dict)
         else:
-            print('Key pair {} not present in coding table'.format(pair['key']))
+            # print('Key pair {} not present in coding table'.format(pair['key']))
             missing_pair += 1
-    if missing_pair > 100:
-        print('Rerun the coding algorithm')
-        exit()
+    print('{} missing pairs'.format(missing_pair))
     df = pd.DataFrame(dataset)
 
     df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'participantid'])

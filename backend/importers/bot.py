@@ -10,7 +10,7 @@ def main():
     delete_responses(source='bot')
     conn = connect()
     cur = conn.cursor()
-    execute_values_wrap(cur, 'responses', tuple(bot_data[0].keys()), [list(x.values()) for x in bot_data])
+    execute_values_wrap('responses', tuple(bot_data[0].keys()), [list(x.values()) for x in bot_data])
     conn.commit()
     conn.close()
 

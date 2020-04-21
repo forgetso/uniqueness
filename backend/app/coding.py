@@ -16,10 +16,12 @@ import argparse
 from backend.importers.semantic_atlas import BrainMap
 from backend.lib.spelling import Spelling
 from multiprocessing import shared_memory, cpu_count
-from sense2vec import Sense2Vec
-from backend.settings import SENSE2VEC_FOLDER
+# moved this away as it takes ages to load
+from backend.lib.sense2vec import s2vWrap
+import num2words
 import logging
 import numpy as np
+import sys
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -32,13 +34,7 @@ PHONOGRAPHIC = get_phonographic()
 COMMON_NORMS = get_common_norms()
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
-print('loading sense2vec')
-s2v_a = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
-shared_memory = shared_memory.SharedMemory(create=True, size=s2v_a.nbytes)
-s2v_b = np.ndarray(s2v_a.shape, dtype=s2v_a.dtype, buffer=shared_memory.buf)
-s2v_b[:] = s2v_a[:]
-print(shared_memory.name)
-print('loaded sense2vec')
+
 
 TOTALS = {
     'phonology': 0,
@@ -56,7 +52,6 @@ def main():
     print('loading cue response pairs')
     all_pairs = [x for x in get_cue_response_pairs(limit=20000)]
     print('loaded cue response pairs')
-    exit(0)
     delete_coded_pairs()
     if not all_pairs:
         raise ValueError('No responses to code...')
@@ -80,7 +75,7 @@ def get_coding(all_pairs):
     # TODO consider the categories found in the Gallant Research:
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
-    # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+
     # initialise brain data
     brain_map = BrainMap()
     erratic = set()
@@ -90,6 +85,8 @@ def get_coding(all_pairs):
 
     totals = Counter(TOTALS)
     fieldnames = None
+    s2v_wrap = s2vWrap()
+
 
     for pair in distinct_cue_response_pairs:
         cue = pair[0]
@@ -205,14 +202,14 @@ def get_coding(all_pairs):
                 totals['semantic_distance'] += 1
 
             ### part_of_speech
-            word_found, part_of_speech_response = check_part_of_speech(response)
+            word_found, part_of_speech_response = check_part_of_speech(s2v_wrap.s2v, response)
             if not word_found:
-                word_found, part_of_speech_response = check_part_of_speech(response_stem)
+                word_found, part_of_speech_response = check_part_of_speech(s2v_wrap.s2v, response_stem)
             totals['part_of_speech'] += 1 * word_found
             coded_pairs[(cue, response)]['part_of_speech'] = part_of_speech_response
-            word_found, part_of_speech_cue = check_part_of_speech(cue)
+            word_found, part_of_speech_cue = check_part_of_speech(s2v_wrap.s2v, cue)
             if not word_found:
-                word_found, part_of_speech_cue = check_part_of_speech(cue_stem)
+                word_found, part_of_speech_cue = check_part_of_speech(s2v_wrap.s2v, cue_stem)
             coded_pairs[(cue, response)]['part_of_speech_changes'] = False
             if word_found and part_of_speech_response != part_of_speech_cue:
                 totals['part_of_speech_changes'] += 1
@@ -233,13 +230,16 @@ def get_coding(all_pairs):
                 coded_pairs.pop((cue, response))
 
             # TODO  obscene words
+            # TODO  sexual references
+            # TODO  slang
             # TODO  part_of_speech: take this from age of acquisition?
             # TODO  morpheme
+            # TODO  years (1960, 2010, etc.)
             # TODO  cultural_reference:
             #  [movies,
             #   music,
             #   famous people,
-            #   books,
+            #   books (1984, farenheit 451),
             #   poems,
             #   computer games,
             #   tv shows,
@@ -248,7 +248,11 @@ def get_coding(all_pairs):
             #   characters,
             #   superheroes,
             #   religion,
-            #   web sites
+            #   web sites,
+            #   web status codes (404),
+            #   emergency services numbers,
+            #   scientific numbers (365, pi, gravity, phi, etc.)
+            #
             #   ]
             #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
             #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
@@ -352,16 +356,6 @@ def syllables(word):
         syllable_count += 1
     return syllable_count
 
-
-def create_s2v_keys(word):
-    keys = []
-    word_types = ['ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN',
-                  'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
-    named_entities = ['PERSON', 'NORP', 'FACILITY', 'ORG', 'GPE', 'LOC', 'PRODUCT', 'EVENT' 'WORK_OF_ART', 'LANGUAGE']
-    all_things = word_types + named_entities
-    for word_type in all_things:
-        keys.append(''.join([word, '|', word_type]))
-    return keys
 
 
 def check_syntagmatic(cue, response):
@@ -472,11 +466,11 @@ def check_acquisition_age(response):
     return False, 0
 
 
-def check_part_of_speech(response):
+def check_part_of_speech(s2vobj, response):
     if response in PARTS_OF_SPEECH and PARTS_OF_SPEECH[response] != 0:
         return True, PARTS_OF_SPEECH[response].lower()
     else:
-        best_sense = s2v.get_best_sense(response)
+        best_sense = s2vobj.get_best_sense(response)
         if best_sense:
             return True, best_sense.split('|')[1].lower()
 
@@ -490,6 +484,8 @@ def check_emotions(response):
 
 
 def check_spelling(cue, response):
+    if not cue or not response:
+        raise ValueError('Missing cue or response. Cue: {}, Resonse: {}'.format(cue, response))
     corrections_list = []
     if '_' in response:
         response_list = response.split('_')
@@ -555,26 +551,12 @@ def check_phonographic(response):
     return False, features
 
 
-def construct_feature_vector(encoding):
-    # feature_vector = np.array()
-    vector_list = []
-    for encoding_type in encoding:
-        for key in encoding[encoding_type]:
-            if encoding[encoding_type][key] == True:
-                vector_list.append(1)
-            elif encoding[encoding_type][key] == False:
-                vector_list.append(0)
-            elif isinstance(encoding[encoding_type][key], Decimal):
-                vector_list.append(encoding[encoding_type][key])
-            elif isinstance(encoding[encoding_type][key], int):
-                vector_list.append(encoding[encoding_type][key])
-            elif isinstance(encoding[encoding_type][key], float):
-                vector_list.append(encoding[encoding_type][key])
-            else:
-                print(encoding[encoding_type][key])
-                print('error')
-
-    return vector_list
+def convert_numbers_to_text(word):
+    text_word = word
+    if re.match('^\d+$', word):
+        text_word = num2words.num2words(word)
+        print('converted {} to {}'.format(word, text_word))
+    return text_word
 
 
 def setup():
