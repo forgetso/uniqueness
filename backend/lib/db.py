@@ -58,6 +58,7 @@ def get_cues(min_length=None, limit=None):
 def get_cue_response_pairs(limit=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # TODO make this a RIGHT JOIN instead of SELECT IN ?
     query = """ SELECT * FROM (
                     SELECT r.user_id AS participantID, 
                             cue AS cue,
@@ -346,10 +347,12 @@ def delete_responses(source):
 def delete_corrections():
     conn = connect()
     cur = conn.cursor()
-    query = """DELETE FROM corrections
-                WHERE response_id NOT IN (
-                    SELECT DISTINCT response_id
-                    FROM responses
-                ) ids"""
+    query = """DELETE
+                FROM   corrections c 
+                WHERE  NOT EXISTS (
+                    SELECT  -- SELECT list mostly irrelevant; can just be empty in Postgres
+                    FROM   responses
+                    WHERE  id = c.response_id
+                );"""
     cur.execute(query)
     conn.commit()

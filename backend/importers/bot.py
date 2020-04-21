@@ -1,18 +1,20 @@
 from backend.lib.db import get_part_of_speech, get_cue_response_pairs, execute_values_wrap, connect, delete_responses
 import random
 import argparse
-PARTS_OF_SPEECH = get_part_of_speech()
 from datetime import datetime as dt
+
+PARTS_OF_SPEECH = get_part_of_speech()
 
 def main():
     all_pairs = [x for x in get_cue_response_pairs()]
-    bot_data = create_bot_data(len(all_pairs))
+    bot_data = create_bot_data(min(len(all_pairs), 20000))
     delete_responses(source='bot')
     conn = connect()
     cur = conn.cursor()
-    execute_values_wrap('responses', tuple(bot_data[0].keys()), [list(x.values()) for x in bot_data])
+    execute_values_wrap('responses', tuple(bot_data[0].keys()), [tuple(x.values()) for x in bot_data])
     conn.commit()
     conn.close()
+
 
 def create_bot_data(length):
     print('Creating {} dummy pairs'.format(length))
@@ -21,7 +23,7 @@ def create_bot_data(length):
     for i in range(0, length - 1):
         template = {'cue': None,
                     'response': None,
-                    'source': 'bot',
+                    'source': 'bot_rand',
                     'user_id': 'bot',
                     'created': dt.utcnow(),
                     'time_duration': 0

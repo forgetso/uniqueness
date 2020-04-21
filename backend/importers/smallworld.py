@@ -40,6 +40,9 @@ def process_data(rows):
     formatted_responses = []
     fieldnames = list(rows[0].keys())[1:]
     for row in rows:
+        # this data is of no use
+        if row['R1'] == 'Unknown word':
+            continue
         corrections_list = None
         row.pop('')
         raw_row = tuple(row.values())
