@@ -42,6 +42,8 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
         created timestamp,
         cue text,
         response text,
+        cue_clean text,
+        response_clean text,
         time_duration int,
         correction_ids int[],
         source text)
@@ -331,8 +333,7 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     semantic_distance decimal,
     contraction bool,
     part_of_speech text,
-    part_of_speech_changes bool
-    )
+    part_of_speech_changes bool)
     """)
     conn.commit()
 

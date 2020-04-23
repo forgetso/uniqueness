@@ -6,8 +6,9 @@ import argparse
 import pprint
 from backend.lib.db import delete_responses, save_cue_response_pairs_and_corrections
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
-from backend.app.coding import check_spelling
+from backend.helpers.string import check_spelling
 import multiprocessing as mp
+from backend.helpers.string import clean_word
 
 SOURCE = 'humanbraincloud'
 
@@ -85,6 +86,8 @@ def format_record(record):
     response['id'] = record.get('_id') or record.get('id')
     response['cue'] = record['w1']
     response['response'] = record['w2']
+    response['cue_clean'] = clean_word(record['w1'])
+    response['response_clean'] = clean_word(record['w2'])
     response['user_id'] = record['playerId']
     response['time_duration'] = 0
     response['created'] = record['t']
@@ -95,7 +98,7 @@ def format_record(record):
     corrections_dict = {k: [x.term for x in v] for k, v in corrections_dict.items()}
     response['corrections'] = [x.term for x in corrections_list]
     if len(corrections_list) == 1 and corrections_list[0].term != response['response']:
-        #TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
+        # TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
         response['correction'] = corrections_list[0].term
     # TODO include these later and store country for players using UI
     # response['country'] = record['playerCc']

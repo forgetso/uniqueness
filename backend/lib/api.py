@@ -8,7 +8,7 @@ import logging
 from backend.lib.spelling import Spelling
 import re
 from datetime import datetime as dt
-from backend.app.coding import check_spelling
+from backend.helpers.string import check_spelling
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'

@@ -4,16 +4,18 @@ import io
 import csv
 import datetime
 import backend.lib.db as db
-from backend.app.coding import check_spelling
+from backend.helpers.string import check_spelling
 from backend.lib.setup import db_setup
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
 import multiprocessing as mp
+import argparse
+from backend.helpers.string import clean_word
 
 SOURCE = 'smallworldofwords'
 
 
-def main():
+def main(limit=None):
     db_setup(wordassoc=True)
     db.delete_responses(SOURCE)
     with ZipFile(settings.ZIP_FILE) as zf:
@@ -22,6 +24,8 @@ def main():
 
         reader = csv.DictReader(infile)
         rows = [r for r in reader]
+        if limit:
+            rows = rows[:limit]
         print('Processing {} rows from small world of words'.format(len(rows)))
         start = time.perf_counter()
         job_number = mp.cpu_count() - 1
@@ -57,7 +61,7 @@ def process_data(rows):
             corrections_dict = {k: [x.term for x in v] for k, v in corrections_dict.items()}
             row['corrections'] = [x.term for x in corrections_list]
         row['correction'] = None
-        if len(corrections_list) == 1 and corrections_list[0].term != response:
+        if len(corrections_list) == 1 and corrections_list[0].term != response.lower():
             # TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
             row['correction'] = corrections_list[0].term
         # should this conversion be noted as raw and changed?
@@ -66,6 +70,8 @@ def process_data(rows):
                                     'created': row['created_at'],
                                     'cue': row['cue'],
                                     'response': response,
+                                    'cue_clean': clean_word(row['cue']),
+                                    'response_clean': clean_word(response),
                                     'source': SOURCE,
                                     'corrections': row['corrections'],
                                     'correction': row['correction']})
@@ -76,5 +82,13 @@ def process_data(rows):
     response_ids, correction_ids = db.save_cue_response_pairs_and_corrections(formatted_responses)
 
 
+def setup():
+    parser = argparse.ArgumentParser(description='DB setup')
+    parser.add_argument('limit', type=int, nargs='+',
+                        help='limit the number of rows imported')
+    args = parser.parse_args()
+    main(limit=int(args.limit[0]))
+
+
 if __name__ == "__main__":
-    main()
+    setup()

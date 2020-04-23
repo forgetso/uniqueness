@@ -3,9 +3,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
 from backend.lib.db import get_coded_pairs, get_cue_response_pairs
-from backend.app.coding import format_cue_response_pairs
 import pandas as pd
 import argparse
+from backend.helpers.pairs import format_cue_response_pairs
 
 SAMPLE_SIZE = 10
 
@@ -40,7 +40,7 @@ def logisticRegression(data):
 def getData():
     dataset = []
     coded_pairs = get_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs()]
+    all_pairs = [x for x in get_cue_response_pairs(coded=True)]
     # TODO put the incorrect spelling check in here
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
     missing_pair = 0
@@ -48,16 +48,17 @@ def getData():
         coded_pair = coded_pairs.get(pair['key'])
         if coded_pair:
             data_dict = dict(coded_pair)
-            data_dict.update({'participantid': pair['participantid']})
+            data_dict.update({'user_id': pair['user_id']})
             data_dict.update({'source': pair['source']})
             dataset.append(data_dict)
         else:
-            # print('Key pair {} not present in coding table'.format(pair['key']))
+            print('Key pair {} not present in coding table. Source {}'.format(pair['key'], pair['source']))
             missing_pair += 1
     print('{} missing pairs'.format(missing_pair))
+    print('{} coded pairs'.format(len(dataset)))
     df = pd.DataFrame(dataset)
-
-    df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'participantid'])
+    df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'user_id'])
+    df = df.drop(columns=['length', 'syllables', 'number_of_words', 'nphon'])
 
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
@@ -75,7 +76,6 @@ def getData():
     # print(df['semantic_area'])
     # df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
     df = pd.DataFrame(df).fillna(value=0)
-    print(df)
     df = df.sort_values(by='source')
     return df
 

@@ -8,20 +8,17 @@ import jellyfish
 import unidecode
 from backend.lib.wordnet_relations import WordnetRelations
 from collections import Counter
-import pprint
-from decimal import Decimal
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
 import argparse
 from backend.importers.semantic_atlas import BrainMap
-from backend.lib.spelling import Spelling
-from multiprocessing import shared_memory, cpu_count
+from multiprocessing import cpu_count
 # moved this away as it takes ages to load
-from backend.lib.sense2vec import s2vWrap
+# from backend.lib.sense2vec import s2vWrap
+from sense2vec import Sense2Vec
 import num2words
-import logging
-import numpy as np
-import sys
+from backend.settings import SENSE2VEC_FOLDER
+from backend.helpers.pairs import format_cue_response_pairs
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -34,8 +31,7 @@ PHONOGRAPHIC = get_phonographic()
 COMMON_NORMS = get_common_norms()
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
-
-
+s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 TOTALS = {
     'phonology': 0,
     'exact': 0,
@@ -50,15 +46,18 @@ TOTALS = {
 def main():
     # TODO batch up the totals returned by the processes and print those instead of all the individual totals
     print('loading cue response pairs')
-    all_pairs = [x for x in get_cue_response_pairs(limit=20000)]
+    all_pairs = [x for x in get_cue_response_pairs()]
     print('loaded cue response pairs')
     delete_coded_pairs()
+    # TODO make this DISTINCT in the query? Or make a new function for that?
+    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
     if not all_pairs:
         raise ValueError('No responses to code...')
     start = time.perf_counter()
-    job_number = cpu_count() - 1
+    job_number = cpu_count() / 2
+    job_number = 2
     # job_number = 1
-    jobs = dispatch_jobs(all_pairs, job_number, get_coding)
+    jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
     while jobs_running(jobs):
         print('Jobs running')
         time.sleep(5)
@@ -67,7 +66,7 @@ def main():
         print('time taken {}'.format(end - start))
 
 
-def get_coding(all_pairs):
+def get_coding(distinct_cue_response_pairs, **kwargs):
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
     # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
     # phonographic neighbourhoods, active brain region.
@@ -78,22 +77,19 @@ def get_coding(all_pairs):
 
     # initialise brain data
     brain_map = BrainMap()
-    erratic = set()
     # code distinct list of cue response pairs
     coded_pairs = {}
-    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
 
     totals = Counter(TOTALS)
     fieldnames = None
-    s2v_wrap = s2vWrap()
-
 
     for pair in distinct_cue_response_pairs:
-        cue = pair[0]
-        response = pair[1]
-        response_raw = pair[2]
+        key = pair[0]
+        cue = pair[1]
+        response = pair[2]
+        response_raw = pair[3]
         # TODO work out what to do with collisions between sources. shouldn't be that many reallky
-        source = pair[3]
+        # TODO what to do about words joined with hyphens?
         response_decoded = unidecode.unidecode(response)
         cue_decoded = unidecode.unidecode(cue)
         response_stem = ps.stem(response_decoded)
@@ -102,28 +98,28 @@ def get_coding(all_pairs):
         response_split = response.split('_')
         if len(cue) > 3:
 
-            coded_pairs[(cue, response)] = basic_coding(response, response_raw)
-            # coded_pairs[(cue, response)]['source'] = source
+            coded_pairs[key] = basic_coding(response, response_raw, response_split)
+            # coded_pairs[key]['source'] = source
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
 
-            coded_pairs[(cue, response)].update(relations_coding)
+            coded_pairs[key].update(relations_coding)
 
             ############## Other Categories ##############
 
             ### exact match
             exact = cue == response
-            coded_pairs[(cue, response)]['exact'] = exact
+            coded_pairs[key]['exact'] = exact
             totals['exact'] += 1 * exact
 
             ### phonology (sound the same)
             phonology, type = check_phonology(cue_decoded, response_decoded)
-            coded_pairs[(cue, response)]['phonology'] = phonology
+            coded_pairs[key]['phonology'] = phonology
             totals['phonology'] += 1 * phonology
 
             ### syntagmatic (x follows y, y follows x)
-            syntagmatic, type = check_syntagmatic(cue, response)
-            coded_pairs[(cue, response)]['syntagmatic'] = syntagmatic
+            syntagmatic, type = check_syntagmatic(cue, response, response_split)
+            coded_pairs[key]['syntagmatic'] = syntagmatic
             totals['syntagmatic'] += 1 * syntagmatic
 
             # TODO add s2v check for syntagmatic
@@ -133,7 +129,7 @@ def get_coding(all_pairs):
             cue_affix = check_affix(cue, response)
             response_affix = check_affix(response, cue)
             affix = cue_affix or response_affix
-            coded_pairs[(cue, response)]['affix'] = affix
+            coded_pairs[key]['affix'] = affix
             totals['affix'] += 1 * affix
 
             ### prevalence
@@ -141,93 +137,93 @@ def get_coding(all_pairs):
             if not word_found:
                 word_found, prevalent = check_prevalence(response_stem)
             totals['prevalent'] += 1 * word_found
-            coded_pairs[(cue, response)]['prevalent'] = prevalent
+            coded_pairs[key]['prevalent'] = prevalent
 
             ### concreteness
             word_found, concrete = check_concreteness(response)
             if not word_found:
                 word_found, concrete = check_concreteness(response_stem)
             totals['concrete'] += 1 * word_found
-            coded_pairs[(cue, response)]['concrete'] = concrete
+            coded_pairs[key]['concrete'] = concrete
 
             ### age_of_acquisition
             word_found, acquisition_age = check_acquisition_age(response)
             if not word_found:
                 word_found, acquisition_age = check_acquisition_age(response_stem)
             totals['age'] += 1 * word_found
-            coded_pairs[(cue, response)]['age'] = acquisition_age
+            coded_pairs[key]['age'] = acquisition_age
 
             ### word emotions (valence, arousal dominance)
             word_found, emotions = check_emotions(response)
             if not word_found:
                 word_found, emotions = check_emotions(response_stem)
             totals['emotions'] += 1 * word_found
-            coded_pairs[(cue, response)]['valence'] = emotions['valence']
-            coded_pairs[(cue, response)]['arousal'] = emotions['arousal']
-            coded_pairs[(cue, response)]['dominance'] = emotions['dominance']
+            coded_pairs[key]['valence'] = emotions['valence']
+            coded_pairs[key]['arousal'] = emotions['arousal']
+            coded_pairs[key]['dominance'] = emotions['dominance']
 
             ### orthographic_neighbourhood
             word_found, orthographic_features = check_orthographic(cue, response)
             if not word_found:
                 word_found, orthographic_features = check_orthographic(cue, response_stem)
-            coded_pairs[(cue, response)].update(orthographic_features)
+            coded_pairs[key].update(orthographic_features)
             totals['orthographic'] += 1 * word_found
 
             ### phonograpic_neighbourhood and subtitle frequency
             word_found, phonographic_features = check_phonographic(response)
             if not word_found:
                 word_found, phonographic_features = check_phonographic(response_stem)
-            coded_pairs[(cue, response)].update(phonographic_features)
+            coded_pairs[key].update(phonographic_features)
             totals['phonographic'] += 1 * word_found
 
             ### semantic atlas from Gallant et. al
             word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
             if not word_found:
                 word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
-            coded_pairs[(cue, response)]['semantic_area'] = response_semantic_area
+            coded_pairs[key]['semantic_area'] = response_semantic_area
             totals['semantic_areas'] += 1 * word_found
             word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
             if not word_found:
                 word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
             changes = response_semantic_area != cue_semantic_area
-            coded_pairs[(cue, response)]['semantic_area_changes'] = changes
+            coded_pairs[key]['semantic_area_changes'] = changes
             totals['semantic_area_changes'] += 1 * changes
 
             # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
             # between them
-            coded_pairs[(cue, response)]['semantic_distance'] = 0
+            coded_pairs[key]['semantic_distance'] = 0
             if changes and cue_semantic_area and response_semantic_area:
-                coded_pairs[(cue, response)]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
+                coded_pairs[key]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
                     cue_semantic_area, response_semantic_area).astype(float)
                 totals['semantic_distance'] += 1
 
             ### part_of_speech
-            word_found, part_of_speech_response = check_part_of_speech(s2v_wrap.s2v, response)
+            word_found, part_of_speech_response = check_part_of_speech(response)
             if not word_found:
-                word_found, part_of_speech_response = check_part_of_speech(s2v_wrap.s2v, response_stem)
+                word_found, part_of_speech_response = check_part_of_speech(response_stem)
             totals['part_of_speech'] += 1 * word_found
-            coded_pairs[(cue, response)]['part_of_speech'] = part_of_speech_response
-            word_found, part_of_speech_cue = check_part_of_speech(s2v_wrap.s2v, cue)
+            coded_pairs[key]['part_of_speech'] = part_of_speech_response
+            word_found, part_of_speech_cue = check_part_of_speech(cue)
             if not word_found:
-                word_found, part_of_speech_cue = check_part_of_speech(s2v_wrap.s2v, cue_stem)
-            coded_pairs[(cue, response)]['part_of_speech_changes'] = False
+                word_found, part_of_speech_cue = check_part_of_speech(cue_stem)
+            coded_pairs[key]['part_of_speech_changes'] = False
             if word_found and part_of_speech_response != part_of_speech_cue:
                 totals['part_of_speech_changes'] += 1
-                coded_pairs[(cue, response)]['part_of_speech_changes'] = True
+                coded_pairs[key]['part_of_speech_changes'] = True
 
             ### list of all words ### this should come last
-            coded_pairs[(cue, response)]['contraction'] = False
+            coded_pairs[key]['contraction'] = False
             if response in ALL_WORDS:
                 # the word appears in the giant list of english words
                 totals['all_words'] += 1
             elif replace_contraction(response) != response:
                 # include the word but note that it happened
-                coded_pairs[(cue, response)]['contraction'] = True
+                coded_pairs[key]['contraction'] = True
                 totals['contractions'] += 1
-            elif len(response.split('_')) == 1 and not part_of_speech_response:
+            elif len(response_split) == 1 and not part_of_speech_response:
                 # this is basically a list of responses that need addressed by future changes
-                print('Word missing from all_words = {}. Removing from coded_pairs.'.format(response))
-                coded_pairs.pop((cue, response))
+                print('Word missing from all_words = {}: {}. Removing from coded_pairs.'.format(cue, response))
+                coded_pairs.pop(key)
 
             # TODO  obscene words
             # TODO  sexual references
@@ -252,7 +248,11 @@ def get_coding(all_pairs):
             #   web status codes (404),
             #   emergency services numbers,
             #   scientific numbers (365, pi, gravity, phi, etc.)
-            #
+        #       ]
+            # TODO food references
+            #  [cocktails,
+            #   recipes,
+            #   etc.
             #   ]
             #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
             #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
@@ -270,49 +270,10 @@ def get_coding(all_pairs):
     save_coded_pairs(coded_pairs, fieldnames)
 
     # pprint.pprint(totals)
-    c = totals
-    l = all_pairs
-    d = [(i, c[i] / len(l) * 100.0) for i, count in c.most_common()]
-    pprint.pprint(d)
-    return coded_pairs
+    return totals
 
 
-def format_cue_response_pairs(all_pairs):
-    cue_response_pairs = []
-    distinct_cue_response_pairs = set()
-
-    for pair in all_pairs:
-        pair = dict(pair)
-        cue = str(pair['cue']).replace(' ', '_').replace('.', '').lower()
-        response = pair['response'].replace(' ', '_').replace('.', '').lower()
-        # this is only really relevant for the wordassoc table
-        response_raw = pair['response_raw'].replace(' ', '_').lower()
-        pair['cue'] = cue
-        pair['response'] = response
-        pair['key'] = (cue, response)
-        cue_response_pairs.append(pair)
-        distinct_cue_response_pairs.add((pair['cue'], pair['response'], pair['response_raw'], pair['source']))
-    return cue_response_pairs, distinct_cue_response_pairs
-
-
-def get_age_bracket(age):
-    bracket = None
-    if age < 25:
-        bracket = '<25'
-    elif age >= 25 and age < 35:
-        bracket = '25-34'
-    elif age >= 35 and age < 45:
-        bracket = '35-44'
-    elif age >= 45 and age < 55:
-        bracket = '45-54'
-    elif age >= 55 and age < 65:
-        bracket = '55-64'
-    elif age >= 65:
-        bracket = '>=65'
-    return bracket
-
-
-def basic_coding(response, response_raw):
+def basic_coding(response, response_raw, response_split):
     basic = {'length': None,
              # 'response_time': None,
              'syllables': None,
@@ -322,8 +283,8 @@ def basic_coding(response, response_raw):
     basic['length'] = len(response)
     basic['syllables'] = syllables(response)
     basic['capitalised'] = str.isupper(response[0])
-    basic['punctuation'] = True if re.match(r'[\.\-\']', response_raw) else False
-    basic['number_of_words'] = len(response.split('_'))
+    basic['punctuation'] = True if re.match(r'[\.\-\',]', response_raw) else False
+    basic['number_of_words'] = len(response_split)
 
     return basic
 
@@ -357,12 +318,10 @@ def syllables(word):
     return syllable_count
 
 
-
-def check_syntagmatic(cue, response):
+def check_syntagmatic(cue, response, response_split):
     # TODO make this work for compounds, common phrases that are not complete in the response
     # e.g. cue is "back" and response is "and forth" (use s2v)
     if '_' in response:
-        response_split = response.split('_')
         if cue in response:
             if cue in response_split:
                 cue_index = response_split.index(cue)
@@ -466,11 +425,11 @@ def check_acquisition_age(response):
     return False, 0
 
 
-def check_part_of_speech(s2vobj, response):
+def check_part_of_speech(response):
     if response in PARTS_OF_SPEECH and PARTS_OF_SPEECH[response] != 0:
         return True, PARTS_OF_SPEECH[response].lower()
     else:
-        best_sense = s2vobj.get_best_sense(response)
+        best_sense = s2v.get_best_sense(response)
         if best_sense:
             return True, best_sense.split('|')[1].lower()
 
@@ -481,27 +440,6 @@ def check_emotions(response):
     if response in EMOTIONS:
         return True, EMOTIONS[response]
     return False, {'valence': 0, 'arousal': 0, 'dominance': 0}
-
-
-def check_spelling(cue, response):
-    if not cue or not response:
-        raise ValueError('Missing cue or response. Cue: {}, Resonse: {}'.format(cue, response))
-    corrections_list = []
-    if '_' in response:
-        response_list = response.split('_')
-    else:
-        response_list = response.split(' ')
-    corrections_dict = {}
-    for response_word in response_list:
-        speller = Spelling(cue, response_word)
-        corrections = speller.get_corrections()
-        if corrections:
-            corrections_dict[response_word] = corrections
-            corrections_list.extend(corrections)
-
-    if len(corrections_list):
-        return True, corrections_list, corrections_dict
-    return False, corrections_list, corrections_dict
 
 
 def check_orthographic(cue, response):

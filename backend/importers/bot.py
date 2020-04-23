@@ -2,18 +2,16 @@ from backend.lib.db import get_part_of_speech, get_cue_response_pairs, execute_v
 import random
 import argparse
 from datetime import datetime as dt
+from backend.helpers.string import clean_word
 
 PARTS_OF_SPEECH = get_part_of_speech()
+
 
 def main():
     all_pairs = [x for x in get_cue_response_pairs()]
     bot_data = create_bot_data(min(len(all_pairs), 20000))
-    delete_responses(source='bot')
-    conn = connect()
-    cur = conn.cursor()
+    delete_responses(source='bot_rand')
     execute_values_wrap('responses', tuple(bot_data[0].keys()), [tuple(x.values()) for x in bot_data])
-    conn.commit()
-    conn.close()
 
 
 def create_bot_data(length):
@@ -24,7 +22,7 @@ def create_bot_data(length):
         template = {'cue': None,
                     'response': None,
                     'source': 'bot_rand',
-                    'user_id': 'bot',
+                    'user_id': 'bot_rand',
                     'created': dt.utcnow(),
                     'time_duration': 0
                     }
@@ -32,6 +30,8 @@ def create_bot_data(length):
         rand_y = words[random.randint(0, len(words) - 1)]
         template['cue'] = rand_x
         template['response'] = rand_y
+        template['cue_clean'] = clean_word(rand_x)
+        template['response_clean'] = clean_word(rand_y)
         bot_data.append(template)
     return bot_data
 

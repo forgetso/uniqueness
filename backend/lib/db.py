@@ -55,27 +55,33 @@ def get_cues(min_length=None, limit=None):
     return [x for x in cur]
 
 
-def get_cue_response_pairs(limit=None):
+def get_cue_response_pairs(limit=None, coded=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     # TODO make this a RIGHT JOIN instead of SELECT IN ?
     query = """ SELECT * FROM (
-                    SELECT r.user_id AS participantID, 
-                            cue AS cue,
-                            r.response AS response_raw, 
+                    SELECT  r.user_id AS user_id, 
+                            r.cue AS cue,
+                            r.response AS response_raw,
+                            r.cue_clean,
+                            r.response_clean,
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
                             CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
                             COUNT(r.response) AS count,
                             source AS source
                         FROM responses r
                         LEFT JOIN corrections c ON r.id = c.response_id
-                        WHERE LENGTH(r.response) > 3
-                        AND LENGTH(r.cue) > 3
-                        AND r.cue IN (SELECT DISTINCT cue FROM wordassoc)
-                        AND r.response != 'Unknown word'
-                        GROUP BY r.user_id, r.cue, r.response, c.correction, r.source
-                        ORDER BY r.cue, r.response ASC
+                """
+    if coded:
+        query += """LEFT JOIN coding cod ON cod.response=r.response_clean AND cod.cue=r.cue_clean\n"""
+
+    query += """ WHERE LENGTH(r.response) > 3
+                AND LENGTH(r.cue) > 3
+                AND r.response != 'Unknown word'
+                GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
+                ORDER BY r.cue, r.response ASC
                 ) responses_group"""
+
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)
@@ -273,10 +279,12 @@ def save_cue_response_pairs_and_corrections(cue_response_pairs):
         if len(corrections_values[idx]) != 4:
             raise ValueError('Field(s) missing from corrections record')
         # cast to tuple to avoid this https://github.com/psycopg/psycopg2/issues/537
-        corrections_values[idx] = tuple(corrections_values[idx])
+        corrections_values[idx] = list(corrections_values[idx])
     # get rid of empty list corrections
-    corrections_values = [c for c in corrections_values if len(c[1])]
-    correction_ids = save_corrections(corrections_values)
+    corrections_values = [tuple(c) for c in corrections_values if len(c[1])]
+    correction_ids = []
+    if corrections_values:
+        correction_ids = save_corrections(corrections_values)
     # cleanup old corrections
     delete_corrections()
     return response_ids, correction_ids
@@ -285,13 +293,17 @@ def save_cue_response_pairs_and_corrections(cue_response_pairs):
 def save_corrections(corrections_values):
     # todo better checks or maybe pass in dict instead, check all values...
     # original word
-    assert (type(corrections_values[0][0]) is str)
-    # corrections
-    assert (type(corrections_values[0][1]) is list)
-    # correction
-    assert (type(corrections_values[0][2]) is str or corrections_values[0][2] is None)
-    # response id
-    assert (type(corrections_values[0][3]) is int)
+    try:
+        assert (type(corrections_values[0][0]) is str)
+        # corrections
+        assert (type(corrections_values[0][1]) is list)
+        # correction
+        assert (type(corrections_values[0][2]) is str or corrections_values[0][2] is None)
+        # response id
+        assert (type(corrections_values[0][3]) is int)
+    except IndexError:
+        print(corrections_values)
+        exit(0)
     fieldnametuple = ('original_word', 'corrections', 'correction', 'response_id')
     correction_ids = execute_values_wrap('corrections', fieldnametuple, corrections_values)
     if len(corrections_values) != len(correction_ids):
@@ -312,7 +324,7 @@ def save_coded_pairs(coded_pairs, fieldnames):
     cur = conn.cursor()
     values = []
     for key, x in coded_pairs.items():
-        value = [key[0], key[1]] + list(x.values())
+        value = tuple([key[0], key[1]] + list(x.values()))
         values.append(value)
         if len(value) != len(fieldnames):
             import pprint
@@ -322,7 +334,7 @@ def save_coded_pairs(coded_pairs, fieldnames):
             print(len(fieldnames))
             print('error')
             exit(0)
-    execute_values_wrap(cur, 'coding', fieldnames, values)
+    execute_values_wrap('coding', fieldnames, values)
     # execute_values_wrap(cur, 'coding', fieldnames,
     #                b      [[key[0], key[1]] + list(x.values()) for key, x in coded_pairs.items()])
     conn.commit()
