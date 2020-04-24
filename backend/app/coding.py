@@ -8,15 +8,12 @@ import jellyfish
 import unidecode
 from backend.lib.wordnet_relations import WordnetRelations
 from collections import Counter
-from backend.lib.multiprocessor import dispatch_jobs, jobs_running
+from backend.lib.multiprocessor import job_pool
 import time
 import argparse
 from backend.importers.semantic_atlas import BrainMap
 from multiprocessing import cpu_count
-# moved this away as it takes ages to load
-# from backend.lib.sense2vec import s2vWrap
 from sense2vec import Sense2Vec
-import num2words
 from backend.settings import SENSE2VEC_FOLDER
 from backend.helpers.pairs import format_cue_response_pairs
 
@@ -57,13 +54,11 @@ def main():
     job_number = cpu_count() / 2
     job_number = 2
     # job_number = 1
-    jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
-    while jobs_running(jobs):
-        print('Jobs running')
-        time.sleep(5)
-    else:
-        end = time.perf_counter()
-        print('time taken {}'.format(end - start))
+    # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
+    jobs = job_pool(list(distinct_cue_response_pairs), job_number, get_coding)
+
+    end = time.perf_counter()
+    print('time taken {}'.format(end - start))
 
 
 def get_coding(distinct_cue_response_pairs, **kwargs):
@@ -214,7 +209,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
             ### list of all words ### this should come last
             coded_pairs[key]['contraction'] = False
             if response in ALL_WORDS:
-                # the word appears in the giant list of english words
+                # the word(s) appear(s) in the giant list of english words
                 totals['all_words'] += 1
             elif replace_contraction(response) != response:
                 # include the word but note that it happened
@@ -249,18 +244,18 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
             #   emergency services numbers,
             #   scientific numbers (365, pi, gravity, phi, etc.)
         #       ]
-            # TODO food references
-            #  [cocktails,
-            #   recipes,
-            #   etc.
-            #   ]
-            #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
-            #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
-            #   game, Portal.
-            # TODO  company reference [walmart, asda, etc.]
-            # TODO  geographical_reference [country, state, city, town, village, post code]
-            # TODO  corpus_similarity
-            # TODO  dictionary_similarity
+        # TODO food references
+        #  [cocktails,
+        #   recipes,
+        #   etc.
+        #   ]
+        #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
+        #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
+        #   game, Portal.
+        # TODO  company reference [walmart, asda, etc.]
+        # TODO  geographical_reference [country, state, city, town, village, post code]
+        # TODO  corpus_similarity
+        # TODO  dictionary_similarity
     if not fieldnames:
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
@@ -320,7 +315,7 @@ def syllables(word):
 
 def check_syntagmatic(cue, response, response_split):
     # TODO make this work for compounds, common phrases that are not complete in the response
-    # e.g. cue is "back" and response is "and forth" (use s2v)
+
     if '_' in response:
         if cue in response:
             if cue in response_split:
@@ -334,6 +329,12 @@ def check_syntagmatic(cue, response, response_split):
                     return True, 'othercollocational'
             else:
                 return True, 'othercollocational'
+        # if the cue is not in the response
+        if len(response_split) == 2:
+            # first word of response is a conjunction
+            # e.g. cue is "back" and response is "and forth"
+            if response_split[0] in ('for', 'and', 'nor', 'but', 'or', 'yet', 'so'):
+                return True, 'consecutivexy-cue_not_entered'
 
     return False, None
 
@@ -489,12 +490,6 @@ def check_phonographic(response):
     return False, features
 
 
-def convert_numbers_to_text(word):
-    text_word = word
-    if re.match('^\d+$', word):
-        text_word = num2words.num2words(word)
-        print('converted {} to {}'.format(word, text_word))
-    return text_word
 
 
 def setup():

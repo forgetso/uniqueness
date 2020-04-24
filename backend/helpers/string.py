@@ -12,6 +12,14 @@ def clean_word(word):
     return word
 
 
+# def convert_numbers_to_text(word):
+#     text_word = word
+#     if re.match('^\d+$', word):
+#         text_word = num2words.num2words(word)
+#         print('converted {} to {}'.format(word, text_word))
+#     return text_word
+
+
 # Returns
 #   spelling incorrect (True/False)
 #   list of corrections
@@ -35,5 +43,3 @@ def check_spelling(cue, response):
     if len(corrections_list):
         return True, corrections_list, corrections_dict
     return False, corrections_list, corrections_dict
-
-

@@ -1,4 +1,5 @@
 import multiprocessing
+from multiprocessing import Pool
 
 
 # split a list into evenly sized chunks
@@ -17,6 +18,15 @@ def dispatch_jobs(data, job_number, job_to_do, **kwargs):
         jobs.append(j)
     for j in jobs:
         j.start()
+    return jobs
+
+
+def job_pool(data, job_number, job_to_do, **kwargs):
+    total = len(data)
+    chunk_size = total / job_number
+    slices = chunks(data, int(chunk_size))
+    pool = multiprocessing.Pool(processes=job_number)
+    jobs = pool.map(job_to_do, slices)
     return jobs
 
 

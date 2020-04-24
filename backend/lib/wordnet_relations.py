@@ -1,5 +1,7 @@
 from nltk.corpus import wordnet as wn
 import nltk
+from nltk.stem import PorterStemmer
+from backend.helpers.string import clean_word
 
 synset_relations = [
     'derivationally_related_forms',
@@ -32,17 +34,30 @@ lemma_relations = [
     'pertainyms'
 ]
 
-#nltk.download('wordnet')
+
+# nltk.download('wordnet')
 
 
 class WordnetRelations:
 
     def __init__(self, cue, response):
+        ps = PorterStemmer()
+        #print('Cue - Response: {} - {}'.format(cue, response))
+        clean_cue = clean_word(cue)
+        clean_response = clean_word(response)
+        stem_cue = ps.stem(clean_cue)
+        stem_response = ps.stem(clean_response)
+        self.cue = stem_cue
+        self.response = stem_response
+        self.synsets_cue = wn.synsets(stem_cue)
+        if not self.synsets_cue:
+            self.synsets_cue = wn.synsets(clean_cue)
+            self.cue = clean_cue
+        self.synsets_response = wn.synsets(stem_response)
+        if not self.synsets_response:
+            self.synsets_response = wn.synsets(clean_response)
+            self.response = clean_response
 
-        self.cue = cue.lower()
-        self.response = response.replace(' ', '_').replace('.', '').lower()
-        self.synsets_cue = wn.synsets(self.cue)
-        self.synsets_response = wn.synsets(self.response)
         # set the relations
         self.relations = {x: False for x in synset_relations}
         self.relations['synonym'] = self.get_synonym()
@@ -50,11 +65,12 @@ class WordnetRelations:
         for relation in synset_relations:
             self.relations[relation] = self.get_related(relation, response)
         for relation in lemma_relations:
-            self.relations[relation] = self.get_related_lemmas(relation, response)
+            self.relations[relation] = self.get_related_lemmas(relation, response, self.synsets_cue,
+                                                               self.synsets_response)
         if not self.relations['antonyms']:
             self.relations['antonyms'] = self.get_antonym(self.cue, self.response)
         self.relation_types = synset_relations + ['synonym'] + lemma_relations
-        #TODO disallow root hypernym [Synset('entity.n.01')]
+        # TODO disallow root hypernym [Synset('entity.n.01')] ??
 
     def affix(self):
         return
@@ -101,19 +117,23 @@ class WordnetRelations:
                 #     print('{} {}'.format(relation, cue_related))
         return result
 
-    def get_related_lemmas(self, relation, response):
-        for cue_synset in self.synsets_cue:
-            for cue_lemma in cue_synset.lemmas():
+    def get_related_lemmas(self, relation, response, synsets_cue, synsets_response):
+        for cue_synset in synsets_cue:
+            cue_lemmas = cue_synset.lemmas()
+            for cue_lemma in cue_lemmas:
                 cue_related_lemmas = getattr(cue_lemma, relation)()
                 if self.check_word_in_lemmas(response, cue_related_lemmas):
                     return True
-                for response_synset in self.synsets_response:
+                for response_synset in synsets_response:
+                    response_lemmas = response_synset.lemmas()
+                    if self.check_intersection(cue_related_lemmas, response_lemmas):
+                        return True
                     for response_lemma in response_synset.lemmas():
                         response_related_lemmas = getattr(response_lemma, relation)()
-                        if cue_related_lemmas and response_related_lemmas:
-                            if self.check_intersection(getattr(cue_lemma, relation)(),
-                                                       getattr(response_lemma, relation)()):
-                                return True
+                        if self.check_intersection(cue_related_lemmas, response_related_lemmas):
+                            return True
+                        if self.check_intersection(cue_lemmas, response_related_lemmas):
+                            return True
         return False
 
     def check_word_in_synsets(self, word, synsets):
