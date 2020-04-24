@@ -1,3 +1,4 @@
+from backend.helpers.string import syllables
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
     get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic, \
     get_all_words, get_part_of_speech
@@ -16,6 +17,8 @@ from multiprocessing import cpu_count
 from sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER
 from backend.helpers.pairs import format_cue_response_pairs
+import os
+import pprint
 
 AFFIXES = [x.get('affix') for x in get_affixes()]
 PREVALENCES = get_prevalences()
@@ -56,9 +59,21 @@ def main():
     # job_number = 1
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
     jobs = job_pool(list(distinct_cue_response_pairs), job_number, get_coding)
-
     end = time.perf_counter()
     print('time taken {}'.format(end - start))
+
+    # take the individual results and sum them
+    totals = Counter()
+    for result in jobs:
+        totals = totals + result
+    pprint.pprint(totals)
+
+    # check the percentages of each categorisation
+    c = totals
+    l = all_pairs
+    d = [(i, c[i] / len(l) * 100.0) for i, count in c.most_common()]
+    pprint.pprint(d)
+    exit()
 
 
 def get_coding(distinct_cue_response_pairs, **kwargs):
@@ -263,8 +278,8 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # print(fieldnames)
     # save data to the db
     save_coded_pairs(coded_pairs, fieldnames)
+    print('Job with PID {} reached end'.format(os.getpid()))
 
-    # pprint.pprint(totals)
     return totals
 
 
@@ -294,23 +309,6 @@ def relation_coding(cue, response):
             totals.setdefault(relation_type, 0)
             totals[relation_type] += 1
     return relations, totals
-
-
-def syllables(word):
-    syllable_count = 0
-    vowels = 'aeiouy'
-    if word[0] in vowels:
-        syllable_count += 1
-    for index in range(1, len(word)):
-        if word[index] in vowels and word[index - 1] not in vowels:
-            syllable_count += 1
-    if word.endswith('e'):
-        syllable_count -= 1
-    if word.endswith('le') and len(word) > 2 and word[-3] not in vowels:
-        syllable_count += 1
-    if syllable_count == 0:
-        syllable_count += 1
-    return syllable_count
 
 
 def check_syntagmatic(cue, response, response_split):
@@ -488,8 +486,6 @@ def check_phonographic(response):
         features = {k: v for k, v in PHONOGRAPHIC[response].items() if k in features.keys()}
         return True, features
     return False, features
-
-
 
 
 def setup():
