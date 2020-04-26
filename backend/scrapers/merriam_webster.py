@@ -1,35 +1,56 @@
 import requests
 import pymongo
 from backend.lib.db import get_acquisition_ages
+from bs4 import BeautifulSoup
+import re
 
 ACQUISITION_AGES = get_acquisition_ages()
+SOURCE = 'merriam_webster'
+
 
 def process():
+    uri = 'https://www.merriam-webster.com/dictionary/{word}'
+    db = pymongo.MongoClient(host='localhost')['words_to_scrape']
+    word_doc = db.words.find_one({"sources.{}".format(SOURCE): {'$exists': False}})
+    print(word_doc)
+    word = word_doc['word']
 
-    uri = 'https://www.merriam-webster.com/thesaurus/{word}'
-    word =
     uri_filled = uri.format(word=word)
     request_obj = requests.get(uri_filled)
+    soup = BeautifulSoup(request_obj.content, 'html.parser')
+    definition_wrapper = soup.find(id="definition-wrapper")
 
-    result = request_obj.json()
+    definitions = []
+    synonyms = {}
+    antonyms = {}
 
-    if result['status'] == 'ok':
-        db = pymongo.MongoClient(host='localhost')['merriam_webster']
-        for record in result['data']:
-            record['_id'] = record['id']
-            record.pop('id')
-            db.data.update({'_id': record['_id']}, record, upsert=True)
+    definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
 
-def get_next_word():
+    for defition_div in definitions_container:
+        definitions_text = defition_div.find('span', {'class': 'dtText'})
+        definitions.append(re.sub(r'\s{2,}', ' ', definitions_text.get_text().strip().replace('\n', '')))
+
+    syn_ant_wrapper = soup.find(id="synonyms-anchor")
+    if syn_ant_wrapper:
+        syn_ant_lists = syn_ant_wrapper.findAll('ul', {'class': 'mw-list'})
+
+        if len(syn_ant_lists):
+            for syn_ant_list in syn_ant_lists:
+                previous = syn_ant_list.previous_sibling.lower()
+                pos = previous.split(':')[1].strip()
+                if 'synonym' in previous:
+                    synonyms[pos] = syn_ant_list.get_text()
+                if 'antonym' in previous:
+                    antonyms[pos] = syn_ant_list.get_text()
+
+    if definitions:
+        result = {word: {'definitions': definitions, 'synonyms': synonyms, 'antonyms': antonyms}}
+
+        db.mw.update({'word': word}, result, upsert=True)
+        db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
 
 
 def setup():
-    # parser = argparse.ArgumentParser(description='Import various types of word data')
-    # parser.add_argument('--wordassoc', action='store_true', help='Small world of words data')
-    # parser.add_argument('--responses', action='store_true', help='Responses table refresh')
-    # parser.add_argument('--affix', action='store_true', help='Affixes')
-    # parser.add_argument('--norms', action='store_true', help='Word association norms')
-    # args = parser.parse_args()
     process()
 
 
