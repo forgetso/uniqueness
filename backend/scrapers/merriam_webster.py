@@ -17,6 +17,8 @@ def process(word=None):
         word = word_doc['word']
 
     uri_filled = uri.format(word=word)
+    user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36'
+    headers = {'User-Agent': user_agent}
     request_obj = requests.get(uri_filled)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
     definition_wrapper = soup.find(id="definition-wrapper")
