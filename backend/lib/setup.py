@@ -2,12 +2,26 @@ from backend.lib.db import connect
 import logging
 import getpass
 import argparse
+from backend import settings
+
 
 def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=None, concreteness=None, age=None,
              emotions=None, orthographic=None, phonographic=None, all_words=None):
     # "id","participantID","created_at","age","nativeLanguage","gender","education","city","country","section","cue","R1Raw","R2Raw","R3Raw","R1","R2","R3"
     conn = connect()
     cur = conn.cursor()
+
+    ########## USER PRIVILEGES ########## This allows the normal linux user to access all tables in the backend database
+    query = """CREATE user backend with encrypted password {}""".format(settings.PG_PASSWORD)
+    cur.execute(query)
+    query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO backend;"""
+    cur.execute(query)
+    currentuser = getpass.getuser()
+    query = """CREATE user {} with encrypted password {}""".format(currentuser, settings.PG_PASSWORD)
+    cur.execute(query)
+    query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {};""".format(currentuser)
+    cur.execute(query)
+    conn.commit()
 
     if wordassoc:
         # ---------------------------------------------- wordassoc table ----------------------------------------------#
@@ -337,18 +351,13 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     """)
     conn.commit()
 
-    ########## USER PRIVILEGES ########## This allows the normal linux user to access all tables in the backend database
-    currentuser = getpass.getuser()
-    query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {};""".format(currentuser)
-    cur.execute(query)
-    conn.commit()
-
 
 def setup():
     parser = argparse.ArgumentParser(description='DB setup')
     parser.add_argument('--responses', action='store_true', help='Delete the responses table')
     args = parser.parse_args()
     db_setup(responses=args.responses)
+
 
 if __name__ == "__main__":
     setup()
