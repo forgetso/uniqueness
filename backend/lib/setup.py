@@ -12,10 +12,10 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     cur = conn.cursor()
 
     ########## USER PRIVILEGES ########## This allows the normal linux user to access all tables in the backend database
-    query = """CREATE user backend with encrypted password '{}'""".format(settings.PG_PASSWORD)
-    cur.execute(query)
-    query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO backend;"""
-    cur.execute(query)
+    # query = """CREATE user backend with encrypted password '{}'""".format(settings.PG_PASSWORD)
+    # cur.execute(query)
+    # query = """GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO backend;"""
+    # cur.execute(query)
     currentuser = getpass.getuser()
     query = """CREATE user {} with encrypted password '{}'""".format(currentuser, settings.PG_PASSWORD)
     cur.execute(query)
