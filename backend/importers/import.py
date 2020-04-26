@@ -145,7 +145,7 @@ def process(wordassoc=None, responses=None, affix=None, norms=None, prevalences=
                 rowlist = list(row.values())
                 edited_row = rowlist[0:8]
                 edited_row.extend(rowlist[10:12])
-                age_of_acquisitions.append(edited_row)
+                age_of_acquisitions.append(tuple(edited_row))
             db.execute_values_wrap('acquisition_age', (
                 'word', 'alternative_spelling', 'freq_pm', 'dom_pos_subtlex', 'num_letters', 'num_phon',
                 'num_syllables', 'lemma_highest_pos', 'aoa_kup_lemma', 'percent_known_lemma',), age_of_acquisitions)
