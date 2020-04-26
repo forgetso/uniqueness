@@ -1,11 +1,8 @@
 from nltk.corpus import wordnet as wn
-import nltk
 from nltk.stem import PorterStemmer
 from backend.helpers.string import clean_word
 
 synset_relations = [
-    'derivationally_related_forms',
-    'pertainyms',
     'instance_hypernyms',
     'hyponyms',
     'instance_hyponyms',
@@ -42,7 +39,7 @@ class WordnetRelations:
 
     def __init__(self, cue, response):
         ps = PorterStemmer()
-        #print('Cue - Response: {} - {}'.format(cue, response))
+        # print('Cue - Response: {} - {}'.format(cue, response))
         clean_cue = clean_word(cue)
         clean_response = clean_word(response)
         stem_cue = ps.stem(clean_cue)
@@ -50,6 +47,7 @@ class WordnetRelations:
         self.cue = stem_cue
         self.response = stem_response
         self.synsets_cue = wn.synsets(stem_cue)
+        self.counter = 0
         if not self.synsets_cue:
             self.synsets_cue = wn.synsets(clean_cue)
             self.cue = clean_cue
@@ -63,7 +61,7 @@ class WordnetRelations:
         self.relations['synonym'] = self.get_synonym()
 
         for relation in synset_relations:
-            self.relations[relation] = self.get_related(relation, response)
+            self.relations[relation] = self.get_related(relation, response, self.synsets_cue, self.synsets_response)
         for relation in lemma_relations:
             self.relations[relation] = self.get_related_lemmas(relation, response, self.synsets_cue,
                                                                self.synsets_response)
@@ -101,21 +99,38 @@ class WordnetRelations:
     # >> > wn.synsets('town')[0].hypernyms()[0].hypernyms()[0].hypernyms()[0].hypernyms()
     # [Synset('region.n.03')]
 
-    def get_related(self, relation, response):
-        result = False
-        for cue_synset in self.synsets_cue:
-            if hasattr(cue_synset, relation):
-                cue_related = getattr(cue_synset, relation)()
-                for response_synset in self.synsets_response:
-                    response_related = getattr(response_synset, relation)()
-                    intersection = self.check_intersection(cue_related, response_related)
+    def get_related(self, relation, response, synsets_cue, synsets_response):
+        for cue_synset in synsets_cue:
+            cue_related_synsets = getattr(cue_synset, relation)()
+            if self.check_intersection(cue_related_synsets, synsets_response):
+                return True
+            for response_synset in synsets_response:
+                response_related_synsets = getattr(response_synset, relation)()
+                if self.check_intersection(synsets_cue, response_related_synsets):
+                    return True
+                if self.check_intersection(cue_related_synsets, response_related_synsets):
+                    return True
+                if self.check_word_in_synsets(response, cue_related_synsets):
+                    return True
+                for response_related_synset in response_related_synsets:
+                    intersection = self.check_intersection(cue_synset.lemmas(), response_related_synset.lemmas())
                     if intersection:
-                        result = True
-                    if self.check_word_in_synsets(response, cue_related):
-                        result = True
-                # if cue_related:
-                #     print('{} {}'.format(relation, cue_related))
-        return result
+                        self.counter += 1
+                        return True
+                    # This returns a lot more hyponyms and hypernyms but has quite a few false positives
+                    # for cue_related_synset in cue_related_synsets:
+                    #     intersection = self.check_intersection(cue_related_synset.lemmas(),
+                    #                                            response_related_synset.lemmas())
+                    #     if intersection:
+                    #         self.counter += 1
+                    #         print('Found cue_related_synset, response_related_synset match {} {}: {} - {}, {}'.format(
+                    #             self.counter,
+                    #             relation,
+                    #             self.cue,
+                    #             self.response,
+                    #             list(intersection)[0].name()))
+                    #         return True
+        return False
 
     def get_related_lemmas(self, relation, response, synsets_cue, synsets_response):
         for cue_synset in synsets_cue:
