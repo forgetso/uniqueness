@@ -72,6 +72,9 @@ frontend/.idea/
 # production
 /build
 
+# jupyter
+*.ipynb
+
 # misc
 .DS_Store
 .env.local

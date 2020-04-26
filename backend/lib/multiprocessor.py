@@ -1,5 +1,4 @@
 import multiprocessing
-from multiprocessing import Pool
 
 
 # split a list into evenly sized chunks

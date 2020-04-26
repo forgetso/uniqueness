@@ -5,15 +5,17 @@ from bs4 import BeautifulSoup
 import re
 import argparse
 import random
+
 ACQUISITION_AGES = get_acquisition_ages()
 SOURCE = 'merriam_webster'
 
 user_agent_list = [
-   #Chrome on Windows
+    # Chrome on Windows
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36',
     'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36',
     'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36'
 ]
+
 
 def process(word=None):
     uri = 'https://www.merriam-webster.com/dictionary/{word}'
@@ -58,13 +60,14 @@ def process(word=None):
         pos_list = [getPos(soup)]
 
     if definitions:
-        result = {word:
-            {
-                'definitions': definitions,
-                'synonyms': synonyms,
-                'antonyms': antonyms,
-                'pos': pos_list
-            }
+        result = {
+            word:
+                {
+                    'definitions': definitions,
+                    'synonyms': synonyms,
+                    'antonyms': antonyms,
+                    'pos': pos_list
+                }
         }
         db.mw.update({'word': word}, result, upsert=True)
         db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})

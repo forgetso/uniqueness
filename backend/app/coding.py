@@ -2,6 +2,7 @@ from backend.helpers.string import syllables
 from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
     get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic, \
     get_all_words, get_part_of_speech
+from backend.lib.setup import db_setup
 from backend.lib.contractions import replace_contraction
 from nltk.stem import PorterStemmer
 import re
@@ -49,6 +50,9 @@ def main():
     all_pairs = [x for x in get_cue_response_pairs()]
     print('loaded cue response pairs')
     delete_coded_pairs()
+    # make sure all of the required columns are in the coding table
+    db_setup()
+
     # TODO make this DISTINCT in the query? Or make a new function for that?
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
     if not all_pairs:
@@ -108,7 +112,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
         response_split = response.split('_')
         if len(cue) > 3:
 
-            coded_pairs[key] = basic_coding(response, response_raw, response_split)
+            coded_pairs[key] = basic_coding(cue, response, response_raw, response_split)
             # coded_pairs[key]['source'] = source
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
@@ -230,10 +234,10 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
                 # include the word but note that it happened
                 coded_pairs[key]['contraction'] = True
                 totals['contractions'] += 1
-            elif len(response_split) == 1 and not part_of_speech_response:
-                # this is basically a list of responses that need addressed by future changes
-                print('Word missing from all_words = {}: {}. Removing from coded_pairs.'.format(cue, response))
-                coded_pairs.pop(key)
+            # elif len(response_split) == 1 and not part_of_speech_response:
+            #     # this is basically a list of responses that need addressed by future changes
+            #     print('Word missing from all_words = {}: {}. Removing from coded_pairs.'.format(cue, response))
+            #     coded_pairs.pop(key)
 
             # TODO  obscene words
             # TODO  sexual references
@@ -283,7 +287,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     return totals
 
 
-def basic_coding(response, response_raw, response_split):
+def basic_coding(cue, response, response_raw, response_split):
     basic = {'length': None,
              # 'response_time': None,
              'syllables': None,
@@ -292,8 +296,9 @@ def basic_coding(response, response_raw, response_split):
              'number_of_words': None}
     basic['length'] = len(response)
     basic['syllables'] = syllables(response)
+    basic['syllables_diff'] = basic['syllables'] - syllables(cue)
     basic['capitalised'] = str.isupper(response[0])
-    basic['punctuation'] = True if re.match(r'[\.\-\',]', response_raw) else False
+    basic['punctuation'] = True if re.search(r'[\.\-\',]', response_raw) else False
     basic['number_of_words'] = len(response_split)
 
     return basic

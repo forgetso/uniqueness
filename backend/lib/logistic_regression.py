@@ -58,7 +58,7 @@ def getData():
     print('{} coded pairs'.format(len(dataset)))
     df = pd.DataFrame(dataset)
     df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'user_id'])
-    df = df.drop(columns=['length', 'syllables', 'number_of_words', 'nphon'])
+    df = df.drop(columns=['length', 'syllables', 'number_of_words', 'nphon', 'exact'])
 
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',

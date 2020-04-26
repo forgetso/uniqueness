@@ -5,7 +5,7 @@ import json
 import argparse
 import pprint
 from backend.lib.db import delete_responses, save_cue_response_pairs_and_corrections
-from backend.lib.multiprocessor import dispatch_jobs, jobs_running
+from backend.lib.multiprocessor import job_pool
 from backend.helpers.string import check_spelling
 import multiprocessing as mp
 from backend.helpers.string import clean_word
@@ -21,10 +21,10 @@ def main(download=False):
         id_rsa = '{}/.ssh/id_rsa'.format(home)
         p = subprocess.Popen(
             ["scp", id_rsa, "ubuntu@ec2-52-14-41-217.us-east-2.compute.amazonaws.com:/tmp/humanbrain.json", target])
-        # scp -i ~/.ssh/id_rsa ubuntu@ec2-52-14-41-217.us-east-2.compute.amazonaws.com:/tmp/humanbrain.json ~/dev/uniqueness/data/humanbrain.json
         while p.poll() is None:
-            print('Waiting for data...')
+            print('\nWaiting for data...\n')
             time.sleep(5)
+        else:
             multiprocess_human_brain_cloud_data(target_file)
     else:
         multiprocess_human_brain_cloud_data(target_file)
@@ -37,14 +37,12 @@ def multiprocess_human_brain_cloud_data(target_file):
     delete_responses(SOURCE)
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
-    jobs = dispatch_jobs(json_data, job_number, process_data)
-    while jobs_running(jobs):
-        print(
-            '---------------------------------------------Jobs running-----------------------------------------------')
-        time.sleep(5)
-    else:
-        end = time.perf_counter()
-        print('time taken {}'.format(end - start))
+    jobs = job_pool(json_data, job_number, process_data)
+    end = time.perf_counter()
+    print('time taken {}'.format(end - start))
+
+    # take the individual results and sum them
+    print('saved {} records'.format(sum(jobs)))
 
 
 def process_data(json_data):
@@ -78,7 +76,7 @@ def process_data(json_data):
                     # distinct_responses.add(formatted_sub_record['response'])
     if responses:
         save_cue_response_pairs_and_corrections(responses)
-    print('{} records saved'.format(len(responses)))
+        return len(responses)
 
 
 def format_record(record):

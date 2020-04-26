@@ -1,4 +1,4 @@
-from backend.app.coding import check_syntagmatic, check_phonology, check_affix, relation_coding
+from backend.app.coding import check_syntagmatic, check_phonology, check_affix, relation_coding, basic_coding
 
 
 def test_check_syntagmatic():
@@ -69,3 +69,17 @@ def test_relation_coding():
     relations, totals = relation_coding(cue, response)
     assert (relations['antonyms'])
     assert (totals['antonyms'] == 1)
+
+
+def test_basic_coding():
+    cue = "Blahblahblah'"
+    response = 'Chat_and_business'
+    basic = basic_coding(cue, response, response_raw=response, response_split=response.split('_'))
+    assert (basic['length'] == 17)
+    assert (basic['syllables'] == 5)
+    assert (basic['syllables_diff'] == 2)
+    assert (basic['capitalised'])
+    assert (basic['punctuation'])
+    assert (basic['number_of_words'] == 3)
+
+
