@@ -12,7 +12,6 @@ def process():
     uri = 'https://www.merriam-webster.com/dictionary/{word}'
     db = pymongo.MongoClient(host='localhost')['words_to_scrape']
     word_doc = db.words.find_one({"sources.{}".format(SOURCE): {'$exists': False}})
-    print(word_doc)
     word = word_doc['word']
 
     uri_filled = uri.format(word=word)
