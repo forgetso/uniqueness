@@ -73,7 +73,7 @@ def get_cue_response_pairs(limit=None, coded=None):
                         LEFT JOIN corrections c ON r.id = c.response_id
                 """
     if coded:
-        query += """LEFT JOIN coding cod ON cod.response=r.response_clean AND cod.cue=r.cue_clean\n"""
+        query += """RIGHT JOIN coding cod ON cod.response=r.response_clean AND cod.cue=r.cue_clean\n"""
 
     query += """ WHERE LENGTH(r.response) > 3
                 AND LENGTH(r.cue) > 3
@@ -81,7 +81,8 @@ def get_cue_response_pairs(limit=None, coded=None):
                 GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
                 ORDER BY r.cue, r.response ASC
                 ) responses_group"""
-
+    print(query)
+    exit(0)
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)
@@ -223,12 +224,24 @@ def get_all_words():
     # TODO should I be returning cursors and letting the script evaluate them when it needs them?
     conn = connect()
     cur = conn.cursor()
-    query = """SELECT word FROM all_words"""
+    query = """SELECT word FROM all_words ORDER BY word ASC"""
     cur.execute(query)
     result = set([x[0] for x in cur])
     conn.close()
     return result
 
+def get_all_measures():
+    conn = connect()
+    cur=conn.cursor()
+    query = """SELECT * FROM orthographic o
+                LEFT JOIN concreteness c ON o.word=c.word
+                LEFT JOIN prevalences p ON o.word=p.word
+                LEFT JOIN emotions e ON o.word=e.word
+                LEFT JOIN acquisition_age a ON o.word=a.word
+                LEFT JOIN phonographic phon ON o.word=phon.word
+                ORDER BY o.word ASC;"""
+    cur.execute(query)
+    result = set([x[0] for x in cur])
 
 def save_cue_response_pair(cue_response_pair):
     cue = cue_response_pair['cue']

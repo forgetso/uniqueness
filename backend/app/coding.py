@@ -16,12 +16,14 @@ import argparse
 from backend.importers.semantic_atlas import BrainMap
 from multiprocessing import cpu_count
 from sense2vec import Sense2Vec
-from backend.settings import SENSE2VEC_FOLDER
+from backend.settings import SENSE2VEC_FOLDER, SEMANTIC_SPACE_FOLDER
 from backend.helpers.pairs import format_cue_response_pairs
 import os
 import pprint
+import numpy as np
 
-AFFIXES = [x.get('affix') for x in get_affixes()]
+# set of affixes
+AFFIXES = {x.get('affix') for x in get_affixes()}
 PREVALENCES = get_prevalences()
 CONCRETENESSES = get_concretenesses()
 ACQUISITION_AGES = get_acquisition_ages()
@@ -29,10 +31,11 @@ PARTS_OF_SPEECH = get_part_of_speech()
 EMOTIONS = get_emotions()
 ORTHOGRAPHIC = get_orthographic()
 PHONOGRAPHIC = get_phonographic()
-COMMON_NORMS = get_common_norms()
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
 s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
+ENGLISH1000_VOCAB = [x.decode('utf8') for x in semantic_space_data['english1000_vocab']]
 TOTALS = {
     'phonology': 0,
     'exact': 0,
@@ -110,7 +113,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
         cue_stem = ps.stem(cue_decoded)
         # TODO use this throughout instead of splitting multiple times
         response_split = response.split('_')
-        if len(cue) > 3:
+        if len(cue) > 3 and word_filter(key[0]) and word_filter(key[1]):
 
             coded_pairs[key] = basic_coding(cue, response, response_raw, response_split)
             # coded_pairs[key]['source'] = source
@@ -133,7 +136,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
 
             ### syntagmatic (x follows y, y follows x)
             syntagmatic, type = check_syntagmatic(cue, response, response_split)
-            coded_pairs[key]['syntagmatic'] = syntagmatic
+            coded_pairs[key]['syntagmatic'] = type
             totals['syntagmatic'] += 1 * syntagmatic
 
             # TODO add s2v check for syntagmatic
@@ -287,6 +290,12 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     return totals
 
 
+def word_filter(word):
+    if word in ENGLISH1000_VOCAB:
+        return True
+    return False
+
+
 def basic_coding(cue, response, response_raw, response_split):
     basic = {'length': None,
              # 'response_time': None,
@@ -339,6 +348,14 @@ def check_syntagmatic(cue, response, response_split):
             if response_split[0] in ('for', 'and', 'nor', 'but', 'or', 'yet', 'so'):
                 return True, 'consecutivexy-cue_not_entered'
 
+    joined_word_x_y = ''.join([cue, response])
+    if joined_word_x_y in ALL_WORDS:
+        return True, 'consecutivexy'
+
+    joined_word_y_x = ''.join([response, cue])
+    if joined_word_y_x in ALL_WORDS:
+        return True, 'consecutiveyx'
+
     return False, None
 
 
@@ -360,6 +377,7 @@ def check_phonology(cue, response):
     #     return True, 'soundex'
 
     # TODO add zero to the end of shorter  last two?
+    # FIXME This is too loose a definition
     try:
         # e.g. C630 M300
         if response_soundex[-3:].index(cue_soundex[-2:]) > -1 and levenshtein_distance <= 3:

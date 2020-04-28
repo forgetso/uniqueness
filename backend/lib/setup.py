@@ -315,7 +315,7 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     antonyms bool,
     phonology bool,
     exact bool,
-    syntagmatic bool,
+    syntagmatic text,
     affix bool,
     prevalent bool,
     concrete bool,

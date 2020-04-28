@@ -39,7 +39,8 @@ def process(word=None):
 
     for defition_div in definitions_container:
         definitions_text = defition_div.find('span', {'class': 'dtText'})
-        definitions.append(re.sub(r'\s{2,}', ' ', definitions_text.get_text().strip().replace('\n', '')))
+        if definitions_text:
+            definitions.append(re.sub(r'\s{2,}', ' ', definitions_text.get_text().strip().replace('\n', '')))
 
     syn_ant_wrapper = soup.find(id="synonyms-anchor")
     if syn_ant_wrapper:

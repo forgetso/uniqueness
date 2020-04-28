@@ -6,6 +6,10 @@ from nilearn import datasets
 
 # TODO import this data to the database ??
 
+# TODO Even when restricting the algorithm to words used in the Gallant vocab, roughly 12% of words do not return a semantic area.
+#   Is this because they are not statistically significant in a voxel?
+
+
 class BrainMap():
 
     def __init__(self):
@@ -57,6 +61,7 @@ class BrainMap():
         return found, result
 
     def get_semantic_coordinates(self, label):
+        #TODO right AND left hemisphere
         coordinates = None
         for hemi in self.hemi_data:
             if label in self.coordinates[hemi]:

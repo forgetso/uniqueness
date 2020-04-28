@@ -3,9 +3,11 @@ import random
 import argparse
 from datetime import datetime as dt
 from backend.helpers.string import clean_word
-
+import numpy as np
+from backend.settings import SEMANTIC_SPACE_FOLDER
 PARTS_OF_SPEECH = get_part_of_speech()
-
+semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
+ENGLISH1000_VOCAB = [x.decode('utf8') for x in semantic_space_data['english1000_vocab']]
 
 def main():
     all_pairs = [x for x in get_cue_response_pairs()]
@@ -17,7 +19,7 @@ def main():
 def create_bot_data(length):
     print('Creating {} dummy pairs'.format(length))
     bot_data = []
-    words = list(PARTS_OF_SPEECH.keys())
+    words = ENGLISH1000_VOCAB
     for i in range(0, length - 1):
         template = {'cue': None,
                     'response': None,

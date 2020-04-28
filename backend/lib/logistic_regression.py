@@ -14,8 +14,8 @@ def main(sample_size=None):
     data = getData()
     sample_size = sample_size or SAMPLE_SIZE
     batched_data = batch_data(data, sample_size)
-    coefs, columns = logisticRegression(batched_data)
-    return coefs, columns
+    classes, coefs, columns = logisticRegression(batched_data)
+    return classes, coefs, columns
 
 
 def logisticRegression(data):
@@ -32,9 +32,10 @@ def logisticRegression(data):
     logmodel = LogisticRegression()
     logmodel.fit(X__train_scaled, y_train)
     # predictions
+
     predictions = logmodel.predict(X_test_scaled)
     print(classification_report(y_test, predictions))
-    return logmodel.coef_, data.columns
+    return logmodel.classes_, logmodel.coef_, data.columns
 
 
 def getData():
@@ -52,13 +53,13 @@ def getData():
             data_dict.update({'source': pair['source']})
             dataset.append(data_dict)
         else:
-            print('Key pair {} not present in coding table. Source {}'.format(pair['key'], pair['source']))
+            #print('Key pair {} not present in coding table. Source {}'.format(pair['key'], pair['source']))
             missing_pair += 1
     print('{} missing pairs'.format(missing_pair))
     print('{} coded pairs'.format(len(dataset)))
     df = pd.DataFrame(dataset)
     df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'user_id'])
-    df = df.drop(columns=['length', 'syllables', 'number_of_words', 'nphon', 'exact'])
+    df = df.drop(columns=['length', 'syllables', 'number_of_words', 'nphon', 'exact', 'prevalent', 'concrete', 'semantic_area_changes', 'syllables_diff'])
 
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
