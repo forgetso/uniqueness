@@ -27,7 +27,7 @@ def process(word=None):
     uri_filled = uri.format(word=word)
     user_agent = random.choice(user_agent_list)
     headers = {'User-Agent': user_agent}
-    request_obj = requests.get(uri_filled)
+    request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
     definition_wrapper = soup.find(id="definition-wrapper")
 
