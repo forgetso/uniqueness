@@ -110,6 +110,8 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
 
+    # FIXME only check for each response once instead of checking for each cue response PAIR!!!!
+
     # initialise brain data
     brain_map = BrainMap()
     # code distinct list of cue response pairs
