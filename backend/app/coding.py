@@ -1,7 +1,6 @@
 from backend.helpers.string import syllables
-from backend.lib.db import get_cue_response_pairs, get_affixes, get_common_norms, get_prevalences, get_concretenesses, \
-    get_acquisition_ages, get_emotions, save_coded_pairs, delete_coded_pairs, get_orthographic, get_phonographic, \
-    get_all_words, get_part_of_speech
+from backend.lib.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, get_all_words, \
+    get_all_measures
 from backend.lib.setup import db_setup
 from backend.lib.contractions import replace_contraction
 from nltk.stem import PorterStemmer
@@ -24,18 +23,13 @@ import numpy as np
 
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
-PREVALENCES = get_prevalences()
-CONCRETENESSES = get_concretenesses()
-ACQUISITION_AGES = get_acquisition_ages()
-PARTS_OF_SPEECH = get_part_of_speech()
-EMOTIONS = get_emotions()
-ORTHOGRAPHIC = get_orthographic()
-PHONOGRAPHIC = get_phonographic()
+ALL_MEASURES = get_all_measures()
+print('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
 s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
-ENGLISH1000_VOCAB = [x.decode('utf8') for x in semantic_space_data['english1000_vocab']]
+ENGLISH1000_VOCAB = {x.decode('utf8') for x in semantic_space_data['english1000_vocab']}
 TOTALS = {
     'phonology': 0,
     'exact': 0,
@@ -46,18 +40,42 @@ TOTALS = {
     'part_of_speech_changes': 0
 }
 
+ortho_measures = ['response_ortho_neighbours',
+                  'unigram_count',
+                  'bigram_count',
+                  'trigram_count',
+                  'unconstrained_unigram_count',
+                  'unconstrained_bigram_freq',
+                  'unconstrained_trigram_freq',
+                  'ortho_neighbours_diff']
+
+phonographic_measures = ['nphon',
+                         'unsdens',
+                         'strdens',
+                         'unsbpav',
+                         'strbpav',
+                         'unstpav',
+                         'strtpav',
+                         'unspospav',
+                         'strpospav',
+                         'unslcpospav',
+                         'strlcpospav',
+                         'sfreq',
+                         'scdcnt']
+
 
 def main():
     # TODO batch up the totals returned by the processes and print those instead of all the individual totals
     print('loading cue response pairs')
     all_pairs = [x for x in get_cue_response_pairs()]
-    print('loaded cue response pairs')
+    print('loaded {} cue response pairs'.format(len(all_pairs)))
     delete_coded_pairs()
     # make sure all of the required columns are in the coding table
     db_setup()
 
     # TODO make this DISTINCT in the query? Or make a new function for that?
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
+    print('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
     if not all_pairs:
         raise ValueError('No responses to code...')
     start = time.perf_counter()
@@ -149,49 +167,17 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
             coded_pairs[key]['affix'] = affix
             totals['affix'] += 1 * affix
 
-            ### prevalence
-            word_found, prevalent = check_prevalence(response)
-            if not word_found:
-                word_found, prevalent = check_prevalence(response_stem)
-            totals['prevalent'] += 1 * word_found
-            coded_pairs[key]['prevalent'] = prevalent
-
-            ### concreteness
-            word_found, concrete = check_concreteness(response)
-            if not word_found:
-                word_found, concrete = check_concreteness(response_stem)
-            totals['concrete'] += 1 * word_found
-            coded_pairs[key]['concrete'] = concrete
-
-            ### age_of_acquisition
-            word_found, acquisition_age = check_acquisition_age(response)
-            if not word_found:
-                word_found, acquisition_age = check_acquisition_age(response_stem)
-            totals['age'] += 1 * word_found
-            coded_pairs[key]['age'] = acquisition_age
-
-            ### word emotions (valence, arousal dominance)
-            word_found, emotions = check_emotions(response)
-            if not word_found:
-                word_found, emotions = check_emotions(response_stem)
-            totals['emotions'] += 1 * word_found
-            coded_pairs[key]['valence'] = emotions['valence']
-            coded_pairs[key]['arousal'] = emotions['arousal']
-            coded_pairs[key]['dominance'] = emotions['dominance']
-
-            ### orthographic_neighbourhood
-            word_found, orthographic_features = check_orthographic(cue, response)
-            if not word_found:
-                word_found, orthographic_features = check_orthographic(cue, response_stem)
-            coded_pairs[key].update(orthographic_features)
-            totals['orthographic'] += 1 * word_found
-
-            ### phonograpic_neighbourhood and subtitle frequency
-            word_found, phonographic_features = check_phonographic(response)
-            if not word_found:
-                word_found, phonographic_features = check_phonographic(response_stem)
-            coded_pairs[key].update(phonographic_features)
-            totals['phonographic'] += 1 * word_found
+            ### lots of measures
+            # prevalence
+            # concreteness
+            # age of acquisition
+            # emotions
+            # orthographic
+            # phonographic
+            measures, _totals = check_measures(response)
+            if measures:
+                totals = totals + _totals
+                coded_pairs[key].update(measures)
 
             ### semantic atlas from Gallant et. al
             word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
@@ -417,98 +403,69 @@ def check_affix(cue, response):
     return False
 
 
-def check_prevalence(response):
-    # TODO come up with a more in depth analysis of prevalence values.
-    # TODO handle multiple words for prevalences
-    # 0,1,1.5,2,2.5
-    present = False
-    if response in PREVALENCES:
-        if PREVALENCES[response] > 0:
-            present = True
-            return present, True
-    return present, False
+def check_measures(response):
+    stem = ps.stem(response)
+    stem_present = stem in ALL_MEASURES
+    measures = None
+    totals = Counter()
+    if response in ALL_MEASURES:
+        measures = ALL_MEASURES[response]
+        prevalence = ALL_MEASURES[response]['prevalence'] is not None
+        concreteness = ALL_MEASURES[response]['concreteness_measure'] is not None
+        age = ALL_MEASURES[response]['age'] is not None
+        emotions = ALL_MEASURES[response]['arousal'] is not None
+        orthographic = ALL_MEASURES[response]['ortho_neighbours'] is not None
+        phonographic = ALL_MEASURES[response]['nphon'] is not None
+        if stem_present:
+            # prevalence
+            if not prevalence:
+                measures['pknown'] = ALL_MEASURES[stem]['pknown']
+                measures['prevalence'] = ALL_MEASURES[stem]['prevalence']
+                prevalence = ALL_MEASURES[response]['prevalence'] is not None
+            # concreteness
+            if not concreteness:
+                measures['concreteness_measure'] = ALL_MEASURES[stem]['concreteness_measure']
+                concreteness = ALL_MEASURES[response]['concreteness_measure'] is not None
+            # age
+            if not age:
+                measures['age'] = ALL_MEASURES[stem]['age']
+                age = ALL_MEASURES[response]['age'] is not None
+            # emotions
+            if not emotions:
+                measures['arousal'] = ALL_MEASURES[stem]['arousal']
+                measures['valence'] = ALL_MEASURES[stem]['valence']
+                measures['dominance'] = ALL_MEASURES[stem]['dominance']
+                emotions = ALL_MEASURES[response]['arousal'] is not None
+            # orthographic
+            if not orthographic:
+                for o_measure in ortho_measures:
+                    measures[o_measure] = ALL_MEASURES[stem][o_measure]
+                orthographic = ALL_MEASURES[response]['ortho_neighbours'] is not None
+            # phonographic
+            if not phonographic:
+                for p_measure in phonographic_measures:
+                    measures[p_measure] = ALL_MEASURES[stem][p_measure]
+                phonographic = ALL_MEASURES[response]['nphon'] is not None
 
+        totals['prevalence'] += 1 * prevalence
+        totals['concreteness'] += 1 * concreteness
+        totals['age'] += 1 * age
+        totals['emotions'] += 1 * emotions
+        totals['orthographic'] += 1 * orthographic
+        totals['phonographic'] += 1 * phonographic
 
-def check_concreteness(response):
-    # TODO maybe make use of other measures in concreteness table
-    if response in CONCRETENESSES:
-        if CONCRETENESSES[response] >= 3:
-            return True, True
-        else:
-            return True, False
-    # else:
-    #     raise KeyError('{} missing from concretenesses'.format(response))
-    return False, False
-
-
-def check_acquisition_age(response):
-    if response in ACQUISITION_AGES:
-        return True, round(ACQUISITION_AGES[response], 1)
-    return False, 0
+    return measures, totals
 
 
 def check_part_of_speech(response):
-    if response in PARTS_OF_SPEECH and PARTS_OF_SPEECH[response] != 0:
-        return True, PARTS_OF_SPEECH[response].lower()
+    if response in ALL_MEASURES and ALL_MEASURES[response]['part_of_speech'] is not None:
+        return True, ALL_MEASURES[response]['part_of_speech'].lower()
     else:
         best_sense = s2v.get_best_sense(response)
         if best_sense:
             return True, best_sense.split('|')[1].lower()
 
     return False, 0
-
-
-def check_emotions(response):
-    if response in EMOTIONS:
-        return True, EMOTIONS[response]
-    return False, {'valence': 0, 'arousal': 0, 'dominance': 0}
-
-
-def check_orthographic(cue, response):
-    features = {'response_ortho_neighbours': None,
-                'unigram_count': None,
-                'bigram_count': None,
-                'trigram_count': None,
-                'unconstrained_unigram_count': None,
-                'unconstrained_bigram_freq': None,
-                'unconstrained_trigram_freq': None,
-                'ortho_neighbours_diff': None
-                }
-    if response in ORTHOGRAPHIC:
-        features['response_ortho_neighbours'] = ORTHOGRAPHIC[response]['ortho_neighbours']
-        features['unigram_count'] = ORTHOGRAPHIC[response]['unigram_count']
-        features['bigram_count'] = ORTHOGRAPHIC[response]['bigram_count']
-        features['trigram_count'] = ORTHOGRAPHIC[response]['trigram_count']
-        features['unconstrained_unigram_count'] = ORTHOGRAPHIC[response]['unconstrained_unigram_count']
-        features['unconstrained_bigram_freq'] = ORTHOGRAPHIC[response]['unconstrained_bigram_freq']
-        features['unconstrained_trigram_freq'] = ORTHOGRAPHIC[response]['unconstrained_trigram_freq']
-        if cue in ORTHOGRAPHIC:
-            cue_ortho_neighbours = ORTHOGRAPHIC[cue]['ortho_neighbours']
-            features['ortho_neighbours_diff'] = features['response_ortho_neighbours'] - cue_ortho_neighbours
-        return True, features
-    return False, features
-
-
-# TODO phoneme count difference between cue and response
-def check_phonographic(response):
-    features = {'nphon': None,
-                'unsdens': None,
-                'strdens': None,
-                'unsbpav': None,
-                'strbpav': None,
-                'unstpav': None,
-                'strtpav': None,
-                'unspospav': None,
-                'strpospav': None,
-                'unslcpospav': None,
-                'strlcpospav': None,
-                'sfreq': None,
-                'scdcnt': None
-                }
-    if response in PHONOGRAPHIC:
-        features = {k: v for k, v in PHONOGRAPHIC[response].items() if k in features.keys()}
-        return True, features
-    return False, features
 
 
 def setup():

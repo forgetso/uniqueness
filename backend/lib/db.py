@@ -1,6 +1,9 @@
 import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
+from nltk import PorterStemmer
+
+ps = PorterStemmer()
 
 
 def connect():
@@ -81,8 +84,7 @@ def get_cue_response_pairs(limit=None, coded=None):
                 GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
                 ORDER BY r.cue, r.response ASC
                 ) responses_group"""
-    print(query)
-    exit(0)
+
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)
@@ -230,10 +232,51 @@ def get_all_words():
     conn.close()
     return result
 
+
 def get_all_measures():
     conn = connect()
-    cur=conn.cursor()
-    query = """SELECT * FROM orthographic o
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """SELECT
+                    o.word,
+                    a.alternative_spelling as word_alternative,
+                    a.aoa_kup_lemma as age,
+                    a.dom_pos_subtlex as part_of_speech,
+                    a.lemma_highest_pos as word_lemma,
+                    e.arousal,
+                    e.dominance,
+                    e.valence,
+                    o.bigram_count,
+                    o.bigram_freq,
+                    o.frequency,
+                    o.ortho_frequency,
+                    o.ortho_neighbours,
+                    o.trigram_count,
+                    o.trigram_freq,
+                    o.unconstrained_bigram_count,
+                    o.unconstrained_bigram_freq,
+                    o.unconstrained_trigram_count,
+                    o.unconstrained_trigram_freq,
+                    o.unconstrained_unigram_count,
+                    o.unconstrained_unigram_freq,
+                    o.unigram_count,
+                    o.unigram_freq,
+                    p.pknown,
+                    p.prevalence,
+                    phon.nphon,
+                    phon.scdcnt,
+                    phon.sfreq,
+                    phon.strbpav,
+                    phon.strdens,
+                    phon.strlcpospav,
+                    phon.strpospav,
+                    phon.strtpav,
+                    phon.unsbpav,
+                    phon.unsdens,
+                    phon.unslcpospav,
+                    phon.unspospav,
+                    phon.unstpav,
+                    c.concreteness_measure
+                FROM orthographic o
                 LEFT JOIN concreteness c ON o.word=c.word
                 LEFT JOIN prevalences p ON o.word=p.word
                 LEFT JOIN emotions e ON o.word=e.word
@@ -241,7 +284,15 @@ def get_all_measures():
                 LEFT JOIN phonographic phon ON o.word=phon.word
                 ORDER BY o.word ASC;"""
     cur.execute(query)
-    result = set([x[0] for x in cur])
+
+    word_dict = {}
+    for x in cur:
+        word_set = {x['word'], x['word_alternative'], x['word_lemma']}
+        for w in list(word_set):
+            word_dict[w] = x
+    conn.close()
+    return word_dict
+
 
 def save_cue_response_pair(cue_response_pair):
     cue = cue_response_pair['cue']
