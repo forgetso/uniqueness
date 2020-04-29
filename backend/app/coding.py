@@ -13,23 +13,26 @@ from backend.lib.multiprocessor import job_pool
 import time
 import argparse
 from backend.importers.semantic_atlas import BrainMap
-from multiprocessing import cpu_count
 from sense2vec import Sense2Vec
-from backend.settings import SENSE2VEC_FOLDER, SEMANTIC_SPACE_FOLDER
+from backend.settings import SENSE2VEC_FOLDER, SEMANTIC_SPACE_FOLDER, JOB_NUMBER
 from backend.helpers.pairs import format_cue_response_pairs
 import os
 import pprint
 import numpy as np
+import pandas as pd
+import logging
+
+# logging.basicConfig(level=LOG_LEVEL)
 
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
-ALL_MEASURES = get_all_measures()
-print('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
+all_measures = get_all_measures()
+logging.info('There are {} words in ALL MEASURES'.format(len(all_measures)))
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
-s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
+# s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
-ENGLISH1000_VOCAB = {x.decode('utf8') for x in semantic_space_data['english1000_vocab']}
+ENGLISH1000_VOCAB = semantic_space_data['english1000_vocab']
 TOTALS = {
     'phonology': 0,
     'exact': 0,
@@ -66,26 +69,30 @@ phonographic_measures = ['nphon',
 
 def main():
     # TODO batch up the totals returned by the processes and print those instead of all the individual totals
-    print('loading cue response pairs')
-    all_pairs = [x for x in get_cue_response_pairs()]
-    print('loaded {} cue response pairs'.format(len(all_pairs)))
+    logging.debug('loading cue response pairs')
+    cur = get_cue_response_pairs()
+    all_pairs = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    # TODO create multi Index based on cue_clean and response_clean ???
+
+    print(all_pairs)
+    exit()
+    logging.debug('loaded {} cue response pairs'.format(len(all_pairs)))
     delete_coded_pairs()
     # make sure all of the required columns are in the coding table
     db_setup()
 
     # TODO make this DISTINCT in the query? Or make a new function for that?
-    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
-    print('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
+    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs,
+                                                                                word_filter=ENGLISH1000_VOCAB)
+    logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
     if not all_pairs:
         raise ValueError('No responses to code...')
     start = time.perf_counter()
-    job_number = cpu_count() / 2
-    job_number = 2
     # job_number = 1
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
-    jobs = job_pool(list(distinct_cue_response_pairs), job_number, get_coding)
+    jobs = job_pool(list(distinct_cue_response_pairs), JOB_NUMBER, get_coding)
     end = time.perf_counter()
-    print('time taken {}'.format(end - start))
+    logging.debug('time taken {}'.format(end - start))
 
     # take the individual results and sum them
     totals = Counter()
@@ -107,7 +114,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # phonographic neighbourhoods, active brain region.
 
     # TODO consider the categories found in the Gallant Research:
-    # TODO (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
+    #   (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
 
     # FIXME only check for each response once instead of checking for each cue response PAIR!!!!
@@ -115,17 +122,23 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # initialise brain data
     brain_map = BrainMap()
     # code distinct list of cue response pairs
-    coded_pairs = {}
+    coded_pairs = pd.DataFrame()
 
     totals = Counter(TOTALS)
     fieldnames = None
+    distinct_responses = set(pair[2] for pair in distinct_cue_response_pairs)
+    coded_responses = {}
+
+    for response in distinct_responses:
+        measures = check_measures(all_measures, response)
+        coded_responses.setdefault(response, {})
+        coded_responses[response].update(measures)
 
     for pair in distinct_cue_response_pairs:
         key = pair[0]
         cue = pair[1]
         response = pair[2]
         response_raw = pair[3]
-        # TODO work out what to do with collisions between sources. shouldn't be that many reallky
         # TODO what to do about words joined with hyphens?
         response_decoded = unidecode.unidecode(response)
         cue_decoded = unidecode.unidecode(cue)
@@ -133,10 +146,13 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
         cue_stem = ps.stem(cue_decoded)
         # TODO use this throughout instead of splitting multiple times
         response_split = response.split('_')
-        if len(cue) > 3 and word_filter(key[0]) and word_filter(key[1]):
+        if len(cue) > 3:
 
-            coded_pairs[key] = basic_coding(cue, response, response_raw, response_split)
-            # coded_pairs[key]['source'] = source
+            coded_pairs[key] = basic_coding(response, response_raw, response_split)
+
+            ### response only measures
+            coded_pairs[key].update(coded_responses[response])
+
             relations_coding, relations_totals = relation_coding(cue, response)
             totals = totals + relations_totals
 
@@ -168,18 +184,6 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
             affix = cue_affix or response_affix
             coded_pairs[key]['affix'] = affix
             totals['affix'] += 1 * affix
-
-            ### lots of measures
-            # prevalence
-            # concreteness
-            # age of acquisition
-            # emotions
-            # orthographic
-            # phonographic
-            measures, _totals = check_measures(response)
-            if measures:
-                totals = totals + _totals
-                coded_pairs[key].update(measures)
 
             ### semantic atlas from Gallant et. al
             word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
@@ -273,27 +277,20 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # print(fieldnames)
     # save data to the db
     save_coded_pairs(coded_pairs, fieldnames)
-    print('Job with PID {} reached end'.format(os.getpid()))
+    logging.debug('Job with PID {} reached end'.format(os.getpid()))
 
     return totals
 
 
-def word_filter(word):
-    if word in ENGLISH1000_VOCAB:
-        return True
-    return False
-
-
-def basic_coding(cue, response, response_raw, response_split):
-    basic = {'length': None,
-             # 'response_time': None,
-             'syllables': None,
-             'capitalised': False,
-             'punctuation': False,
-             'number_of_words': None}
+def basic_coding(response, response_raw, response_split):
+    basic = pd.DataFrame({'length': None,
+                          # 'response_time': None,
+                          'syllables': None,
+                          'capitalised': False,
+                          'punctuation': False,
+                          'number_of_words': None})
     basic['length'] = len(response)
     basic['syllables'] = syllables(response)
-    basic['syllables_diff'] = basic['syllables'] - syllables(cue)
     basic['capitalised'] = str.isupper(response[0])
     basic['punctuation'] = True if re.search(r'[\.\-\',]', response_raw) else False
     basic['number_of_words'] = len(response_split)
@@ -405,63 +402,23 @@ def check_affix(cue, response):
     return False
 
 
-def check_measures(response):
+def check_measures(all_measures, response):
     stem = ps.stem(response)
-    stem_present = stem in ALL_MEASURES
-    measures = None
+    measures = {}
     totals = Counter()
-    if response in ALL_MEASURES:
-        measures = ALL_MEASURES[response]
-        prevalence = ALL_MEASURES[response]['prevalence'] is not None
-        concreteness = ALL_MEASURES[response]['concreteness_measure'] is not None
-        age = ALL_MEASURES[response]['age'] is not None
-        emotions = ALL_MEASURES[response]['arousal'] is not None
-        orthographic = ALL_MEASURES[response]['ortho_neighbours'] is not None
-        phonographic = ALL_MEASURES[response]['nphon'] is not None
-        if stem_present:
-            # prevalence
-            if not prevalence:
-                measures['pknown'] = ALL_MEASURES[stem]['pknown']
-                measures['prevalence'] = ALL_MEASURES[stem]['prevalence']
-                prevalence = ALL_MEASURES[response]['prevalence'] is not None
-            # concreteness
-            if not concreteness:
-                measures['concreteness_measure'] = ALL_MEASURES[stem]['concreteness_measure']
-                concreteness = ALL_MEASURES[response]['concreteness_measure'] is not None
-            # age
-            if not age:
-                measures['age'] = ALL_MEASURES[stem]['age']
-                age = ALL_MEASURES[response]['age'] is not None
-            # emotions
-            if not emotions:
-                measures['arousal'] = ALL_MEASURES[stem]['arousal']
-                measures['valence'] = ALL_MEASURES[stem]['valence']
-                measures['dominance'] = ALL_MEASURES[stem]['dominance']
-                emotions = ALL_MEASURES[response]['arousal'] is not None
-            # orthographic
-            if not orthographic:
-                for o_measure in ortho_measures:
-                    measures[o_measure] = ALL_MEASURES[stem][o_measure]
-                orthographic = ALL_MEASURES[response]['ortho_neighbours'] is not None
-            # phonographic
-            if not phonographic:
-                for p_measure in phonographic_measures:
-                    measures[p_measure] = ALL_MEASURES[stem][p_measure]
-                phonographic = ALL_MEASURES[response]['nphon'] is not None
+    if response in all_measures.index:
+        measures = all_measures.loc[all_measures.index == response]
+        if stem in all_measures.index:
+            stem_measures = all_measures.loc[all_measures.index == stem]
+            # replace the nan values in measures with the stem measures
+            measures = np.where(pd.isnull(measures), stem_measures, measures)
 
-        totals['prevalence'] += 1 * prevalence
-        totals['concreteness'] += 1 * concreteness
-        totals['age'] += 1 * age
-        totals['emotions'] += 1 * emotions
-        totals['orthographic'] += 1 * orthographic
-        totals['phonographic'] += 1 * phonographic
-
-    return measures, totals
+    return measures
 
 
 def check_part_of_speech(response):
-    if response in ALL_MEASURES and ALL_MEASURES[response]['part_of_speech'] is not None:
-        return True, ALL_MEASURES[response]['part_of_speech'].lower()
+    if response in all_measures and all_measures[response]['part_of_speech'] is not None:
+        return True, all_measures[response]['part_of_speech'].lower()
     else:
         best_sense = s2v.get_best_sense(response)
         if best_sense:

@@ -1,5 +1,6 @@
 import re
 from backend.lib.spelling import Spelling
+import numpy as np
 
 
 # Cleans a word by lowering, replacing spaces with underscores and removes all non alphanumeric characters
@@ -60,3 +61,17 @@ def syllables(word):
     if syllable_count == 0:
         syllable_count += 1
     return syllable_count
+
+
+def encode_word_as_int(word):
+    # https://math.stackexchange.com/questions/1684783/how-can-i-convert-this-unique-string-of-characters-into-a-unique-number/1684810
+    chars = str('abcdefghijklmnopqrstuvwxyz0123456789')
+    word_int = np.int32(0)
+    word_len = np.int(len(word)) - 1
+    for idx, c in enumerate(word):
+        # print('letter {} index {}'.format(c, chars.index(c)))
+        # print('power is {}'.format(word_len - np.int(idx)))
+        # print('calculating {} * {} ** {}'.format(chars.index(c), 36, (word_len - idx)))
+        word_int = word_int + np.int(chars.index(c)) * (np.int(36) ** (word_len - np.int(idx)))
+    # print(type(word_int))
+    return word_int

@@ -2,6 +2,7 @@ import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
+from backend.helpers.dataframe import create_dataframe_in_parallel
 
 ps = PorterStemmer()
 
@@ -88,6 +89,7 @@ def get_cue_response_pairs(limit=None, coded=None):
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)
+
     return cur
 
 
@@ -285,13 +287,60 @@ def get_all_measures():
                 ORDER BY o.word ASC;"""
     cur.execute(query)
 
-    word_dict = {}
-    for x in cur:
-        word_set = {x['word'], x['word_alternative'], x['word_lemma']}
+    item_dtype = [
+        ('word', '|S'),
+        ('age', 'f'),
+        ('part_of_speech', 'category'),
+        ('word_lemma', '|S'),
+        ('arousal', 'f'),
+        ('dominance', 'f'),
+        ('valence', 'f'),
+        ('bigram_count', 'f'),
+        ('bigram_freq', 'f'),
+        ('frequency', 'f'),
+        ('ortho_frequency', 'f'),
+        ('ortho_neighbours', 'f'),
+        ('trigram_count', 'f'),
+        ('trigram_freq', 'f'),
+        ('unconstrained_bigram_count', 'f'),
+        ('unconstrained_bigram_freq', 'f'),
+        ('unconstrained_trigram_count', 'f'),
+        ('unconstrained_trigram_freq', 'f'),
+        ('unconstrained_unigram_count', 'f'),
+        ('unconstrained_unigram_freq', 'f'),
+        ('unigram_count', 'f'),
+        ('unigram_freq', 'f'),
+        ('pknown', 'f'),
+        ('prevalence', 'f'),
+        ('nphon', 'f'),
+        ('scdcnt', 'f'),
+        ('sfreq', 'f'),
+        ('strbpav', 'f'),
+        ('strdens', 'f'),
+        ('strlcpospav', 'f'),
+        ('strpospav', 'f'),
+        ('strtpav', 'f'),
+        ('unsbpav', 'f'),
+        ('unsdens', 'f'),
+        ('unslcpospav', 'f'),
+        ('unspospav', 'f'),
+        ('unstpav', 'f'),
+        ('concreteness_measure', 'f')
+    ]
+    item_list = []
+    for item in cur:
+        row_dict = dict(item)
+        row_dict.pop('word_alternative')
+        word_set = {item['word'], item['word_alternative'], item['word_lemma']}
+        word_set.discard(None)
         for w in list(word_set):
-            word_dict[w] = x
-    conn.close()
-    return word_dict
+            row = row_dict.copy()
+            row['word'] = w
+            item_list.append(row)
+
+    df = create_dataframe_in_parallel(item_list, index='word', columns_types=item_dtype)
+
+    return df
 
 
 def save_cue_response_pair(cue_response_pair):

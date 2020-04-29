@@ -1,4 +1,5 @@
 import os
+from multiprocessing import cpu_count
 
 CWD = os.getcwd()
 PG_USER = 'backend'
@@ -17,3 +18,5 @@ ORTHOGRAPHIC_FILE = ''.join([CWD, '/data/orthographic_neighbourhoods.csv'])
 PHONOGRAPHIC_FILE = ''.join([CWD, '/data/IPhOD2_Words.txt'])
 ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])
 DATA_FOLDER = ''.join([CWD, '/data'])
+JOB_NUMBER = int(cpu_count() / 2)
+LOG_LEVEL = 'DEBUG'
