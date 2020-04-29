@@ -72,10 +72,10 @@ def main():
     logging.debug('loading cue response pairs')
     cur = get_cue_response_pairs()
     all_pairs = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    all_pairs['cue_clean'] = all_pairs['cue_clean'].str.encode('utf8')
+    all_pairs['response_clean'] = all_pairs['response_clean'].str.encode('utf8')
     # TODO create multi Index based on cue_clean and response_clean ???
 
-    print(all_pairs)
-    exit()
     logging.debug('loaded {} cue response pairs'.format(len(all_pairs)))
     delete_coded_pairs()
     # make sure all of the required columns are in the coding table
@@ -85,12 +85,12 @@ def main():
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs,
                                                                                 word_filter=ENGLISH1000_VOCAB)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
-    if not all_pairs:
+    if not len(all_pairs):
         raise ValueError('No responses to code...')
     start = time.perf_counter()
     # job_number = 1
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
-    jobs = job_pool(list(distinct_cue_response_pairs), JOB_NUMBER, get_coding)
+    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
 
@@ -118,7 +118,6 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
 
     # FIXME only check for each response once instead of checking for each cue response PAIR!!!!
-
     # initialise brain data
     brain_map = BrainMap()
     # code distinct list of cue response pairs
@@ -126,14 +125,13 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
 
     totals = Counter(TOTALS)
     fieldnames = None
-    distinct_responses = set(pair[2] for pair in distinct_cue_response_pairs)
-    coded_responses = {}
+    coded_responses = pd.DataFrame([])
 
-    for response in distinct_responses:
-        measures = check_measures(all_measures, response)
-        coded_responses.setdefault(response, {})
-        coded_responses[response].update(measures)
+    distinct_responses = distinct_cue_response_pairs.index.get_level_values('response_clean').drop_duplicates()
+    response_measures = check_measures(all_measures, distinct_responses)
 
+    print(response_measures)
+    # TODO turn all of these loops into vector multiplications
     for pair in distinct_cue_response_pairs:
         key = pair[0]
         cue = pair[1]
@@ -402,16 +400,18 @@ def check_affix(cue, response):
     return False
 
 
-def check_measures(all_measures, response):
-    stem = ps.stem(response)
-    measures = {}
-    totals = Counter()
-    if response in all_measures.index:
-        measures = all_measures.loc[all_measures.index == response]
-        if stem in all_measures.index:
-            stem_measures = all_measures.loc[all_measures.index == stem]
-            # replace the nan values in measures with the stem measures
-            measures = np.where(pd.isnull(measures), stem_measures, measures)
+def check_measures(all_measures, distinct_responses):
+    # create a colum of stems based on the responses (i.e. schooling becomes school)
+    stems = [ps.stem(response) for response in distinct_responses]
+
+    all_measures_words = all_measures.index.get_level_values(level='word')
+    response_intersect = np.intersect1d(distinct_responses, all_measures_words)
+    response_measures = all_measures.isin(response_intersect)
+    stem_intersect = np.intersect1d(stems, all_measures_words)
+    stem_measures = all_measures.isin(stem_intersect)
+
+    # replace the nan values in measures with the stem measures
+    measures = np.where(pd.isnull(response_measures), stem_measures, response_measures)
 
     return measures
 

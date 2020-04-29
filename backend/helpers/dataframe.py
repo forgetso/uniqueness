@@ -14,6 +14,7 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     logging.debug('time taken {}'.format(end - start))
     logging.debug('concatenating dataframes...')
     result = pd.concat(jobs)
+    result['word'].str.encode('utf8')
     if index:
         logging.debug('setting index to {}'.format(index))
         result = result.set_index(index)
