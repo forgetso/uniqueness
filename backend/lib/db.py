@@ -238,52 +238,54 @@ def get_all_words():
 def get_all_measures():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # TODO what about words that have multiple parts of speech? Combine them?
     query = """SELECT
                     o.word,
                     a.alternative_spelling as word_alternative,
-                    a.aoa_kup_lemma as age,
-                    a.dom_pos_subtlex as part_of_speech,
+                    MAX(a.aoa_kup_lemma) as age,
+                    string_agg(a.dom_pos_subtlex, ', ') as part_of_speech,
                     a.lemma_highest_pos as word_lemma,
-                    e.arousal,
-                    e.dominance,
-                    e.valence,
-                    o.bigram_count,
-                    o.bigram_freq,
-                    o.frequency,
-                    o.ortho_frequency,
-                    o.ortho_neighbours,
-                    o.trigram_count,
-                    o.trigram_freq,
-                    o.unconstrained_bigram_count,
-                    o.unconstrained_bigram_freq,
-                    o.unconstrained_trigram_count,
-                    o.unconstrained_trigram_freq,
-                    o.unconstrained_unigram_count,
-                    o.unconstrained_unigram_freq,
-                    o.unigram_count,
-                    o.unigram_freq,
-                    p.pknown,
-                    p.prevalence,
-                    phon.nphon,
-                    phon.scdcnt,
-                    phon.sfreq,
-                    phon.strbpav,
-                    phon.strdens,
-                    phon.strlcpospav,
-                    phon.strpospav,
-                    phon.strtpav,
-                    phon.unsbpav,
-                    phon.unsdens,
-                    phon.unslcpospav,
-                    phon.unspospav,
-                    phon.unstpav,
-                    c.concreteness_measure
+                    AVG(e.arousal) AS arousal,
+                    AVG(e.dominance) AS dominance,
+                    AVG(e.valence) AS valence,
+                    AVG(o.bigram_count) AS bigram_count,
+                    AVG(o.bigram_freq) AS bigram_freq,
+                    AVG(o.frequency) AS frequency,
+                    AVG(o.ortho_frequency) AS ortho_frequency,
+                    AVG(o.ortho_neighbours) AS ortho_neighbours,
+                    AVG(o.trigram_count) AS trigram_count,
+                    AVG(o.trigram_freq) AS trigram_freq,
+                    AVG(o.unconstrained_bigram_count) AS unconstrained_bigram_count,
+                    AVG(o.unconstrained_bigram_freq) AS unconstrained_bigram_freq,
+                    AVG(o.unconstrained_trigram_count) AS unconstrained_trigram_count,
+                    AVG(o.unconstrained_trigram_freq) AS unconstrained_trigram_freq,
+                    AVG(o.unconstrained_unigram_count) AS unconstrained_unigram_count,
+                    AVG(o.unconstrained_unigram_freq) AS unconstrained_unigram_freq,
+                    AVG(o.unigram_count) AS unigram_count,
+                    AVG(o.unigram_freq) AS unigram_freq,
+                    AVG(p.pknown) AS pknown,
+                    AVG(p.prevalence) AS prevalence,
+                    AVG(phon.nphon) AS nphon,
+                    AVG(phon.scdcnt) AS scdcnt,
+                    AVG(phon.sfreq) AS sfreq,
+                    AVG(phon.strbpav) AS strbpav,
+                    AVG(phon.strdens) AS strdens,
+                    AVG(phon.strlcpospav) AS strlcpospav,
+                    AVG(phon.strpospav) AS strpospav,
+                    AVG(phon.strtpav) AS strtpav,
+                    AVG(phon.unsbpav) AS unsbpav,
+                    AVG(phon.unsdens) AS unsdens,
+                    AVG(phon.unslcpospav) AS unslcpospav,
+                    AVG(phon.unspospav) AS unspospav,
+                    AVG(phon.unstpav) AS unstpav,
+                    AVG(c.concreteness_measure) AS concreteness_measure
                 FROM orthographic o
                 LEFT JOIN concreteness c ON o.word=c.word
                 LEFT JOIN prevalences p ON o.word=p.word
                 LEFT JOIN emotions e ON o.word=e.word
                 LEFT JOIN acquisition_age a ON o.word=a.word
                 LEFT JOIN phonographic phon ON o.word=phon.word
+                GROUP BY o.word, word_alternative, word_lemma
                 ORDER BY o.word ASC;"""
     cur.execute(query)
 
@@ -331,6 +333,7 @@ def get_all_measures():
     for item in cur:
         row_dict = dict(item)
         row_dict.pop('word_alternative')
+        row_dict.pop('word_lemma')
         word_set = {item['word'], item['word_alternative'], item['word_lemma']}
         word_set.discard(None)
         for w in list(word_set):

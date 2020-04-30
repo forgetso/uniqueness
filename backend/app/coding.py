@@ -23,7 +23,7 @@ import pandas as pd
 import logging
 
 # logging.basicConfig(level=LOG_LEVEL)
-
+MIN_CUE_LENGTH = 3
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
 all_measures = get_all_measures()
@@ -88,9 +88,9 @@ def main():
     if not len(all_pairs):
         raise ValueError('No responses to code...')
     start = time.perf_counter()
-    # job_number = 1
+
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
-    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding)
+    jobs = job_pool(distinct_cue_response_pairs, 1, get_coding)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
 
@@ -133,6 +133,8 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     print(response_measures)
     # TODO turn all of these loops into vector multiplications
     for pair in distinct_cue_response_pairs:
+        print(pair)
+        exit(0)
         key = pair[0]
         cue = pair[1]
         response = pair[2]
@@ -144,34 +146,30 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
         cue_stem = ps.stem(cue_decoded)
         # TODO use this throughout instead of splitting multiple times
         response_split = response.split('_')
-        if len(cue) > 3:
+        if len(cue) > MIN_CUE_LENGTH:
 
             coded_pairs[key] = basic_coding(response, response_raw, response_split)
-
-            ### response only measures
-            coded_pairs[key].update(coded_responses[response])
-
-            relations_coding, relations_totals = relation_coding(cue, response)
-            totals = totals + relations_totals
-
-            coded_pairs[key].update(relations_coding)
-
-            ############## Other Categories ##############
 
             ### exact match
             exact = cue == response
             coded_pairs[key]['exact'] = exact
-            totals['exact'] += 1 * exact
+
+            ### response only measures
+            coded_pairs[key].update(coded_responses[response])
+
+            ### wordnet relations
+            relations_coding, relations_totals = relation_coding(cue, response)
+            coded_pairs[key].update(relations_coding)
+
+            ############## Other Categories ##############
 
             ### phonology (sound the same)
             phonology, type = check_phonology(cue_decoded, response_decoded)
             coded_pairs[key]['phonology'] = phonology
-            totals['phonology'] += 1 * phonology
 
             ### syntagmatic (x follows y, y follows x)
             syntagmatic, type = check_syntagmatic(cue, response, response_split)
             coded_pairs[key]['syntagmatic'] = type
-            totals['syntagmatic'] += 1 * syntagmatic
 
             # TODO add s2v check for syntagmatic
             # TODO add proverb check for syntagmatic
@@ -181,20 +179,17 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
             response_affix = check_affix(response, cue)
             affix = cue_affix or response_affix
             coded_pairs[key]['affix'] = affix
-            totals['affix'] += 1 * affix
 
             ### semantic atlas from Gallant et. al
             word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
             if not word_found:
                 word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
             coded_pairs[key]['semantic_area'] = response_semantic_area
-            totals['semantic_areas'] += 1 * word_found
             word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
             if not word_found:
                 word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
             changes = response_semantic_area != cue_semantic_area
             coded_pairs[key]['semantic_area_changes'] = changes
-            totals['semantic_area_changes'] += 1 * changes
 
             # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
             # between them
@@ -202,7 +197,6 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
             if changes and cue_semantic_area and response_semantic_area:
                 coded_pairs[key]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
                     cue_semantic_area, response_semantic_area).astype(float)
-                totals['semantic_distance'] += 1
 
             ### part_of_speech
             word_found, part_of_speech_response = check_part_of_speech(response)
@@ -292,7 +286,6 @@ def basic_coding(response, response_raw, response_split):
     basic['capitalised'] = str.isupper(response[0])
     basic['punctuation'] = True if re.search(r'[\.\-\',]', response_raw) else False
     basic['number_of_words'] = len(response_split)
-
     return basic
 
 
@@ -401,19 +394,33 @@ def check_affix(cue, response):
 
 
 def check_measures(all_measures, distinct_responses):
-    # create a colum of stems based on the responses (i.e. schooling becomes school)
-    stems = [ps.stem(response) for response in distinct_responses]
-
+    # create a column of stems based on the responses (i.e. schooling becomes school)
+    stems = pd.DataFrame(
+        [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in distinct_responses.values],
+        columns=['response_clean', 'stem'])
+    logging.debug('Stems length is {}'.format(len(stems)))
     all_measures_words = all_measures.index.get_level_values(level='word')
     response_intersect = np.intersect1d(distinct_responses, all_measures_words)
-    response_measures = all_measures.isin(response_intersect)
-    stem_intersect = np.intersect1d(stems, all_measures_words)
-    stem_measures = all_measures.isin(stem_intersect)
-
+    response_measures = all_measures[all_measures.index.isin(response_intersect)]
+    response_measures_full = pd.merge(pd.DataFrame(distinct_responses), pd.DataFrame(response_measures),
+                                      left_on='response_clean', right_on='word', how='left')
+    logging.debug('response measures shape {}'.format(response_measures_full.shape))
+    stem_intersect = np.intersect1d(stems['stem'], all_measures_words)
+    stem_measures = all_measures[all_measures.index.isin(stem_intersect)]
+    # do i want a join instead of intersect? probably wrongly, wrongs both stem to wrong so stems intersect is
+    # wrong | measures for 2 rows in the original stems dataframe
+    # but that's ok beacause the left join would join wrong twice (this is what was happening!)
+    # so left join then drop the stems and get the data into response_measures_full
+    stem_measures_full = pd.merge(stems, pd.DataFrame(stem_measures), left_on='stem', right_on='word', how='left')
+    print(stem_measures_full)
+    stem_measures_full = stem_measures_full.drop('stem', axis=1)
+    logging.debug('stem measures shape {}'.format(stem_measures_full.shape))
     # replace the nan values in measures with the stem measures
-    measures = np.where(pd.isnull(response_measures), stem_measures, response_measures)
-
-    return measures
+    response_measures_full.update(stem_measures_full)
+    #FIXME stem being used as response_clean instead of the full word...
+    print(response_measures_full.loc[response_measures_full['response_clean'] == b'wrongs'])
+    print(response_measures_full.loc[response_measures_full['response_clean'] == b'wrong'])
+    return response_measures_full
 
 
 def check_part_of_speech(response):
