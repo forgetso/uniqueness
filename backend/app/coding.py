@@ -117,7 +117,6 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     #   (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO consider when cue and response form one word, e.g. fear + less = fearless
 
-    # FIXME only check for each response once instead of checking for each cue response PAIR!!!!
     # initialise brain data
     brain_map = BrainMap()
     # code distinct list of cue response pairs
@@ -130,11 +129,10 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     distinct_responses = distinct_cue_response_pairs.index.get_level_values('response_clean').drop_duplicates()
     response_measures = check_measures(all_measures, distinct_responses)
 
-    print(response_measures)
+    logging.debug(response_measures)
     # TODO turn all of these loops into vector multiplications
     for pair in distinct_cue_response_pairs:
-        print(pair)
-        exit(0)
+
         key = pair[0]
         cue = pair[1]
         response = pair[2]
@@ -398,6 +396,7 @@ def check_measures(all_measures, distinct_responses):
     stems = pd.DataFrame(
         [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in distinct_responses.values],
         columns=['response_clean', 'stem'])
+
     logging.debug('Stems length is {}'.format(len(stems)))
     all_measures_words = all_measures.index.get_level_values(level='word')
     response_intersect = np.intersect1d(distinct_responses, all_measures_words)
@@ -405,21 +404,15 @@ def check_measures(all_measures, distinct_responses):
     response_measures_full = pd.merge(pd.DataFrame(distinct_responses), pd.DataFrame(response_measures),
                                       left_on='response_clean', right_on='word', how='left')
     logging.debug('response measures shape {}'.format(response_measures_full.shape))
-    stem_intersect = np.intersect1d(stems['stem'], all_measures_words)
-    stem_measures = all_measures[all_measures.index.isin(stem_intersect)]
-    # do i want a join instead of intersect? probably wrongly, wrongs both stem to wrong so stems intersect is
-    # wrong | measures for 2 rows in the original stems dataframe
-    # but that's ok beacause the left join would join wrong twice (this is what was happening!)
-    # so left join then drop the stems and get the data into response_measures_full
+    # TODO something about multiple copies of words. Sort this in the SQL?
+    stem_measures = all_measures[all_measures.index.isin(stems['stem'])]
     stem_measures_full = pd.merge(stems, pd.DataFrame(stem_measures), left_on='stem', right_on='word', how='left')
-    print(stem_measures_full)
-    stem_measures_full = stem_measures_full.drop('stem', axis=1)
+    logging.debug('stem_measures_full')
+    stem_measures_full.drop('stem', axis=1, inplace=True)
+    logging.debug('stem_measures_full')
     logging.debug('stem measures shape {}'.format(stem_measures_full.shape))
     # replace the nan values in measures with the stem measures
     response_measures_full.update(stem_measures_full)
-    #FIXME stem being used as response_clean instead of the full word...
-    print(response_measures_full.loc[response_measures_full['response_clean'] == b'wrongs'])
-    print(response_measures_full.loc[response_measures_full['response_clean'] == b'wrong'])
     return response_measures_full
 
 

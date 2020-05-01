@@ -33,7 +33,7 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     # TODO order getting messed up with part_of_speech and ages being mixed
     result.columns = [x for x in column_names if x not in result.index.names]
     # an example of a word that should always be present
-    assert (len(result.loc[result.index.get_level_values(level='word') == b'enemy']) == 1)
+    # assert (len(result.loc[result.index.get_level_values(level='word') == b'enemy']) == 1)
 
 
     return result
