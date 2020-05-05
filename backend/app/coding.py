@@ -41,7 +41,9 @@ TOTALS = {
     'prevalent': 0,
     'part_of_speech': 0,
     'part_of_speech_changes': 0
+
 }
+punctuation_regex = re.compile(r'[\.\-\',]')
 
 ortho_measures = ['response_ortho_neighbours',
                   'unigram_count',
@@ -126,140 +128,143 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     fieldnames = None
     coded_responses = pd.DataFrame([])
 
-    distinct_responses = distinct_cue_response_pairs.index.get_level_values('response_clean').drop_duplicates()
-    response_measures = check_measures(all_measures, distinct_responses)
+    dstnct = pd.DataFrame(distinct_cue_response_pairs.index.get_level_values('response_clean').drop_duplicates())
+    response_measures = check_measures(all_measures, dstnct)
 
     logging.debug(response_measures)
     # TODO turn all of these loops into vector multiplications
-    for pair in distinct_cue_response_pairs:
+    distinct_cue_response_pairs['exact_match'] = distinct_cue_response_pairs.index.get_level_values(
+        'response_clean') == distinct_cue_response_pairs.index.get_level_values('cue_clean')
+    distinct_cue_response_pairs['length'] = distinct_cue_response_pairs['response_decoded'].str.len()
+    distinct_cue_response_pairs['syllables'] = np.vectorize(syllables)(distinct_cue_response_pairs['response_raw'])
+    distinct_cue_response_pairs['capitalised'] = distinct_cue_response_pairs['response_raw'].str.isupper()
+    distinct_cue_response_pairs['punctuation'] = distinct_cue_response_pairs['response_raw'].str.contains(
+        punctuation_regex)
+    distinct_cue_response_pairs['number_of_words'] = distinct_cue_response_pairs['response_decoded'].str.split(
+        '_').str.len()
+    # TODO do this with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
+    relations_array = np.vectorize(relation_coding)(
+        distinct_cue_response_pairs.index.get_level_values('cue_clean'),
+        distinct_cue_response_pairs.index.get_level_values('response_clean'))
+    other_categories = pd.json_normalize(relations_array)
+    # the numpy vectorize function has no index as only the cue and response columns are passed in
+    # so add the index back on to allow the dataframes to be concatenated
 
-        key = pair[0]
-        cue = pair[1]
-        response = pair[2]
-        response_raw = pair[3]
-        # TODO what to do about words joined with hyphens?
-        response_decoded = unidecode.unidecode(response)
-        cue_decoded = unidecode.unidecode(cue)
-        response_stem = ps.stem(response_decoded)
-        cue_stem = ps.stem(cue_decoded)
-        # TODO use this throughout instead of splitting multiple times
-        response_split = response.split('_')
-        if len(cue) > MIN_CUE_LENGTH:
+    assert (len(other_categories) == len(distinct_cue_response_pairs))
 
-            coded_pairs[key] = basic_coding(response, response_raw, response_split)
+    other_categories['phonology'] = np.vectorize(check_phonology)(
+        distinct_cue_response_pairs['cue_decoded'],
+        distinct_cue_response_pairs['response_decoded']
+    )
 
-            ### exact match
-            exact = cue == response
-            coded_pairs[key]['exact'] = exact
+    other_categories['syntagmatic'] = distinct_cue_response_pairs.apply(check_syntagmatic_pd)
 
-            ### response only measures
-            coded_pairs[key].update(coded_responses[response])
+    distinct_cue_response_pairs = pd.concat([distinct_cue_response_pairs, other_categories], axis=1)
+    other_categories.index = distinct_cue_response_pairs.index
 
-            ### wordnet relations
-            relations_coding, relations_totals = relation_coding(cue, response)
-            coded_pairs[key].update(relations_coding)
-
-            ############## Other Categories ##############
-
-            ### phonology (sound the same)
-            phonology, type = check_phonology(cue_decoded, response_decoded)
-            coded_pairs[key]['phonology'] = phonology
-
-            ### syntagmatic (x follows y, y follows x)
-            syntagmatic, type = check_syntagmatic(cue, response, response_split)
-            coded_pairs[key]['syntagmatic'] = type
-
-            # TODO add s2v check for syntagmatic
-            # TODO add proverb check for syntagmatic
-
-            ### affix - the words are equal plus or minus an affix
-            cue_affix = check_affix(cue, response)
-            response_affix = check_affix(response, cue)
-            affix = cue_affix or response_affix
-            coded_pairs[key]['affix'] = affix
-
-            ### semantic atlas from Gallant et. al
-            word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
-            if not word_found:
-                word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
-            coded_pairs[key]['semantic_area'] = response_semantic_area
-            word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
-            if not word_found:
-                word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
-            changes = response_semantic_area != cue_semantic_area
-            coded_pairs[key]['semantic_area_changes'] = changes
-
-            # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
-            # between them
-            coded_pairs[key]['semantic_distance'] = 0
-            if changes and cue_semantic_area and response_semantic_area:
-                coded_pairs[key]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
-                    cue_semantic_area, response_semantic_area).astype(float)
-
-            ### part_of_speech
-            word_found, part_of_speech_response = check_part_of_speech(response)
-            if not word_found:
-                word_found, part_of_speech_response = check_part_of_speech(response_stem)
-            totals['part_of_speech'] += 1 * word_found
-            coded_pairs[key]['part_of_speech'] = part_of_speech_response
-            word_found, part_of_speech_cue = check_part_of_speech(cue)
-            if not word_found:
-                word_found, part_of_speech_cue = check_part_of_speech(cue_stem)
-            coded_pairs[key]['part_of_speech_changes'] = False
-            if word_found and part_of_speech_response != part_of_speech_cue:
-                totals['part_of_speech_changes'] += 1
-                coded_pairs[key]['part_of_speech_changes'] = True
-
-            ### list of all words ### this should come last
-            coded_pairs[key]['contraction'] = False
-            if response in ALL_WORDS:
-                # the word(s) appear(s) in the giant list of english words
-                totals['all_words'] += 1
-            elif replace_contraction(response) != response:
-                # include the word but note that it happened
-                coded_pairs[key]['contraction'] = True
-                totals['contractions'] += 1
-            # elif len(response_split) == 1 and not part_of_speech_response:
-            #     # this is basically a list of responses that need addressed by future changes
-            #     print('Word missing from all_words = {}: {}. Removing from coded_pairs.'.format(cue, response))
-            #     coded_pairs.pop(key)
-
-            # TODO  obscene words
-            # TODO  sexual references
-            # TODO  slang
-            # TODO  part_of_speech: take this from age of acquisition?
-            # TODO  morpheme
-            # TODO  years (1960, 2010, etc.)
-            # TODO  cultural_reference:
-            #  [movies,
-            #   music,
-            #   famous people,
-            #   books (1984, farenheit 451),
-            #   poems,
-            #   computer games,
-            #   tv shows,
-            #   brands,
-            #   historical dates,
-            #   characters,
-            #   superheroes,
-            #   religion,
-            #   web sites,
-            #   web status codes (404),
-            #   emergency services numbers,
-            #   scientific numbers (365, pi, gravity, phi, etc.)
-        #       ]
-        # TODO food references
-        #  [cocktails,
-        #   recipes,
-        #   etc.
-        #   ]
-        #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
-        #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
-        #   game, Portal.
-        # TODO  company reference [walmart, asda, etc.]
-        # TODO  geographical_reference [country, state, city, town, village, post code]
-        # TODO  corpus_similarity
-        # TODO  dictionary_similarity
+    #     # TODO what to do about words joined with hyphens?
+    #     # TODO use this throughout instead of splitting multiple times
+    #     ############## Other Categories ##############
+    #
+    #     ### phonology (sound the same)
+    #     phonology, type = check_phonology(cue_decoded, response_decoded)
+    #     coded_pairs[key]['phonology'] = phonology
+    #
+    #     ### syntagmatic (x follows y, y follows x)
+    #     syntagmatic, type = check_syntagmatic(cue, response, response_split)
+    #     coded_pairs[key]['syntagmatic'] = type
+    #
+    #     # TODO add s2v check for syntagmatic
+    #     # TODO add proverb check for syntagmatic
+    #
+    #     ### affix - the words are equal plus or minus an affix
+    #     cue_affix = check_affix(cue, response)
+    #     response_affix = check_affix(response, cue)
+    #     affix = cue_affix or response_affix
+    #     coded_pairs[key]['affix'] = affix
+    #
+    #     ### semantic atlas from Gallant et. al
+    #     word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
+    #     if not word_found:
+    #         word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
+    #     coded_pairs[key]['semantic_area'] = response_semantic_area
+    #     word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
+    #     if not word_found:
+    #         word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
+    #     changes = response_semantic_area != cue_semantic_area
+    #     coded_pairs[key]['semantic_area_changes'] = changes
+    #
+    #     # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
+    #     # between them
+    #     coded_pairs[key]['semantic_distance'] = 0
+    #     if changes and cue_semantic_area and response_semantic_area:
+    #         coded_pairs[key]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
+    #             cue_semantic_area, response_semantic_area).astype(float)
+    #
+    #     ### part_of_speech
+    #     word_found, part_of_speech_response = check_part_of_speech(response)
+    #     if not word_found:
+    #         word_found, part_of_speech_response = check_part_of_speech(response_stem)
+    #     totals['part_of_speech'] += 1 * word_found
+    #     coded_pairs[key]['part_of_speech'] = part_of_speech_response
+    #     word_found, part_of_speech_cue = check_part_of_speech(cue)
+    #     if not word_found:
+    #         word_found, part_of_speech_cue = check_part_of_speech(cue_stem)
+    #     coded_pairs[key]['part_of_speech_changes'] = False
+    #     if word_found and part_of_speech_response != part_of_speech_cue:
+    #         totals['part_of_speech_changes'] += 1
+    #         coded_pairs[key]['part_of_speech_changes'] = True
+    #
+    #     ### list of all words ### this should come last
+    #     coded_pairs[key]['contraction'] = False
+    #     if response in ALL_WORDS:
+    #         # the word(s) appear(s) in the giant list of english words
+    #         totals['all_words'] += 1
+    #     elif replace_contraction(response) != response:
+    #         # include the word but note that it happened
+    #         coded_pairs[key]['contraction'] = True
+    #         totals['contractions'] += 1
+    #     # elif len(response_split) == 1 and not part_of_speech_response:
+    #     #     # this is basically a list of responses that need addressed by future changes
+    #     #     print('Word missing from all_words = {}: {}. Removing from coded_pairs.'.format(cue, response))
+    #     #     coded_pairs.pop(key)
+    #
+    #     # TODO  obscene words
+    #     # TODO  sexual references
+    #     # TODO  slang
+    #     # TODO  part_of_speech: take this from age of acquisition?
+    #     # TODO  morpheme
+    #     # TODO  years (1960, 2010, etc.)
+    #     # TODO  cultural_reference:
+    #     #  [movies,
+    #     #   music,
+    #     #   famous people,
+    #     #   books (1984, farenheit 451),
+    #     #   poems,
+    #     #   computer games,
+    #     #   tv shows,
+    #     #   brands,
+    #     #   historical dates,
+    #     #   characters,
+    #     #   superheroes,
+    #     #   religion,
+    #     #   web sites,
+    #     #   web status codes (404),
+    #     #   emergency services numbers,
+    #     #   scientific numbers (365, pi, gravity, phi, etc.)
+    # #       ]
+    # # TODO food references
+    # #  [cocktails,
+    # #   recipes,
+    # #   etc.
+    # #   ]
+    # #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
+    # #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
+    # #   game, Portal.
+    # # TODO  company reference [walmart, asda, etc.]
+    # # TODO  geographical_reference [country, state, city, town, village, post code]
+    # # TODO  corpus_similarity
+    # # TODO  dictionary_similarity
     if not fieldnames:
         first_key = next(iter(coded_pairs))
         fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
@@ -288,15 +293,9 @@ def basic_coding(response, response_raw, response_split):
 
 
 def relation_coding(cue, response):
-    # First do the relations
-    totals = Counter()
     relation_obj = WordnetRelations(cue, response)
     relations = relation_obj.relations
-    for relation_type in relation_obj.relation_types:
-        if relation_obj.relations[relation_type]:
-            totals.setdefault(relation_type, 0)
-            totals[relation_type] += 1
-    return relations, totals
+    return relations
 
 
 def check_syntagmatic(cue, response, response_split):
@@ -308,29 +307,75 @@ def check_syntagmatic(cue, response, response_split):
                 cue_index = response_split.index(cue)
 
                 if cue_index == 0:
-                    return True, 'consecutivexy'
+                    return 'consecutivexy'
                 elif cue_index == 1:
-                    return True, 'consecutiveyx'
+                    return 'consecutiveyx'
                 else:
-                    return True, 'othercollocational'
+                    return 'othercollocational'
             else:
-                return True, 'othercollocational'
+                return 'othercollocational'
         # if the cue is not in the response
         if len(response_split) == 2:
             # first word of response is a conjunction
             # e.g. cue is "back" and response is "and forth"
             if response_split[0] in ('for', 'and', 'nor', 'but', 'or', 'yet', 'so'):
-                return True, 'consecutivexy-cue_not_entered'
+                return 'consecutivexy-cue_not_entered'
 
     joined_word_x_y = ''.join([cue, response])
     if joined_word_x_y in ALL_WORDS:
-        return True, 'consecutivexy'
+        return 'consecutivexy'
 
     joined_word_y_x = ''.join([response, cue])
     if joined_word_y_x in ALL_WORDS:
-        return True, 'consecutiveyx'
+        return 'consecutiveyx'
 
-    return False, None
+    return None
+
+
+def listindex(word_list, word):
+    try:
+        return word_list.index(word)
+    except ValueError:
+        return np.nan
+
+
+def check_syntagmatic_pd(df):
+    response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
+    cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
+    response_split = response_clean.str.split('_')
+    # couldn't find a way to check for items from one column in another column that contained lists so have created
+    # this crazy list comprehension
+    cue_present = [
+        # cue is at the beginning, which means response follows
+        [sum([(listindex(x, y) == 0) * 1,
+              # cue is at the end which means response precedes
+              (listindex(x, y) == 1) * 1,
+              # cue is somewhere else
+              (listindex(x, y) > 1) * 1])
+         for x in response_split]
+        for y in cue_clean]
+
+    contains_ = response_clean.str.contains('_')
+    contains_cue = response_clean.str.extract('(%s)' % '|'.join(cue_clean))
+    cue_present = pd.DataFrame([[listindex(x, cue_clean[id])] for id, x in enumerate(response_split)])
+    # TODO get the column headers onto this data
+    # cue_present = pd.DataFrame(cue_present, columns=['consecutivexy', 'consecutiveyx', 'othercollocational'])
+
+    # check for instances of the cue NOT being present in the response, the response being 2 words, and the response
+    # beginning with for|and|nor|but|or|yet|so_ (e.g. cue = back, response = and forth)
+    cue_not_present = cue_present.isnull().unstack().reset_index()
+    print(response_split)
+    response_two_words = response_split[response_split.str.len() > 2]
+    more_than_two_words_and_cue_not_present = response_two_words.index.intersection(cue_not_present.index)
+    consecutivexy_cue_not_entered = response_clean.iloc[more_than_two_words_and_cue_not_present].str.match(
+        '^(for|and|nor|but|or|yet|so_)')
+    print(consecutivexy_cue_not_entered)
+    
+    # TODO take the indices discovered here and add this measure into the overall result
+
+    # TODO join cue and response and check if the merge is present in ALL WORDS
+
+    # TODO join response and cue and check if the merge is present in ALL WORDS
 
 
 # Soundex similarity check
@@ -341,11 +386,11 @@ def check_phonology(cue, response):
     # Try to get a response soundex
     response_soundex = jellyfish.soundex(response)
     if cue_soundex == response_soundex:
-        return True, 'soundex'
+        return 'soundex'
 
     levenshtein_distance = jellyfish.levenshtein_distance(cue, response)
     if cue_soundex[1:] == response_soundex[1:] and levenshtein_distance <= 3:
-        return True, 'soundex'
+        return 'soundex'
 
     # if cue_soundex[-2:] == response_soundex[-2:] and levenshtein_distance <= 3:
     #     return True, 'soundex'
@@ -355,21 +400,21 @@ def check_phonology(cue, response):
     try:
         # e.g. C630 M300
         if response_soundex[-3:].index(cue_soundex[-2:]) > -1 and levenshtein_distance <= 3:
-            return True, 'soundex'
+            return 'soundex'
     except ValueError:
         pass
 
     try:
         # e.g. C630 M300
         if cue_soundex[-3:].index(response_soundex[-2:]) > -1 and levenshtein_distance <= 3:
-            return True, 'soundex'
+            return 'soundex'
     except ValueError:
         pass
 
     if levenshtein_distance < 2:
-        return True, 'levenshtein'
+        return 'levenshtein'
 
-    return False, None
+    return None
 
 
 def check_affix(cue, response):
@@ -394,7 +439,8 @@ def check_affix(cue, response):
 def check_measures(all_measures, distinct_responses):
     # create a column of stems based on the responses (i.e. schooling becomes school)
     stems = pd.DataFrame(
-        [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in distinct_responses.values],
+        [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in
+         distinct_responses['response_clean']],
         columns=['response_clean', 'stem'])
 
     logging.debug('Stems length is {}'.format(len(stems)))
@@ -404,7 +450,6 @@ def check_measures(all_measures, distinct_responses):
     response_measures_full = pd.merge(pd.DataFrame(distinct_responses), pd.DataFrame(response_measures),
                                       left_on='response_clean', right_on='word', how='left')
     logging.debug('response measures shape {}'.format(response_measures_full.shape))
-    # TODO something about multiple copies of words. Sort this in the SQL?
     stem_measures = all_measures[all_measures.index.isin(stems['stem'])]
     stem_measures_full = pd.merge(stems, pd.DataFrame(stem_measures), left_on='stem', right_on='word', how='left')
     logging.debug('stem_measures_full')
