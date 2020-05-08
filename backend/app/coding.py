@@ -147,6 +147,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
         distinct_cue_response_pairs.index.get_level_values('cue_clean'),
         distinct_cue_response_pairs.index.get_level_values('response_clean'))
     other_categories = pd.json_normalize(relations_array)
+    other_categories.index = distinct_cue_response_pairs.index
     # the numpy vectorize function has no index as only the cue and response columns are passed in
     # so add the index back on to allow the dataframes to be concatenated
 
@@ -157,11 +158,19 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
         distinct_cue_response_pairs['response_decoded']
     )
 
-    other_categories['syntagmatic'] = distinct_cue_response_pairs.apply(check_syntagmatic_pd)
+    assert (len(other_categories) == len(distinct_cue_response_pairs))
+
+    other_categories = pd.concat([other_categories, check_syntagmatic_pd(distinct_cue_response_pairs)], axis=1,
+                                 sort=False)
+
+    assert (len(other_categories) == len(distinct_cue_response_pairs))
+
+    other_categories = pd.concat([other_categories, check_affix_pd(distinct_cue_response_pairs)], axis=1, sort=False)
+
 
     distinct_cue_response_pairs = pd.concat([distinct_cue_response_pairs, other_categories], axis=1)
-    other_categories.index = distinct_cue_response_pairs.index
 
+    print(distinct_cue_response_pairs[distinct_cue_response_pairs['consecutivexy_cue_not_entered']==True])
     #     # TODO what to do about words joined with hyphens?
     #     # TODO use this throughout instead of splitting multiple times
     #     ############## Other Categories ##############
@@ -340,42 +349,69 @@ def listindex(word_list, word):
 
 
 def check_syntagmatic_pd(df):
+    logging.debug('Dataframe length {}'.format(len(df)))
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
-    response_split = response_clean.str.split('_')
-    # couldn't find a way to check for items from one column in another column that contained lists so have created
-    # this crazy list comprehension
-    cue_present = [
-        # cue is at the beginning, which means response follows
-        [sum([(listindex(x, y) == 0) * 1,
-              # cue is at the end which means response precedes
-              (listindex(x, y) == 1) * 1,
-              # cue is somewhere else
-              (listindex(x, y) > 1) * 1])
-         for x in response_split]
-        for y in cue_clean]
-
-    contains_ = response_clean.str.contains('_')
-    contains_cue = response_clean.str.extract('(%s)' % '|'.join(cue_clean))
-    cue_present = pd.DataFrame([[listindex(x, cue_clean[id])] for id, x in enumerate(response_split)])
-    # TODO get the column headers onto this data
-    # cue_present = pd.DataFrame(cue_present, columns=['consecutivexy', 'consecutiveyx', 'othercollocational'])
-
+    # having a nightmare with words as indexes so just dropping
+    response_split = pd.DataFrame(response_clean.str.split('_')).reset_index()
+    response_split = response_split.drop('index', axis=1)
+    print('RESPONSE SPLIT')
+    print(response_split)
+    # find the index of the cue in the response (not present returns nan)
+    cue_present = pd.DataFrame([[listindex(x, cue_clean[id])] for id, x in enumerate(response_split['response_clean'])])
+    print('CUE PRESENT')
+    print(cue_present)
+    print('CUE PRESENT LEN {}'.format(len(cue_present)))
+    # get the column headers onto this data
+    syntagmatic = pd.DataFrame(cue_present, columns=['consecutivexy', 'consecutiveyx', 'othercollocational'])
+    # if the cue is at the start then the category is x_y
+    syntagmatic['consecutivexy'] = np.equal(syntagmatic['consecutivexy'], 0)
+    # if the cue is second then the category is y_x
+    syntagmatic['consecutiveyx'] = np.equal(syntagmatic['consecutiveyx'], 1)
+    # otherwise the cue is contained somewhere else in the phrase
+    syntagmatic['othercollocational'] = np.greater(syntagmatic['othercollocational'], 1)
     # check for instances of the cue NOT being present in the response, the response being 2 words, and the response
     # beginning with for|and|nor|but|or|yet|so_ (e.g. cue = back, response = and forth)
     cue_not_present = cue_present.isnull().unstack().reset_index()
-    print(response_split)
-    response_two_words = response_split[response_split.str.len() > 2]
-    more_than_two_words_and_cue_not_present = response_two_words.index.intersection(cue_not_present.index)
-    consecutivexy_cue_not_entered = response_clean.iloc[more_than_two_words_and_cue_not_present].str.match(
-        '^(for|and|nor|but|or|yet|so_)')
-    print(consecutivexy_cue_not_entered)
-    
-    # TODO take the indices discovered here and add this measure into the overall result
+    cue_not_present = cue_not_present.drop(['level_0', 'level_1'], axis=1)
+    print('CUE NOT PRESENT')
+    print(cue_not_present)
+    print(cue_not_present.index)
+    response_two_words = response_split[response_split['response_clean'].str.len() > 2]
+    print('RESPONSE 2 WORDS')
+    print(response_two_words)
+    print(len(response_two_words))
+    # intersection of a multi index with an integer index doesn't work
+    more_than_two_words_and_cue_not_present_indices = cue_not_present.index[response_two_words.index]
+    print('MORE THAN TWO WORDS AND CUE NOT PRESENT')
+    print(len(more_than_two_words_and_cue_not_present_indices))
+    print(more_than_two_words_and_cue_not_present_indices)
+    print(response_clean[more_than_two_words_and_cue_not_present_indices])
+    consecutivexy_cue_not_entered_matches = response_clean[more_than_two_words_and_cue_not_present_indices].str.match(
+        '^(for|and|nor|but|or|yet|so|all|a_)')
+    consecutivexy_cue_not_entered_indices = more_than_two_words_and_cue_not_present_indices[
+        consecutivexy_cue_not_entered_matches == True]
 
-    # TODO join cue and response and check if the merge is present in ALL WORDS
-
-    # TODO join response and cue and check if the merge is present in ALL WORDS
+    cue_response_merged = cue_clean + response_clean
+    response_cue_merged = response_clean + cue_clean
+    consecutivexy = cue_response_merged.isin(ALL_WORDS)
+    consecutiveyx = response_cue_merged.isin(ALL_WORDS)
+    print('CUE RESPONSE MEREGED')
+    print(cue_response_merged)
+    print('CONSECUTIVE XY')
+    print(consecutivexy)
+    # join cue and response and check if the merge is present in ALL WORDS
+    syntagmatic['consecutivexy'] = np.logical_or(syntagmatic['consecutivexy'], consecutivexy)
+    # join response and cue and check if the merge is present in ALL WORDS
+    syntagmatic['consecutiveyx'] = np.logical_or(syntagmatic['consecutiveyx'], consecutiveyx)
+    # TODO categorise consecutivexy and consecutiveyx as 0 and 1
+    print('CONSECUTIVE XY CUE NOT ENTERED INDICES')
+    print(consecutivexy_cue_not_entered_indices)
+    syntagmatic['consecutivexy_cue_not_entered'] = syntagmatic.index.isin(consecutivexy_cue_not_entered_indices)
+    print('SYNTAGMATIC')
+    print(syntagmatic)
+    syntagmatic.index = df.index
+    return syntagmatic
 
 
 # Soundex similarity check
