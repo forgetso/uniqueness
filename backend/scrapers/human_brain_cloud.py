@@ -5,18 +5,27 @@ import string
 import argparse
 import time
 import logging
+from backend.scrapers.user_agents import user_agent_list
+
 logging.basicConfig(level=logging.DEBUG)
+
+URLS_TO_VISIT = [
+    'https://www.humanbraincloud.com',
+    'https://www.humanbraincloud.com/api/?op=GetRandomWords&uid={random_id}&_={timestamp}',
+    'https://www.humanbraincloud.com/api/cache/stats/MostSubmittedWords.json?uid={random_id}',
+    'https://www.humanbraincloud.com/api/cache/stats/StrongestConnections.json?uid={random_id}',
+    'https://www.humanbraincloud.com/api/cache/stats/MostProlific.json?uid={random_id}',
+    'https://www.humanbraincloud.com/api/?op=GetPlayerData&uid={random_id}&_={timestamp}',
+    'https://www.humanbraincloud.com/api/cache/stats/MiscGlobalStats.json?uid={random_id}&_={timestamp}',
+    'https://www.humanbraincloud.com/api/cache/stats/MostProlificRecently.json?uid={random_id}'
+]
 
 
 def process():
-    uri = 'https://humanbraincloud.com/api/cache/stats/RecentConnections.json?uid={random_id}&_={timestamp}'
-
     random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
-    timestamp = int(time.time())
-    uri_filled = uri.format(random_id=random_id, timestamp=timestamp)
-    request_obj = requests.get(uri_filled)
-
-    result = request_obj.json()
+    fake_visit(random_id)
+    uri = 'https://humanbraincloud.com/api/cache/stats/RecentConnections.json?uid={random_id}&_={timestamp}'
+    result = get_uri(uri, random_id).json()
 
     if result['status'] == 'ok':
         db = pymongo.MongoClient(host='localhost')['humanbrain']
@@ -25,6 +34,32 @@ def process():
             record.pop('id')
             db.data.update({'_id': record['_id']}, record, upsert=True)
         logging.debug('Collected {} records'.format(len(result['data'])))
+
+
+def fake_visit(random_id):
+    for uri in URLS_TO_VISIT:
+        get_uri(uri, random_id)
+
+
+def get_uri(uri, random_id):
+    user_agent = random.choice(user_agent_list)
+    headers = {
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+        'Connection': 'keep-alive',
+        'Host': 'www.humanbraincloud.com',
+        'Referer': 'https: // www.humanbraincloud.com/',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'User-Agent': user_agent,
+        'X-Requested-With': 'XMLHttpRequest',
+    }
+    timestamp = int(time.time())
+    uri_filled = uri.format(random_id=random_id, timestamp=timestamp)
+    r = requests.get(uri_filled, headers=headers)
+    return r
 
 
 def setup():
