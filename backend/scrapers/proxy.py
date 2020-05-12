@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 FNULL = open(os.devnull, 'w')
 VPN_CONFIG_FOLDER = '/vpn/ovpn_udp/'
+VPN_CONFIG_FOLDER_FULL = ''.join([CWD, VPN_CONFIG_FOLDER])
 USERPASSFILE = ''.join([CWD, VPN_CONFIG_FOLDER, 'userpass.txt'])
 USERPASSCONFIG = 'auth-user-pass {}'.format(USERPASSFILE)
 
@@ -23,7 +24,7 @@ def process(humanbrain=None):
     ## getting the IP address using socket.gethostbyname() method
     ip_address_initial = get('https://api.ipify.org').text
 
-    files_path = [''.join([CWD, VPN_CONFIG_FOLDER, x]) for x in os.listdir(VPN_CONFIG_FOLDER) if
+    files_path = [''.join([VPN_CONFIG_FOLDER_FULL, x]) for x in os.listdir(VPN_CONFIG_FOLDER_FULL) if
                   x.startswith('us') and x != 'userpass.txt']
     # make sure the configs are set to look for a credentials file
     for file in files_path:
@@ -62,7 +63,7 @@ def process(humanbrain=None):
                     break
             except ValueError:
                 time_elapsed = time.time() - start_time
-                time.sleep(1)
+                time.sleep(0.1)
                 if time_elapsed > 30:
                     kill(proxy_process)
                     raise Exception('Could not connect to proxy server')
