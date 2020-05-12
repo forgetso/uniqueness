@@ -22,6 +22,8 @@ URLS_TO_VISIT = [
 
 
 def process():
+    # wait a random amount of seconds so that the requests don't go out at exactly the same time every 5 minutes
+    time.sleep(random.randint(1, 30))
     random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
     fake_visit(random_id)
     uri = 'https://humanbraincloud.com/api/cache/stats/RecentConnections.json?uid={random_id}&_={timestamp}'
