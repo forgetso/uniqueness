@@ -30,7 +30,6 @@ def process(humanbrain=None):
             lines_split = lines.split('auth-user-pass userpass.txt')
             if len(lines_split) != 2:
                 lines_split = lines.split('auth-user-pass')
-                print(lines_split[0])
                 lines = ''.join([lines_split[0], '\nauth-user-pass userpass.txt\n', lines_split[1]])
                 write = True
             f.close()
@@ -60,6 +59,7 @@ def process(humanbrain=None):
                     break
             except ValueError:
                 time_elapsed = time.time() - start_time
+                time.sleep(1)
                 if time_elapsed > 30:
                     kill(proxy_process)
                     raise Exception('Could not connect to proxy server')
