@@ -20,7 +20,8 @@ def process(humanbrain=None):
     ## getting the IP address using socket.gethostbyname() method
     ip_address_initial = get('https://api.ipify.org').text
 
-    files_path = [''.join([CWD, '/vpn/ovpn_udp/', x]) for x in os.listdir('vpn/ovpn_udp') if x.startswith('us')]
+    files_path = [''.join([CWD, '/vpn/ovpn_udp/', x]) for x in os.listdir('vpn/ovpn_udp') if
+                  x.startswith('us') and x != 'userpass.txt']
     # make sure the configs are set to look for a credentials file
     for file in files_path:
         write = False
