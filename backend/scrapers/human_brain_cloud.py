@@ -4,6 +4,8 @@ import random
 import string
 import argparse
 import time
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 
 def process():
@@ -22,6 +24,7 @@ def process():
             record['_id'] = record['id']
             record.pop('id')
             db.data.update({'_id': record['_id']}, record, upsert=True)
+        logging.debug('Collected {} records'.format(len(result['data'])))
 
 
 def setup():

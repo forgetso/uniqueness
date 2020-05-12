@@ -159,49 +159,37 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     )
 
     assert (len(other_categories) == len(distinct_cue_response_pairs))
+    distinct_cue_response_pairs = pd.concat([distinct_cue_response_pairs, other_categories],
+                                            axis=1,
+                                            sort=False)
+    # check for syntagmatic and add to dataframe
+    distinct_cue_response_pairs = check_syntagmatic_pd(distinct_cue_response_pairs)
 
-    other_categories = pd.concat([other_categories, check_syntagmatic_pd(distinct_cue_response_pairs)], axis=1,
-                                 sort=False)
+    # check for affix and add to dataframe
+    distinct_cue_response_pairs = check_affix_pd(distinct_cue_response_pairs)
 
-    assert (len(other_categories) == len(distinct_cue_response_pairs))
+    print(distinct_cue_response_pairs[distinct_cue_response_pairs['consecutivexy_cue_not_entered'] == True])
 
-    other_categories = pd.concat([other_categories, check_affix_pd(distinct_cue_response_pairs)], axis=1, sort=False)
-
-
-    distinct_cue_response_pairs = pd.concat([distinct_cue_response_pairs, other_categories], axis=1)
-
-    print(distinct_cue_response_pairs[distinct_cue_response_pairs['consecutivexy_cue_not_entered']==True])
     #     # TODO what to do about words joined with hyphens?
     #     # TODO use this throughout instead of splitting multiple times
     #     ############## Other Categories ##############
     #
-    #     ### phonology (sound the same)
-    #     phonology, type = check_phonology(cue_decoded, response_decoded)
-    #     coded_pairs[key]['phonology'] = phonology
-    #
-    #     ### syntagmatic (x follows y, y follows x)
-    #     syntagmatic, type = check_syntagmatic(cue, response, response_split)
-    #     coded_pairs[key]['syntagmatic'] = type
-    #
     #     # TODO add s2v check for syntagmatic
     #     # TODO add proverb check for syntagmatic
     #
-    #     ### affix - the words are equal plus or minus an affix
-    #     cue_affix = check_affix(cue, response)
-    #     response_affix = check_affix(response, cue)
-    #     affix = cue_affix or response_affix
-    #     coded_pairs[key]['affix'] = affix
     #
-    #     ### semantic atlas from Gallant et. al
-    #     word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
-    #     if not word_found:
-    #         word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
-    #     coded_pairs[key]['semantic_area'] = response_semantic_area
-    #     word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
-    #     if not word_found:
-    #         word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
-    #     changes = response_semantic_area != cue_semantic_area
-    #     coded_pairs[key]['semantic_area_changes'] = changes
+    # ### semantic atlas from Gallant et. al
+    # word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
+    # if not word_found:
+    #     word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
+    # coded_pairs[key]['semantic_area'] = response_semantic_area
+    # word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
+    # if not word_found:
+    #     word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
+    # changes = response_semantic_area != cue_semantic_area
+    # coded_pairs[key]['semantic_area_changes'] = changes
+
+
     #
     #     # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
     #     # between them
@@ -341,9 +329,9 @@ def check_syntagmatic(cue, response, response_split):
     return None
 
 
-def listindex(word_list, word):
+def nanindex(list_or_string, word):
     try:
-        return word_list.index(word)
+        return list_or_string.index(word)
     except ValueError:
         return np.nan
 
@@ -355,15 +343,10 @@ def check_syntagmatic_pd(df):
     # having a nightmare with words as indexes so just dropping
     response_split = pd.DataFrame(response_clean.str.split('_')).reset_index()
     response_split = response_split.drop('index', axis=1)
-    print('RESPONSE SPLIT')
-    print(response_split)
     # find the index of the cue in the response (not present returns nan)
-    cue_present = pd.DataFrame([[listindex(x, cue_clean[id])] for id, x in enumerate(response_split['response_clean'])])
-    print('CUE PRESENT')
-    print(cue_present)
-    print('CUE PRESENT LEN {}'.format(len(cue_present)))
+    cue_index = pd.DataFrame([[nanindex(x, cue_clean[id])] for id, x in enumerate(response_split['response_clean'])])
     # get the column headers onto this data
-    syntagmatic = pd.DataFrame(cue_present, columns=['consecutivexy', 'consecutiveyx', 'othercollocational'])
+    syntagmatic = pd.DataFrame(cue_index, columns=['consecutivexy', 'consecutiveyx', 'othercollocational'])
     # if the cue is at the start then the category is x_y
     syntagmatic['consecutivexy'] = np.equal(syntagmatic['consecutivexy'], 0)
     # if the cue is second then the category is y_x
@@ -372,46 +355,30 @@ def check_syntagmatic_pd(df):
     syntagmatic['othercollocational'] = np.greater(syntagmatic['othercollocational'], 1)
     # check for instances of the cue NOT being present in the response, the response being 2 words, and the response
     # beginning with for|and|nor|but|or|yet|so_ (e.g. cue = back, response = and forth)
-    cue_not_present = cue_present.isnull().unstack().reset_index()
+    cue_not_present = cue_index.isnull().unstack().reset_index()
     cue_not_present = cue_not_present.drop(['level_0', 'level_1'], axis=1)
-    print('CUE NOT PRESENT')
-    print(cue_not_present)
-    print(cue_not_present.index)
     response_two_words = response_split[response_split['response_clean'].str.len() > 2]
-    print('RESPONSE 2 WORDS')
-    print(response_two_words)
-    print(len(response_two_words))
     # intersection of a multi index with an integer index doesn't work
     more_than_two_words_and_cue_not_present_indices = cue_not_present.index[response_two_words.index]
-    print('MORE THAN TWO WORDS AND CUE NOT PRESENT')
-    print(len(more_than_two_words_and_cue_not_present_indices))
-    print(more_than_two_words_and_cue_not_present_indices)
-    print(response_clean[more_than_two_words_and_cue_not_present_indices])
+    # TODO this could be too broad and picking up random things
     consecutivexy_cue_not_entered_matches = response_clean[more_than_two_words_and_cue_not_present_indices].str.match(
-        '^(for|and|nor|but|or|yet|so|all|a_)')
+        '^(for|and|nor|but|or|yet|so)')
     consecutivexy_cue_not_entered_indices = more_than_two_words_and_cue_not_present_indices[
         consecutivexy_cue_not_entered_matches == True]
-
     cue_response_merged = cue_clean + response_clean
     response_cue_merged = response_clean + cue_clean
     consecutivexy = cue_response_merged.isin(ALL_WORDS)
     consecutiveyx = response_cue_merged.isin(ALL_WORDS)
-    print('CUE RESPONSE MEREGED')
-    print(cue_response_merged)
-    print('CONSECUTIVE XY')
-    print(consecutivexy)
     # join cue and response and check if the merge is present in ALL WORDS
     syntagmatic['consecutivexy'] = np.logical_or(syntagmatic['consecutivexy'], consecutivexy)
     # join response and cue and check if the merge is present in ALL WORDS
     syntagmatic['consecutiveyx'] = np.logical_or(syntagmatic['consecutiveyx'], consecutiveyx)
     # TODO categorise consecutivexy and consecutiveyx as 0 and 1
-    print('CONSECUTIVE XY CUE NOT ENTERED INDICES')
-    print(consecutivexy_cue_not_entered_indices)
     syntagmatic['consecutivexy_cue_not_entered'] = syntagmatic.index.isin(consecutivexy_cue_not_entered_indices)
-    print('SYNTAGMATIC')
-    print(syntagmatic)
+
     syntagmatic.index = df.index
-    return syntagmatic
+    df = pd.concat([df, syntagmatic], axis=1, sort=False)
+    return df
 
 
 # Soundex similarity check
@@ -470,6 +437,44 @@ def check_affix(cue, response):
         return True
 
     return False
+
+
+def check_affix_pd(df):
+    response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
+    cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
+    # TODO reduce to cue!=response initially
+    cue_index = pd.DataFrame([[nanindex(x, cue_clean[int(idx)])] for idx, x in enumerate(response_clean)])
+    # get rid of any cue-response pairs where the cue is not in the response
+    cue_present_index = [cue_index[0] >= 0]
+    response_subset = response_clean[cue_present_index[0]]
+    cue_subset = cue_clean[cue_present_index[0]]
+    # shouldn't need to strip x here as spaces should already be replaced by underscores
+    remainder = pd.DataFrame([[x.split(cue_subset[int(idx)])] for idx, x in enumerate(response_subset)])
+    # assign the resulting list to two separate columns (s1, s2)
+    remainder[['s1', 's2']] = pd.DataFrame(remainder[0].tolist(), index=remainder.index)
+    # we no longer need the column with the list
+    remainder = remainder.drop(0, axis=1)
+    # check if the remainder is in the affixes for either split1 or split2
+    affix1 = np.logical_or(remainder['s1'].isin(AFFIXES), remainder['s2'].isin(AFFIXES))
+    # check if the resultant word is just cueresponse or responsecue
+    # TODO isn't this redundant because of syntagmatic checks?
+    #   Also this overrides the above by classifying anything that starts/ends the same and ends/stars
+    #   differently as being affixed.... This is not the case with anything, anyone, anywhere, whereabouts,
+    #   thereabouts. Should these be classified differently or dropped?
+    affix2 = np.logical_and(np.logical_and(remainder['s1'].str.len() == 0, remainder['s2'].str.len() > 0),
+                            np.logical_not(remainder['s2'].str.contains('_')))
+    affix3 = np.logical_and(np.logical_and(remainder['s2'].str.len() == 0, remainder['s1'].str.len() > 0),
+                            np.logical_not(remainder['s1'].str.contains('_')))
+
+    affix_indexes = np.logical_or(np.logical_or(affix1, affix2), affix3)
+    cue_indexes = cue_subset[affix_indexes]
+    response_indexes = response_subset[affix_indexes]
+    # the resulting data is only a subset of the dataframe so we need to apply it overall
+    affix_col = pd.DataFrame(np.logical_and(cue_clean.isin(cue_indexes), response_clean.isin(response_indexes)),
+                             columns=['affix'])
+    affix_col.index = df.index
+    df = pd.concat([df, affix_col], axis=1, sort=False)
+    return df
 
 
 def check_measures(all_measures, distinct_responses):
