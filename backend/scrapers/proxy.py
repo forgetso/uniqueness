@@ -14,34 +14,37 @@ import psutil
 logging.basicConfig(level=logging.DEBUG)
 
 FNULL = open(os.devnull, 'w')
+VPN_CONFIG_FOLDER = '/vpn/ovpn_udp/'
+USERPASSFILE = ''.join([CWD, VPN_CONFIG_FOLDER, 'userpass.txt'])
+USERPASSCONFIG = 'auth-user-pass {}'.format(USERPASSFILE)
 
 
 def process(humanbrain=None):
     ## getting the IP address using socket.gethostbyname() method
     ip_address_initial = get('https://api.ipify.org').text
 
-    files_path = [''.join([CWD, '/vpn/ovpn_udp/', x]) for x in os.listdir('vpn/ovpn_udp') if
+    files_path = [''.join([CWD, VPN_CONFIG_FOLDER, x]) for x in os.listdir(VPN_CONFIG_FOLDER) if
                   x.startswith('us') and x != 'userpass.txt']
     # make sure the configs are set to look for a credentials file
     for file in files_path:
         write = False
         with open(file, 'r') as f:
             lines = f.read()
-            lines_split = lines.split('auth-user-pass userpass.txt')
+            lines_split = lines.split(USERPASSCONFIG)
             if len(lines_split) != 2:
                 lines_split = lines.split('auth-user-pass')
-                lines = ''.join([lines_split[0], '\nauth-user-pass userpass.txt\n', lines_split[1]])
+                lines = ''.join([lines_split[0], '\n', USERPASSCONFIG, '\n', lines_split[1]])
                 write = True
             f.close()
         if write:
             with open(file, 'w') as f:
-                assert ('auth-user-pass userpass.txt' in lines)
+                assert (USERPASSCONFIG in lines)
                 f.write(lines)
                 f.close()
     proxy_server_config = random.choice(files_path)
-    if not os.path.exists('vpn/ovpn_udp/userpass.txt'):
+    if not os.path.exists(USERPASSFILE):
         logging.debug('writing userpass file')
-        userpassfile = open('vpn/ovpn_udp/userpass.txt', 'w')
+        userpassfile = open(USERPASSFILE, 'w')
         userpassfile.write(PROXY_LOGIN)
         userpassfile.write("\n")
         userpassfile.write(PROXY_PASSWORD)
