@@ -29,7 +29,7 @@ GET_UID_SCRIPT = '{}/backend/helpers/get_uid.js'.format(CWD)
 
 def process():
     # wait a random amount of seconds so that the requests don't go out at exactly the same time every 5 minutes
-    time.sleep(random.randint(1, 30))
+    time.sleep(random.randint(1, 300))
     # random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
     random_id = get_uid()
     fake_visit(random_id)
@@ -59,8 +59,8 @@ def fake_visit(random_id):
 
 
 def get_uid():
-    result = subprocess.run(['node', GET_UID_SCRIPT], capture_output=True)
-    uid = result.stdout.decode('utf8').strip()
+    result = subprocess.check_output(['node', GET_UID_SCRIPT])
+    uid = result.decode('utf8').strip()
     if re.match(r'[a-z0-9]{16}', uid):
         return uid
     else:
