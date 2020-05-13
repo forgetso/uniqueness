@@ -2,6 +2,7 @@ import os
 from multiprocessing import cpu_count
 
 CWD = os.getcwd()
+PROJECT_ROOT='/home/chris/dev/uniqueness'
 PG_USER = 'backend'
 PG_PASSWORD = "bhVNUe7BsZ3mp2UV"
 ZIP_FILE = ''.join([CWD, '/data/SWOW-EN.complete.csv.zip'])
