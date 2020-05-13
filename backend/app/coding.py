@@ -178,6 +178,11 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # ### semantic atlas from Gallant et. al
     response_semantic_areas = brain_map.get_semantic_area(distinct_cue_response_pairs.index.get_level_values(
         'response_clean'))
+    print(response_semantic_areas)
+    distinct_cue_response_pairs = pd.merge(distinct_cue_response_pairs, response_semantic_areas,
+                                           on=['response_clean', 'word'])
+    print(distinct_cue_response_pairs)
+
     # if not word_found:
     #     word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
     # coded_pairs[key]['semantic_area'] = response_semantic_area

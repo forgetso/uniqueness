@@ -2,6 +2,7 @@ import numpy as np
 from backend.settings import SEMANTIC_SPACE_FOLDER
 from nilearn import surface
 from nilearn import datasets
+import pandas as pd
 
 
 # TODO import this data to the database ??
@@ -46,26 +47,30 @@ class BrainMap():
     def get_semantic_area(self, words):
         # get the words in the semantic model that have been given as WA responses (10470,) True or False
         words_found = np.isin(self.english1000_vocab, words)
-        # filter the 985 word embedding vectors to those words only (985 x n words)
-        words_regions = self.english1000_embedding[:, words_found]
+
+        # words_regions = self.english1000_embedding[:, words_found]
         # - average semantic VM weights within each area and across subjects
         # `lsemwts` (985 features x 192 areas), `rsemwts` (985 features x 128 areas)
         # If `v` is a shape `(985,)` vector of weights and `english1000_embedding` is the shape `(985, 10470)` embedding matrix,
         # then `np.dot(v, english1000_embedding)` yields a vector of shape `(10470,)` containing the predicted response to each of the 10470 words in the vocabulary.
+        # filter the 985 word embedding vectors to those words only (985 x n words)
         w = np.vstack([self.english1000_embedding[:, words_found]])
         # the predicted response of each of the 985 features to the list of words
         # the transpose of w. Giving shapes (n,985) and (985,192). This will need to be put in np vectorize or similar.
         response_left = np.dot(w.T, self.lsemwts)
         response_right = np.dot(w.T, self.rsemwts)
         # get the indices of the labels that the regions correspond to
-        r_indices = np.vstack(np.where(response_right == response_right.max()))
-        l_indices = np.vstack(np.where(response_left == response_left.max()))
+        r_indices = np.vstack(np.argmax(response_right, axis=1))
+        l_indices = np.vstack(np.argmax(response_left, axis=1))
         # l_significant = pragmatic_info['lsignif'][l_indices]
         l_labels = self.pragmatic_info['lnames'][l_indices]
         # r_significant = pragmatic_info['rsignif'][r_indices]
         r_labels = self.pragmatic_info['rnames'][r_indices]
         # if the regions are significant then the labels are present, otherwise they are an empty byte string
-        return l_labels, r_labels
+        labels = pd.DataFrame({'word': self.english1000_vocab[words_found],
+                               'left_hemi_label': l_labels.flatten(),
+                               'right_hemi_label': r_labels.flatten()})
+        return labels
 
     def get_semantic_coordinates(self, label):
         # TODO right AND left hemisphere
