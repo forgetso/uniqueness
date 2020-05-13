@@ -6,6 +6,7 @@ import argparse
 import time
 import logging
 from backend.scrapers.user_agents import user_agent_list
+import json
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -27,11 +28,20 @@ def process():
     random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
     fake_visit(random_id)
     uri = 'https://humanbraincloud.com/api/cache/stats/RecentConnections.json?uid={random_id}&_={timestamp}'
-    result = get_uri(uri, random_id).json()
+    request_obj = get_uri(uri, random_id)
+
+    if request_obj.status_code != 200:
+        raise PermissionError(
+            'Not able to access humanbraincloud.com. Server returned {}'.format(json.dumps(request_obj)))
+
+    result = request_obj.json()
+    if result['status'] != 'ok':
+        raise ConnectionError('Error in data from humanbraincloud')
 
     if result['status'] == 'ok':
         db = pymongo.MongoClient(host='localhost')['humanbrain']
         for record in result['data']:
+            print(record)
             record['_id'] = record['id']
             record.pop('id')
             db.data.update({'_id': record['_id']}, record, upsert=True)
