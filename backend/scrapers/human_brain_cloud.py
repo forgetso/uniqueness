@@ -9,7 +9,7 @@ from backend.scrapers.user_agents import user_agent_list
 import json
 import subprocess
 import re
-from backend.settings import CWD
+from backend.settings import PROJECT_ROOT
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -24,7 +24,7 @@ URLS_TO_VISIT = [
     'https://www.humanbraincloud.com/api/cache/stats/MostProlificRecently.json?uid={random_id}'
 ]
 
-GET_UID_SCRIPT = '{}/backend/helpers/get_uid.js'.format(CWD)
+GET_UID_SCRIPT = '{}/backend/helpers/get_uid.js'.format(PROJECT_ROOT)
 
 
 def process():

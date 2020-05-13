@@ -176,7 +176,8 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     #
     #
     # ### semantic atlas from Gallant et. al
-    response_semantic_area = brain_map.get_semantic_area(response_decoded)
+    response_semantic_areas = brain_map.get_semantic_area(distinct_cue_response_pairs.index.get_level_values(
+        'response_clean'))
     # if not word_found:
     #     word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
     # coded_pairs[key]['semantic_area'] = response_semantic_area
@@ -185,7 +186,6 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     #     word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
     # changes = response_semantic_area != cue_semantic_area
     # coded_pairs[key]['semantic_area_changes'] = changes
-
 
     #
     #     # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
