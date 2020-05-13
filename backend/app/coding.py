@@ -2,19 +2,16 @@ from backend.helpers.string import syllables
 from backend.lib.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, get_all_words, \
     get_all_measures
 from backend.lib.setup import db_setup
-from backend.lib.contractions import replace_contraction
 from nltk.stem import PorterStemmer
 import re
 import jellyfish
-import unidecode
 from backend.lib.wordnet_relations import WordnetRelations
 from collections import Counter
 from backend.lib.multiprocessor import job_pool
 import time
 import argparse
-from backend.importers.semantic_atlas import BrainMap
-from sense2vec import Sense2Vec
-from backend.settings import SENSE2VEC_FOLDER, SEMANTIC_SPACE_FOLDER, JOB_NUMBER
+from backend.lib.semantic_atlas import BrainMap
+from backend.settings import SEMANTIC_SPACE_FOLDER
 from backend.helpers.pairs import format_cue_response_pairs
 import os
 import pprint
@@ -179,7 +176,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     #
     #
     # ### semantic atlas from Gallant et. al
-    # word_found, response_semantic_area = brain_map.get_semantic_area(response_decoded)
+    response_semantic_area = brain_map.get_semantic_area(response_decoded)
     # if not word_found:
     #     word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
     # coded_pairs[key]['semantic_area'] = response_semantic_area

@@ -7,6 +7,9 @@ import time
 import logging
 from backend.scrapers.user_agents import user_agent_list
 import json
+import subprocess
+import re
+from backend.settings import CWD
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -21,11 +24,14 @@ URLS_TO_VISIT = [
     'https://www.humanbraincloud.com/api/cache/stats/MostProlificRecently.json?uid={random_id}'
 ]
 
+GET_UID_SCRIPT = '{}/backend/helpers/get_uid.js'.format(CWD)
+
 
 def process():
     # wait a random amount of seconds so that the requests don't go out at exactly the same time every 5 minutes
     time.sleep(random.randint(1, 30))
-    random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
+    # random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
+    random_id = get_uid()
     fake_visit(random_id)
     uri = 'https://humanbraincloud.com/api/cache/stats/RecentConnections.json?uid={random_id}&_={timestamp}'
     request_obj = get_uri(uri, random_id)
@@ -50,6 +56,15 @@ def process():
 def fake_visit(random_id):
     for uri in URLS_TO_VISIT:
         get_uri(uri, random_id)
+
+
+def get_uid():
+    result = subprocess.run(['node', GET_UID_SCRIPT], capture_output=True)
+    uid = result.stdout.decode('utf8').strip()
+    if re.match(r'[a-z0-9]{16}', uid):
+        return uid
+    else:
+        raise ('UID error {}'.format(uid))
 
 
 def get_uri(uri, random_id):
