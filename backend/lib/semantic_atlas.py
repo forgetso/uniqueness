@@ -66,8 +66,11 @@ class BrainMap():
         l_labels = self.pragmatic_info['lnames'][l_indices]
         # r_significant = pragmatic_info['rsignif'][r_indices]
         r_labels = self.pragmatic_info['rnames'][r_indices]
+
         # if the regions are significant then the labels are present, otherwise they are an empty byte string
-        labels = pd.DataFrame({'word': self.english1000_vocab[words_found],
+
+        words_subset = self.english1000_vocab[words_found]
+        labels = pd.DataFrame({'word': words_subset,
                                'left_hemi_label': l_labels.flatten(),
                                'right_hemi_label': r_labels.flatten()})
         return labels

@@ -176,12 +176,43 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     #
     #
     # ### semantic atlas from Gallant et. al
+    # cue semantic areas are only used to determine if the area changes between cue and response
+    cue_semantic_areas = brain_map.get_semantic_area(distinct_cue_response_pairs.index.get_level_values(
+        'cue_clean').unique())
+    print(cue_semantic_areas)
+    # response semantic areas
     response_semantic_areas = brain_map.get_semantic_area(distinct_cue_response_pairs.index.get_level_values(
-        'response_clean'))
-    print(response_semantic_areas)
-    distinct_cue_response_pairs = pd.merge(distinct_cue_response_pairs, response_semantic_areas,
-                                           on=['response_clean', 'word'])
-    print(distinct_cue_response_pairs)
+        'response_clean').unique())
+    both_semantic_areas = pd.concat([cue_semantic_areas, response_semantic_areas]).drop_duplicates().set_index('word')
+    distinct_cue_response_pairs = distinct_cue_response_pairs.join(both_semantic_areas, on='response_clean')
+    distinct_cue_response_pairs.rename(columns={'left_hemi_label': 'response_left_hemi_label',
+                                                'right_hemi_label': 'response_right_hemi_label'}, inplace=True)
+    distinct_cue_response_pairs = distinct_cue_response_pairs.join(both_semantic_areas, on='cue_clean')
+    distinct_cue_response_pairs.rename(columns={'left_hemi_label': 'cue_left_hemi_label',
+                                                'right_hemi_label': 'cue_right_hemi_label'}, inplace=True)
+    # TODO consider what to do when the labels are nans and get the logic to output True/False/or similar
+    distinct_cue_response_pairs['r_hemi_area_differs'] = np.logical_and.reduce((distinct_cue_response_pairs[
+                                                                                    'response_right_hemi_label'] !=
+                                                                                distinct_cue_response_pairs[
+                                                                                    'cue_right_hemi_label'],
+                                                                                distinct_cue_response_pairs[
+                                                                                    'response_right_hemi_label'] != b'',
+                                                                                distinct_cue_response_pairs[
+                                                                                    'cue_right_hemi_label'] != b''))
+    distinct_cue_response_pairs['l_hemi_area_differs'] = np.logical_and.reduce((distinct_cue_response_pairs[
+                                                                                    'response_left_hemi_label'] !=
+                                                                                distinct_cue_response_pairs[
+                                                                                    'cue_left_hemi_label'],
+                                                                                distinct_cue_response_pairs[
+                                                                                    'response_left_hemi_label'] != b'',
+                                                                                distinct_cue_response_pairs[
+                                                                                    'cue_left_hemi_label'] != b''))
+
+    print(distinct_cue_response_pairs[distinct_cue_response_pairs.columns[-6:]])
+
+    # distinct_cue_response_pairs.join(both_semantic_areas, on=)
+
+    # TODO search for stems if word is not found
 
     # if not word_found:
     #     word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
@@ -266,7 +297,7 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     # # TODO  dictionary_similarity
     if not fieldnames:
         first_key = next(iter(coded_pairs))
-        fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
+    fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
     # print(fieldnames)
     # save data to the db
@@ -295,40 +326,6 @@ def relation_coding(cue, response):
     relation_obj = WordnetRelations(cue, response)
     relations = relation_obj.relations
     return relations
-
-
-def check_syntagmatic(cue, response, response_split):
-    # TODO make this work for compounds, common phrases that are not complete in the response
-
-    if '_' in response:
-        if cue in response:
-            if cue in response_split:
-                cue_index = response_split.index(cue)
-
-                if cue_index == 0:
-                    return 'consecutivexy'
-                elif cue_index == 1:
-                    return 'consecutiveyx'
-                else:
-                    return 'othercollocational'
-            else:
-                return 'othercollocational'
-        # if the cue is not in the response
-        if len(response_split) == 2:
-            # first word of response is a conjunction
-            # e.g. cue is "back" and response is "and forth"
-            if response_split[0] in ('for', 'and', 'nor', 'but', 'or', 'yet', 'so'):
-                return 'consecutivexy-cue_not_entered'
-
-    joined_word_x_y = ''.join([cue, response])
-    if joined_word_x_y in ALL_WORDS:
-        return 'consecutivexy'
-
-    joined_word_y_x = ''.join([response, cue])
-    if joined_word_y_x in ALL_WORDS:
-        return 'consecutiveyx'
-
-    return None
 
 
 def nanindex(list_or_string, word):
@@ -422,26 +419,8 @@ def check_phonology(cue, response):
     return None
 
 
-def check_affix(cue, response):
-    # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
-    if cue in response:
-        remainder = response.split(cue)
-        for r in remainder:
-            if r in AFFIXES:
-                return True
-
-    remainder = response.split(cue)
-    if len(remainder) == 2 and (len(remainder[0]) == 0 or len(remainder[1]) == 0):
-        # print(cue, response, '... response attached to the start or to the end of the cue')
-        return True
-
-    if ps.stem(cue) == ps.stem(response):
-        return True
-
-    return False
-
-
 def check_affix_pd(df):
+    # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
     # TODO reduce to cue!=response initially
