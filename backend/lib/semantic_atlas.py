@@ -4,6 +4,8 @@ from nilearn import surface
 from nilearn import datasets
 import pandas as pd
 
+UNKNOWN_AREA_LABEL = b'U'
+
 
 # TODO import this data to the database ??
 
@@ -71,9 +73,7 @@ class BrainMap():
         l_labels = self.pragmatic_info['lnames'][l_indices]
         # r_significant = pragmatic_info['rsignif'][r_indices]
         r_labels = self.pragmatic_info['rnames'][r_indices]
-
         # if the regions are significant then the labels are present, otherwise they are an empty byte string
-
         words_subset = self.english1000_vocab[words_found]
         labels = pd.DataFrame({'word': words_subset,
                                'left_hemi_label': l_labels.flatten(),
@@ -83,15 +83,24 @@ class BrainMap():
     def get_semantic_coordinates(self, hemi, labels):
         if hemi not in self.hemi_data:
             raise KeyError('hemi must be one of {}'.format(self.hemi_data.keys()))
-        # TODO right AND left hemisphere
-        print(self.coordinates[hemi])
-        coordinates_intersect = np.intersect1d(labels, self.coordinates[hemi])
-        return coordinates_intersect
+        coordinates_intersect = np.intersect1d(labels, self.coordinates[hemi].index)
+        coordinates = np.c_[
+            coordinates_intersect,
+            self.coordinates[hemi][self.coordinates[hemi].index.isin(coordinates_intersect)]
+        ]
+        coordinates = pd.DataFrame(coordinates, columns=['label', 'coord_x', 'coord_y', 'coord_z']).set_index('label')
+        return coordinates
 
     def get_distances_between_semantic_areas(self, hemi, area_x, area_y):
-        cue_coords = self.get_semantic_coordinates(hemi, area_x)
-        response_coords = self.get_semantic_coordinates(hemi, area_y)
-        return self.get_distance(cue_coords, response_coords)
+        x_coords = self.get_semantic_coordinates(hemi, area_x.values)
+        y_coords = self.get_semantic_coordinates(hemi, area_y.values)
+        area_x_df = pd.DataFrame(area_x).merge(x_coords, left_on=area_x.name, right_index=True)
+        area_y_df = pd.DataFrame(area_y).merge(y_coords, left_on=area_y.name, right_index=True)
+        df = area_x_df.join(area_y_df, lsuffix='_left', rsuffix='_right').dropna()
+        coord_x = [df['coord_x_left'], df['coord_y_left'], df['coord_z_left']]
+        coord_y = [df['coord_x_right'], df['coord_y_right'], df['coord_z_right']]
+        df['{}_hemi_distance'.format(hemi)] = self.get_distance(coord_x, coord_y)
+        return df
 
-    def get_distance(self, coord_x, coord_y):
-        return np.sqrt(np.sum((np.subtract(coord_x, coord_y)) ** 2))
+    def get_distance(self, coord_a, coord_b):
+        return np.sqrt(np.sum((np.subtract(coord_a, coord_b)) ** 2, axis=0).astype(float))

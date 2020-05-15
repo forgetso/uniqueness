@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import logging
 
+UNKNOWN_AREA_LABEL = b'U'
 # logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
 # set of affixes
@@ -190,22 +191,29 @@ def get_coding(df, **kwargs):
     #   effciently. This is because words that are found that are not significant in the brain model are represented by
     #   b''
     # TODO search for stems if word is not found
-    df['response_left_hemi_label'] = df['response_left_hemi_label'].fillna(b'')
-    df['response_right_hemi_label'] = df['response_right_hemi_label'].fillna(b'')
-    df['cue_left_hemi_label'] = df['cue_left_hemi_label'].fillna(b'')
-    df['cue_right_hemi_label'] = df['cue_right_hemi_label'].fillna(b'')
+    # Fill with U (Unknown) to avoid intersecting with labels that are not statistically significant
+    df['response_left_hemi_label'] = df['response_left_hemi_label'].fillna(b'').replace(to_replace=b'',
+                                                                                        value=UNKNOWN_AREA_LABEL)
+    df['response_right_hemi_label'] = df['response_right_hemi_label'].fillna(b'').replace(to_replace=b'',
+                                                                                          value=UNKNOWN_AREA_LABEL)
+    df['cue_left_hemi_label'] = df['cue_left_hemi_label'].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
+    df['cue_right_hemi_label'] = df['cue_right_hemi_label'].fillna(b'').replace(to_replace=b'',
+                                                                                value=UNKNOWN_AREA_LABEL)
     df['r_hemi_area_differs'] = np.logical_and.reduce((df['response_right_hemi_label'] !=
                                                        df['cue_right_hemi_label'],
-                                                       df['response_right_hemi_label'] != b'',
-                                                       df['cue_right_hemi_label'] != b''))
+                                                       df['response_right_hemi_label'] != UNKNOWN_AREA_LABEL,
+                                                       df['cue_right_hemi_label'] != UNKNOWN_AREA_LABEL))
     df['l_hemi_area_differs'] = np.logical_and.reduce((df['response_left_hemi_label'] !=
                                                        df['cue_left_hemi_label'],
-                                                       df['response_left_hemi_label'] != b'',
-                                                       df['cue_left_hemi_label'] != b''))
+                                                       df['response_left_hemi_label'] != UNKNOWN_AREA_LABEL,
+                                                       df['cue_left_hemi_label'] != UNKNOWN_AREA_LABEL))
 
     print(df[df.columns[-6:]])
 
-    df['left_hemi_distance'] = brain_map.get_distances_between_semantic_areas('left', df['cue_left_hemi_label'], df['response_left_hemi_label'])
+    left_hemi_distance = brain_map.get_distances_between_semantic_areas('left', df['cue_left_hemi_label'],
+                                                                              df['response_left_hemi_label'])
+    print(left_hemi_distance)
+    exit(0)
     #
     #     # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
     #     # between them
