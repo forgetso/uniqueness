@@ -33,15 +33,20 @@ class BrainMap():
         # high resolution fsaverage with 163842 nodes (https://nilearn.github.io/modules/generated/nilearn.datasets.fetch_surf_fsaverage.html)
         fsaverage = datasets.fetch_surf_fsaverage(mesh='fsaverage')
         coordinates = {'left': {}, 'right': {}}
-        for hemi in self.hemi_data:
+
+        for hemi in coordinates.keys():
             labels = self.pragmatic_info['{}names'.format(hemi[0])]
             vert = self.hemi_data[hemi]['semantic']['parc']
             rr, _ = surface.load_surf_mesh(fsaverage['pial_{}'.format(hemi)])
-            for k, label in enumerate(labels):
-                if label != b'':  # Omit the Unknown label.
-                    # Compute mean location of vertices in label of index k
-                    coordinates[hemi][label.decode('utf-8')] = np.mean(rr[vert == k], axis=0)
-        # coordinates = np.array(coordinates)  # 3D coordinates of parcels
+            # (192,) labels
+            # (163842,) vert (all of the hemisphere vertices labelled 0-191 (or 0-127)
+            # (163842, 3) rr coordinates of all of the vertices in high resolution fsaverage
+            # append the vertices labels to the vertices coordinates
+            coords = pd.DataFrame(np.c_[rr, vert], columns=['coord_x', 'coord_y', 'coord_z', 'label'])
+            # take the mean of the coordinates by the labels to get a naive centre point
+            coordinates[hemi] = coords.groupby('label').mean()
+            coordinates[hemi].index = labels
+            coordinates[hemi].index = coordinates[hemi].index.rename('label')
         return coordinates
 
     def get_semantic_area(self, words):
@@ -75,18 +80,18 @@ class BrainMap():
                                'right_hemi_label': r_labels.flatten()})
         return labels
 
-    def get_semantic_coordinates(self, label):
+    def get_semantic_coordinates(self, hemi, labels):
+        if hemi not in self.hemi_data:
+            raise KeyError('hemi must be one of {}'.format(self.hemi_data.keys()))
         # TODO right AND left hemisphere
-        coordinates = None
-        for hemi in self.hemi_data:
-            if label in self.coordinates[hemi]:
-                coordinates = self.coordinates[hemi][label]
-        return coordinates
+        print(self.coordinates[hemi])
+        coordinates_intersect = np.intersect1d(labels, self.coordinates[hemi])
+        return coordinates_intersect
 
-    def get_distances_between_semantic_areas(self, area_x, area_y):
-        cue_coords = self.get_semantic_coordinates(area_x)
-        response_coords = self.get_semantic_coordinates(area_y)
+    def get_distances_between_semantic_areas(self, hemi, area_x, area_y):
+        cue_coords = self.get_semantic_coordinates(hemi, area_x)
+        response_coords = self.get_semantic_coordinates(hemi, area_y)
         return self.get_distance(cue_coords, response_coords)
 
     def get_distance(self, coord_x, coord_y):
-        return np.sqrt(np.sum((coord_x - coord_y) ** 2))
+        return np.sqrt(np.sum((np.subtract(coord_x, coord_y)) ** 2))

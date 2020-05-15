@@ -107,7 +107,9 @@ def main():
     exit()
 
 
-def get_coding(distinct_cue_response_pairs, **kwargs):
+def get_coding(df, **kwargs):
+    # var df: a dataframe of distinct cue - response pairs
+    #
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
     # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
     # phonographic neighbourhoods, active brain region.
@@ -123,49 +125,43 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
 
     totals = Counter(TOTALS)
     fieldnames = None
-    coded_responses = pd.DataFrame([])
-
-    dstnct = pd.DataFrame(distinct_cue_response_pairs.index.get_level_values('response_clean').drop_duplicates())
+    dstnct = pd.DataFrame(df.index.get_level_values('response_clean').drop_duplicates())
     response_measures = check_measures(all_measures, dstnct)
 
     logging.debug(response_measures)
     # TODO turn all of these loops into vector multiplications
-    distinct_cue_response_pairs['exact_match'] = distinct_cue_response_pairs.index.get_level_values(
-        'response_clean') == distinct_cue_response_pairs.index.get_level_values('cue_clean')
-    distinct_cue_response_pairs['length'] = distinct_cue_response_pairs['response_decoded'].str.len()
-    distinct_cue_response_pairs['syllables'] = np.vectorize(syllables)(distinct_cue_response_pairs['response_raw'])
-    distinct_cue_response_pairs['capitalised'] = distinct_cue_response_pairs['response_raw'].str.isupper()
-    distinct_cue_response_pairs['punctuation'] = distinct_cue_response_pairs['response_raw'].str.contains(
+    df['exact_match'] = df.index.get_level_values(
+        'response_clean') == df.index.get_level_values('cue_clean')
+    df['length'] = df['response_decoded'].str.len()
+    df['syllables'] = np.vectorize(syllables)(df['response_raw'])
+    df['capitalised'] = df['response_raw'].str.isupper()
+    df['punctuation'] = df['response_raw'].str.contains(
         punctuation_regex)
-    distinct_cue_response_pairs['number_of_words'] = distinct_cue_response_pairs['response_decoded'].str.split(
+    df['number_of_words'] = df['response_decoded'].str.split(
         '_').str.len()
     # TODO do this with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
-    relations_array = np.vectorize(relation_coding)(
-        distinct_cue_response_pairs.index.get_level_values('cue_clean'),
-        distinct_cue_response_pairs.index.get_level_values('response_clean'))
+    relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
+                                                    df.index.get_level_values('response_clean'))
     other_categories = pd.json_normalize(relations_array)
-    other_categories.index = distinct_cue_response_pairs.index
+    other_categories.index = df.index
     # the numpy vectorize function has no index as only the cue and response columns are passed in
     # so add the index back on to allow the dataframes to be concatenated
 
-    assert (len(other_categories) == len(distinct_cue_response_pairs))
+    assert (len(other_categories) == len(df))
 
-    other_categories['phonology'] = np.vectorize(check_phonology)(
-        distinct_cue_response_pairs['cue_decoded'],
-        distinct_cue_response_pairs['response_decoded']
-    )
+    other_categories['phonology'] = np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded'])
 
-    assert (len(other_categories) == len(distinct_cue_response_pairs))
-    distinct_cue_response_pairs = pd.concat([distinct_cue_response_pairs, other_categories],
-                                            axis=1,
-                                            sort=False)
+    assert (len(other_categories) == len(df))
+    df = pd.concat([df, other_categories],
+                   axis=1,
+                   sort=False)
     # check for syntagmatic and add to dataframe
-    distinct_cue_response_pairs = check_syntagmatic_pd(distinct_cue_response_pairs)
+    df = check_syntagmatic_pd(df)
 
     # check for affix and add to dataframe
-    distinct_cue_response_pairs = check_affix_pd(distinct_cue_response_pairs)
+    df = check_affix_pd(df)
 
-    print(distinct_cue_response_pairs[distinct_cue_response_pairs['consecutivexy_cue_not_entered'] == True])
+    print(df[df['consecutivexy_cue_not_entered'] == True])
 
     #     # TODO what to do about words joined with hyphens?
     #     # TODO use this throughout instead of splitting multiple times
@@ -173,56 +169,43 @@ def get_coding(distinct_cue_response_pairs, **kwargs):
     #
     #     # TODO add s2v check for syntagmatic
     #     # TODO add proverb check for syntagmatic
-    #
-    #
+
     # ### semantic atlas from Gallant et. al
     # cue semantic areas are only used to determine if the area changes between cue and response
-    cue_semantic_areas = brain_map.get_semantic_area(distinct_cue_response_pairs.index.get_level_values(
+    cue_semantic_areas = brain_map.get_semantic_area(df.index.get_level_values(
         'cue_clean').unique())
     print(cue_semantic_areas)
     # response semantic areas
-    response_semantic_areas = brain_map.get_semantic_area(distinct_cue_response_pairs.index.get_level_values(
+    response_semantic_areas = brain_map.get_semantic_area(df.index.get_level_values(
         'response_clean').unique())
     both_semantic_areas = pd.concat([cue_semantic_areas, response_semantic_areas]).drop_duplicates().set_index('word')
-    distinct_cue_response_pairs = distinct_cue_response_pairs.join(both_semantic_areas, on='response_clean')
-    distinct_cue_response_pairs.rename(columns={'left_hemi_label': 'response_left_hemi_label',
-                                                'right_hemi_label': 'response_right_hemi_label'}, inplace=True)
-    distinct_cue_response_pairs = distinct_cue_response_pairs.join(both_semantic_areas, on='cue_clean')
-    distinct_cue_response_pairs.rename(columns={'left_hemi_label': 'cue_left_hemi_label',
-                                                'right_hemi_label': 'cue_right_hemi_label'}, inplace=True)
-    # TODO consider what to do when the labels are nans and get the logic to output True/False/or similar
-    distinct_cue_response_pairs['r_hemi_area_differs'] = np.logical_and.reduce((distinct_cue_response_pairs[
-                                                                                    'response_right_hemi_label'] !=
-                                                                                distinct_cue_response_pairs[
-                                                                                    'cue_right_hemi_label'],
-                                                                                distinct_cue_response_pairs[
-                                                                                    'response_right_hemi_label'] != b'',
-                                                                                distinct_cue_response_pairs[
-                                                                                    'cue_right_hemi_label'] != b''))
-    distinct_cue_response_pairs['l_hemi_area_differs'] = np.logical_and.reduce((distinct_cue_response_pairs[
-                                                                                    'response_left_hemi_label'] !=
-                                                                                distinct_cue_response_pairs[
-                                                                                    'cue_left_hemi_label'],
-                                                                                distinct_cue_response_pairs[
-                                                                                    'response_left_hemi_label'] != b'',
-                                                                                distinct_cue_response_pairs[
-                                                                                    'cue_left_hemi_label'] != b''))
-
-    print(distinct_cue_response_pairs[distinct_cue_response_pairs.columns[-6:]])
-
-    # distinct_cue_response_pairs.join(both_semantic_areas, on=)
-
+    df = df.join(both_semantic_areas, on='response_clean')
+    df.rename(columns={'left_hemi_label': 'response_left_hemi_label',
+                       'right_hemi_label': 'response_right_hemi_label'}, inplace=True)
+    df = df.join(both_semantic_areas, on='cue_clean')
+    df.rename(columns={'left_hemi_label': 'cue_left_hemi_label',
+                       'right_hemi_label': 'cue_right_hemi_label'}, inplace=True)
+    # TODO consider what to do when the labels are nans and get the logic to output True/False/or similar.
+    #   setting them to b'' means we lose the data of which words were not found and cannot do the lookup on stem
+    #   effciently. This is because words that are found that are not significant in the brain model are represented by
+    #   b''
     # TODO search for stems if word is not found
+    df['response_left_hemi_label'] = df['response_left_hemi_label'].fillna(b'')
+    df['response_right_hemi_label'] = df['response_right_hemi_label'].fillna(b'')
+    df['cue_left_hemi_label'] = df['cue_left_hemi_label'].fillna(b'')
+    df['cue_right_hemi_label'] = df['cue_right_hemi_label'].fillna(b'')
+    df['r_hemi_area_differs'] = np.logical_and.reduce((df['response_right_hemi_label'] !=
+                                                       df['cue_right_hemi_label'],
+                                                       df['response_right_hemi_label'] != b'',
+                                                       df['cue_right_hemi_label'] != b''))
+    df['l_hemi_area_differs'] = np.logical_and.reduce((df['response_left_hemi_label'] !=
+                                                       df['cue_left_hemi_label'],
+                                                       df['response_left_hemi_label'] != b'',
+                                                       df['cue_left_hemi_label'] != b''))
 
-    # if not word_found:
-    #     word_found, response_semantic_area = brain_map.get_semantic_area(response_stem)
-    # coded_pairs[key]['semantic_area'] = response_semantic_area
-    # word_found, cue_semantic_area = brain_map.get_semantic_area(cue_decoded)
-    # if not word_found:
-    #     word_found, cue_semantic_area = brain_map.get_semantic_area(cue_stem)
-    # changes = response_semantic_area != cue_semantic_area
-    # coded_pairs[key]['semantic_area_changes'] = changes
+    print(df[df.columns[-6:]])
 
+    df['left_hemi_distance'] = brain_map.get_distances_between_semantic_areas('left', df['cue_left_hemi_label'], df['response_left_hemi_label'])
     #
     #     # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
     #     # between them
