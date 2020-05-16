@@ -177,9 +177,7 @@ def get_coding(df, **kwargs):
     other_categories['phonology'] = np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded'])
 
     assert (len(other_categories) == len(df))
-    df = pd.concat([df, other_categories],
-                   axis=1,
-                   sort=False)
+    df = pd.concat([df, other_categories],axis=1,sort=False)
     # check for syntagmatic and add to dataframe
     df = check_syntagmatic_pd(df)
 
@@ -252,8 +250,11 @@ def get_coding(df, **kwargs):
         axis=1)
 
     ### various measures related to the response
-    df = df.merge(response_measures, left_on='response_clean', right_on='response_clean', how='left')
-
+    #df = df.merge(response_measures, left_on='response_clean', right_on='response_clean', how='left')
+    print(measures_diff)
+    print(df)
+    df = df.reset_index().join(measures_diff)
+    print(df[df.columns[-6:]])
     # TODO check if the part of speech changes from cue to response
     # TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
     #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
@@ -338,7 +339,6 @@ def relation_coding(cue, response):
 
 
 def nanindex(list_or_string, word):
-    print(list_or_string, word)
     try:
         return list_or_string.index(word)
     except ValueError:
