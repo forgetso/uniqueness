@@ -15,7 +15,7 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     logging.debug('time taken {}'.format(end - start))
     logging.debug('concatenating dataframes...')
     result = pd.concat(jobs)
-    column_names = result.columns.values
+    column_names = list(result.columns.values)
     result['word'] = result['word'].str.lower()
     result['word'] = result['word'].str.encode('utf8')
     # TODO use columns_types
@@ -26,16 +26,18 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean'])
     # drop the part of speech index
     result = result.reset_index()
+    # Order getting messed up with part_of_speech and ages being mixed because of group by
+    for idn, nn in enumerate(non_numeric):
+        if column_names[idn] != nn:
+            column_names[column_names.index(nn)], column_names[idn] = column_names[idn], nn
     # re-index on word (or whatever is passed in)
     if index:
         logging.debug('setting index to {}'.format(index))
         result = result.set_index(index)
-    # TODO order getting messed up with part_of_speech and ages being mixed
+
     result.columns = [x for x in column_names if x not in result.index.names]
     # an example of a word that should always be present
     # assert (len(result.loc[result.index.get_level_values(level='word') == b'enemy']) == 1)
-
-
     return result
 
 

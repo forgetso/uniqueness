@@ -207,22 +207,34 @@ def get_coding(df, **kwargs):
                                                        df['cue_left_hemi_label'],
                                                        df['response_left_hemi_label'] != UNKNOWN_AREA_LABEL,
                                                        df['cue_left_hemi_label'] != UNKNOWN_AREA_LABEL))
-
-    print(df[df.columns[-6:]])
+    right_unknown_areas = np.logical_or(df['response_right_hemi_label'] == UNKNOWN_AREA_LABEL,
+                                        df['cue_right_hemi_label'] == UNKNOWN_AREA_LABEL)
+    right_hemi_differs = df['r_hemi_area_differs'].copy(deep=True)
+    right_hemi_differs[right_unknown_areas] = np.nan
+    df['r_hemi_area_differs'] = right_hemi_differs
+    left_unknown_areas = np.logical_or(df['response_left_hemi_label'] == UNKNOWN_AREA_LABEL,
+                                       df['cue_left_hemi_label'] == UNKNOWN_AREA_LABEL)
+    left_hemi_differs = df['l_hemi_area_differs'].copy(deep=True)
+    left_hemi_differs[left_unknown_areas] = np.nan
+    df['l_hemi_area_differs'] = left_hemi_differs
 
     left_hemi_distance = brain_map.get_distances_between_semantic_areas('left', df['cue_left_hemi_label'],
-                                                                              df['response_left_hemi_label'])
-    print(left_hemi_distance)
-    exit(0)
+                                                                        df['response_left_hemi_label'])
+
+    right_hemi_distance = brain_map.get_distances_between_semantic_areas('right', df['cue_right_hemi_label'],
+                                                                         df['response_right_hemi_label'])
+    df = df.merge(left_hemi_distance['left_hemi_distance'], how='left', left_index=True, right_index=True)
+    df = df.merge(right_hemi_distance['right_hemi_distance'], how='left', left_index=True, right_index=True)
+    # these are indicative of the actual words, which we do not want to model. We want to model attributes of the words.
+    df = df.drop(
+        ['response_left_hemi_label', 'response_right_hemi_label', 'cue_left_hemi_label', 'cue_right_hemi_label'],
+        axis=1)
+
+    ### part_of_speech
+    part_of_speech = check_part_of_speech(df)
+
     #
-    #     # now get the coordinates of the cue and response in the brain model and calculate the euclidean distance
-    #     # between them
-    #     coded_pairs[key]['semantic_distance'] = 0
-    #     if changes and cue_semantic_area and response_semantic_area:
-    #         coded_pairs[key]['semantic_distance'] = brain_map.get_distances_between_semantic_areas(
-    #             cue_semantic_area, response_semantic_area).astype(float)
-    #
-    #     ### part_of_speech
+
     #     word_found, part_of_speech_response = check_part_of_speech(response)
     #     if not word_found:
     #         word_found, part_of_speech_response = check_part_of_speech(response_stem)
@@ -471,16 +483,22 @@ def check_measures(all_measures, distinct_responses):
     logging.debug('stem measures shape {}'.format(stem_measures_full.shape))
     # replace the nan values in measures with the stem measures
     response_measures_full.update(stem_measures_full)
+    print(response_measures_full)
     return response_measures_full
 
 
-def check_part_of_speech(response):
-    if response in all_measures and all_measures[response]['part_of_speech'] is not None:
-        return True, all_measures[response]['part_of_speech'].lower()
-    else:
-        best_sense = s2v.get_best_sense(response)
-        if best_sense:
-            return True, best_sense.split('|')[1].lower()
+def check_part_of_speech(df):
+    # if response in all_measures and all_measures[response]['part_of_speech'] is not None:
+    #     return True, all_measures[response]['part_of_speech'].lower()
+    # else:
+    #     best_sense = s2v.get_best_sense(response)
+    #     if best_sense:
+    #         return True, best_sense.split('|')[1].lower()
+    print(df['response_decoded'])
+    print(all_measures.index.get_level_values('word'))
+    matching_words = all_measures[all_measures.index.get_level_values('word').isin(df['response_decoded'])]
+
+    print(matching_words)
 
     return False, 0
 

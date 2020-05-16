@@ -285,7 +285,6 @@ def get_all_measures():
                 LEFT JOIN emotions e ON o.word=e.word
                 LEFT JOIN acquisition_age a ON o.word=a.word
                 LEFT JOIN phonographic phon ON o.word=phon.word
-                WHERE o.word LIKE 'wrong%'
                 GROUP BY a.lemma_highest_pos
                 ORDER BY a.lemma_highest_pos ASC;"""
     cur.execute(query)

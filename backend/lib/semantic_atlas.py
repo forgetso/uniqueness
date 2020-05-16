@@ -6,12 +6,8 @@ import pandas as pd
 
 UNKNOWN_AREA_LABEL = b'U'
 
-
-# TODO import this data to the database ??
-
 # TODO Even when restricting the algorithm to words used in the Gallant vocab, roughly 12% of words do not return a semantic area.
 #   Is this because they are not statistically significant in a voxel?
-
 
 class BrainMap():
 
