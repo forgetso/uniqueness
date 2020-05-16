@@ -329,21 +329,34 @@ def get_all_measures():
         ('unstpav', 'f'),
         ('concreteness_measure', 'f')
     ]
+    item_list = explode_word_stems(cur)
+    df = create_dataframe_in_parallel(item_list, index='word', columns_types=item_dtype)
+
+    return df
+
+
+def explode_word_stems(cur):
     item_list = []
     for item in cur:
         row_dict = dict(item)
-        #row_dict.pop('word_alternative',None)
+        # row_dict.pop('word_alternative',None)
         row_dict.pop('word_lemma')
         word_set = set(item['word'].split(','))
         word_set.add(item['word_lemma'])
         word_set.discard(None)
+        pos_set = None
+        try:
+            pos_set = set(item['part_of_speech'].split(','))
+            pos_set.discard(None)
+            pos_set = ','.join(sorted(list(pos_set)))
+        except AttributeError:
+            pass
         for w in list(word_set):
             row = row_dict.copy()
             row['word'] = w
+            row['part_of_speech'] = pos_set
             item_list.append(row)
-    df = create_dataframe_in_parallel(item_list, index='word', columns_types=item_dtype)
-
-    return df
+    return item_list
 
 
 def save_cue_response_pair(cue_response_pair):

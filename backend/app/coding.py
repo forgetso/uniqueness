@@ -126,11 +126,35 @@ def get_coding(df, **kwargs):
 
     totals = Counter(TOTALS)
     fieldnames = None
-    dstnct = pd.DataFrame(df.index.get_level_values('response_clean').drop_duplicates())
-    response_measures = check_measures(all_measures, dstnct)
+    # trim down the cues and responses so we're only running functions once per word
+    distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').drop_duplicates())
+    distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').drop_duplicates())
+    response_measures = check_measures(all_measures, distinct_responses)
+    cue_measures = check_measures(all_measures, distinct_cues)
+    # attach the various measures back to the full lists of cues and responses
+    response_measures_full = pd.DataFrame(df.index.get_level_values('response_clean')).merge(
+        response_measures,
+        left_on='response_clean',
+        right_on='response_clean',
+        how='left')
+    cue_measures_full = pd.DataFrame(df.index.get_level_values('cue_clean')).merge(
+        cue_measures,
+        left_on='cue_clean',
+        right_on='cue_clean',
+        how='left')
+
+    print(cue_measures_full)
+    print(response_measures_full)
+    measures_diff = cue_measures_full.drop(['cue_clean', 'part_of_speech'], axis=1).subtract(
+        response_measures_full.drop(
+            ['response_clean', 'part_of_speech'], axis=1))
+    # TODO get the parts of speech from s2v if they are missing from all_measures
+    # pos_changes = pd.DataFrame([[nanindex(x, cue_measures_full['part_of_speech'][id]) == np.nan] for id, x in
+    #                           enumerate(response_measures_full['part_of_speech'])])
+    # print(pos_changes)
+    # print(measures_diff)
 
     logging.debug(response_measures)
-    # TODO turn all of these loops into vector multiplications
     df['exact_match'] = df.index.get_level_values(
         'response_clean') == df.index.get_level_values('cue_clean')
     df['length'] = df['response_decoded'].str.len()
@@ -162,8 +186,6 @@ def get_coding(df, **kwargs):
     # check for affix and add to dataframe
     df = check_affix_pd(df)
 
-    print(df[df['consecutivexy_cue_not_entered'] == True])
-
     #     # TODO what to do about words joined with hyphens?
     #     # TODO use this throughout instead of splitting multiple times
     #     ############## Other Categories ##############
@@ -175,7 +197,6 @@ def get_coding(df, **kwargs):
     # cue semantic areas are only used to determine if the area changes between cue and response
     cue_semantic_areas = brain_map.get_semantic_area(df.index.get_level_values(
         'cue_clean').unique())
-    print(cue_semantic_areas)
     # response semantic areas
     response_semantic_areas = brain_map.get_semantic_area(df.index.get_level_values(
         'response_clean').unique())
@@ -230,24 +251,13 @@ def get_coding(df, **kwargs):
         ['response_left_hemi_label', 'response_right_hemi_label', 'cue_left_hemi_label', 'cue_right_hemi_label'],
         axis=1)
 
-    ### part_of_speech
-    part_of_speech = check_part_of_speech(df)
+    ### various measures related to the response
+    df = df.merge(response_measures, left_on='response_clean', right_on='response_clean', how='left')
 
-    #
+    # TODO check if the part of speech changes from cue to response
+    # TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
+    #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
 
-    #     word_found, part_of_speech_response = check_part_of_speech(response)
-    #     if not word_found:
-    #         word_found, part_of_speech_response = check_part_of_speech(response_stem)
-    #     totals['part_of_speech'] += 1 * word_found
-    #     coded_pairs[key]['part_of_speech'] = part_of_speech_response
-    #     word_found, part_of_speech_cue = check_part_of_speech(cue)
-    #     if not word_found:
-    #         word_found, part_of_speech_cue = check_part_of_speech(cue_stem)
-    #     coded_pairs[key]['part_of_speech_changes'] = False
-    #     if word_found and part_of_speech_response != part_of_speech_cue:
-    #         totals['part_of_speech_changes'] += 1
-    #         coded_pairs[key]['part_of_speech_changes'] = True
-    #
     #     ### list of all words ### this should come last
     #     coded_pairs[key]['contraction'] = False
     #     if response in ALL_WORDS:
@@ -298,13 +308,9 @@ def get_coding(df, **kwargs):
     # # TODO  geographical_reference [country, state, city, town, village, post code]
     # # TODO  corpus_similarity
     # # TODO  dictionary_similarity
-    if not fieldnames:
-        first_key = next(iter(coded_pairs))
-    fieldnames = ['cue', 'response'] + list(coded_pairs[first_key].keys())
 
-    # print(fieldnames)
     # save data to the db
-    save_coded_pairs(coded_pairs, fieldnames)
+    # save_coded_pairs(df, df.columns)
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
 
     return totals
@@ -332,6 +338,7 @@ def relation_coding(cue, response):
 
 
 def nanindex(list_or_string, word):
+    print(list_or_string, word)
     try:
         return list_or_string.index(word)
     except ValueError:
@@ -461,20 +468,21 @@ def check_affix_pd(df):
     return df
 
 
-def check_measures(all_measures, distinct_responses):
+def check_measures(all_measures, distinct_words):
     # create a column of stems based on the responses (i.e. schooling becomes school)
+    col_name = distinct_words.columns[0]
     stems = pd.DataFrame(
         [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in
-         distinct_responses['response_clean']],
-        columns=['response_clean', 'stem'])
+         distinct_words[col_name]],
+        columns=[col_name, 'stem'])
 
     logging.debug('Stems length is {}'.format(len(stems)))
     all_measures_words = all_measures.index.get_level_values(level='word')
-    response_intersect = np.intersect1d(distinct_responses, all_measures_words)
-    response_measures = all_measures[all_measures.index.isin(response_intersect)]
-    response_measures_full = pd.merge(pd.DataFrame(distinct_responses), pd.DataFrame(response_measures),
-                                      left_on='response_clean', right_on='word', how='left')
-    logging.debug('response measures shape {}'.format(response_measures_full.shape))
+    words_intersect = np.intersect1d(distinct_words, all_measures_words)
+    words_measures = all_measures[all_measures.index.isin(words_intersect)]
+    words_measures_full = pd.merge(pd.DataFrame(distinct_words), pd.DataFrame(words_measures),
+                                   left_on=col_name, right_on='word', how='left')
+    logging.debug('{} measures shape {}'.format(col_name, words_measures_full.shape))
     stem_measures = all_measures[all_measures.index.isin(stems['stem'])]
     stem_measures_full = pd.merge(stems, pd.DataFrame(stem_measures), left_on='stem', right_on='word', how='left')
     logging.debug('stem_measures_full')
@@ -482,25 +490,8 @@ def check_measures(all_measures, distinct_responses):
     logging.debug('stem_measures_full')
     logging.debug('stem measures shape {}'.format(stem_measures_full.shape))
     # replace the nan values in measures with the stem measures
-    response_measures_full.update(stem_measures_full)
-    print(response_measures_full)
-    return response_measures_full
-
-
-def check_part_of_speech(df):
-    # if response in all_measures and all_measures[response]['part_of_speech'] is not None:
-    #     return True, all_measures[response]['part_of_speech'].lower()
-    # else:
-    #     best_sense = s2v.get_best_sense(response)
-    #     if best_sense:
-    #         return True, best_sense.split('|')[1].lower()
-    print(df['response_decoded'])
-    print(all_measures.index.get_level_values('word'))
-    matching_words = all_measures[all_measures.index.get_level_values('word').isin(df['response_decoded'])]
-
-    print(matching_words)
-
-    return False, 0
+    words_measures_full.update(stem_measures_full)
+    return words_measures_full
 
 
 def setup():
