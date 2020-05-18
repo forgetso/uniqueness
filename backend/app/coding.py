@@ -11,7 +11,7 @@ from backend.lib.multiprocessor import job_pool
 import time
 import argparse
 from backend.lib.semantic_atlas import BrainMap
-from backend.settings import SEMANTIC_SPACE_FOLDER
+from backend.settings import SEMANTIC_SPACE_FOLDER, JOB_NUMBER
 from backend.helpers.pairs import format_cue_response_pairs
 import os
 import pprint
@@ -90,7 +90,7 @@ def main():
     start = time.perf_counter()
 
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
-    jobs = job_pool(distinct_cue_response_pairs, 1, get_coding)
+    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
 
@@ -155,8 +155,8 @@ def get_coding(df, **kwargs):
     # print(measures_diff)
 
     logging.debug(response_measures)
-    df['exact_match'] = df.index.get_level_values(
-        'response_clean') == df.index.get_level_values('cue_clean')
+    # df['exact_match'] = df.index.get_level_values(
+    #     'response_clean') == df.index.get_level_values('cue_clean')
     df['length'] = df['response_decoded'].str.len()
     df['syllables'] = np.vectorize(syllables)(df['response_raw'])
     df['capitalised'] = df['response_raw'].str.isupper()
@@ -175,21 +175,19 @@ def get_coding(df, **kwargs):
     assert (len(other_categories) == len(df))
 
     other_categories['phonology'] = np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded'])
-
+    other_categories['phonology'] = other_categories['phonology'].astype('category')
     assert (len(other_categories) == len(df))
-    df = pd.concat([df, other_categories],axis=1,sort=False)
+    df = pd.concat([df, other_categories], axis=1, sort=False)
     # check for syntagmatic and add to dataframe
     df = check_syntagmatic_pd(df)
 
     # check for affix and add to dataframe
     df = check_affix_pd(df)
 
-    #     # TODO what to do about words joined with hyphens?
-    #     # TODO use this throughout instead of splitting multiple times
-    #     ############## Other Categories ##############
-    #
-    #     # TODO add s2v check for syntagmatic
-    #     # TODO add proverb check for syntagmatic
+    # TODO what to do about words joined with hyphens?
+    # TODO use this throughout instead of splitting multiple times
+    # TODO add s2v check for syntagmatic
+    # TODO add proverb check for syntagmatic
 
     # ### semantic atlas from Gallant et. al
     # cue semantic areas are only used to determine if the area changes between cue and response
@@ -244,74 +242,65 @@ def get_coding(df, **kwargs):
                                                                          df['response_right_hemi_label'])
     df = df.merge(left_hemi_distance['left_hemi_distance'], how='left', left_index=True, right_index=True)
     df = df.merge(right_hemi_distance['right_hemi_distance'], how='left', left_index=True, right_index=True)
+
     # these are indicative of the actual words, which we do not want to model. We want to model attributes of the words.
     df = df.drop(
-        ['response_left_hemi_label', 'response_right_hemi_label', 'cue_left_hemi_label', 'cue_right_hemi_label'],
+        ['response_left_hemi_label', 'response_right_hemi_label', 'cue_left_hemi_label', 'cue_right_hemi_label',
+         'cue_stem', 'response_stem'],
         axis=1)
 
-    ### various measures related to the response
-    #df = df.merge(response_measures, left_on='response_clean', right_on='response_clean', how='left')
-    print(measures_diff)
-    print(df)
+    ### various word measures related to the response and cue that have been subtracted from each other to give distances
     df = df.reset_index().join(measures_diff)
-    print(df[df.columns[-6:]])
+    df = df.drop(['cue', 'response', 'response_raw', 'cue_decoded', 'response_decoded'], axis=1)
+    # print(df[df.columns[-6:]])
     # TODO check if the part of speech changes from cue to response
     # TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
     #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
-
-    #     ### list of all words ### this should come last
-    #     coded_pairs[key]['contraction'] = False
-    #     if response in ALL_WORDS:
-    #         # the word(s) appear(s) in the giant list of english words
-    #         totals['all_words'] += 1
-    #     elif replace_contraction(response) != response:
-    #         # include the word but note that it happened
-    #         coded_pairs[key]['contraction'] = True
-    #         totals['contractions'] += 1
-    #     # elif len(response_split) == 1 and not part_of_speech_response:
-    #     #     # this is basically a list of responses that need addressed by future changes
-    #     #     print('Word missing from all_words = {}: {}. Removing from coded_pairs.'.format(cue, response))
-    #     #     coded_pairs.pop(key)
-    #
-    #     # TODO  obscene words
-    #     # TODO  sexual references
-    #     # TODO  slang
-    #     # TODO  part_of_speech: take this from age of acquisition?
-    #     # TODO  morpheme
-    #     # TODO  years (1960, 2010, etc.)
-    #     # TODO  cultural_reference:
-    #     #  [movies,
-    #     #   music,
-    #     #   famous people,
-    #     #   books (1984, farenheit 451),
-    #     #   poems,
-    #     #   computer games,
-    #     #   tv shows,
-    #     #   brands,
-    #     #   historical dates,
-    #     #   characters,
-    #     #   superheroes,
-    #     #   religion,
-    #     #   web sites,
-    #     #   web status codes (404),
-    #     #   emergency services numbers,
-    #     #   scientific numbers (365, pi, gravity, phi, etc.)
-    # #       ]
-    # # TODO food references
-    # #  [cocktails,
-    # #   recipes,
-    # #   etc.
-    # #   ]
-    # #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
-    # #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
-    # #   game, Portal.
-    # # TODO  company reference [walmart, asda, etc.]
-    # # TODO  geographical_reference [country, state, city, town, village, post code]
-    # # TODO  corpus_similarity
-    # # TODO  dictionary_similarity
+    # TODO contractions
+    # TODO is in ALL_WORDS
+    # TODO  obscene words
+    # TODO  sexual references
+    # TODO  slang
+    # TODO  part_of_speech: take this from age of acquisition?
+    # TODO  morpheme
+    # TODO  years (1960, 2010, etc.)
+    # TODO  cultural_reference:
+    #  [movies,
+    #   music,
+    #   famous people,
+    #   books (1984, farenheit 451),
+    #   poems,
+    #   computer games,
+    #   tv shows,
+    #   brands,
+    #   historical dates,
+    #   characters,
+    #   superheroes,
+    #   religion,
+    #   web sites,
+    #   web status codes (404),
+    #   emergency services numbers,
+    #   scientific numbers (365, pi, gravity, phi, etc.)
+    #       ]
+    # TODO food references
+    #  [cocktails,
+    #   recipes,
+    #   etc.
+    #   ]
+    #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
+    #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
+    #   game, Portal.
+    # TODO  company reference [walmart, asda, etc.]
+    # TODO  geographical_reference [country, state, city, town, village, post code]
+    # TODO  corpus_similarity
+    # TODO  dictionary_similarity
 
     # save data to the db
-    # save_coded_pairs(df, df.columns)
+    df = df.rename({'cue_clean': 'cue', 'response_clean': 'response'}, axis=1)
+    df['cue'] = df['cue'].str.decode('utf8')
+    df['response'] = df['response'].str.decode('utf8')
+    df = df.replace({np.nan: None})
+    save_coded_pairs(df, df.columns)
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
 
     return totals
@@ -384,8 +373,12 @@ def check_syntagmatic_pd(df):
     syntagmatic['consecutiveyx'] = np.logical_or(syntagmatic['consecutiveyx'], consecutiveyx)
     # TODO categorise consecutivexy and consecutiveyx as 0 and 1
     syntagmatic['consecutivexy_cue_not_entered'] = syntagmatic.index.isin(consecutivexy_cue_not_entered_indices)
-
+    # roll up the various categories into one column and give different values for each
+    syntagmatic = pd.DataFrame(np.where(syntagmatic == 1, syntagmatic.columns, np.nan))
+    syntagmatic = syntagmatic.fillna('')
+    syntagmatic = pd.DataFrame(syntagmatic.apply(lambda x: ''.join(x), axis=1), columns=['syntagmatic'])
     syntagmatic.index = df.index
+    syntagmatic['syntagmatic'] = syntagmatic['syntagmatic'].replace({'': None})
     df = pd.concat([df, syntagmatic], axis=1, sort=False)
     return df
 
@@ -440,7 +433,8 @@ def check_affix_pd(df):
     response_subset = response_clean[cue_present_index[0]]
     cue_subset = cue_clean[cue_present_index[0]]
     # shouldn't need to strip x here as spaces should already be replaced by underscores
-    remainder = pd.DataFrame([[x.split(cue_subset[int(idx)])] for idx, x in enumerate(response_subset)])
+    # split on first occurrence of cue only
+    remainder = pd.DataFrame([[x.split(cue_subset[int(idx)], 1)] for idx, x in enumerate(response_subset)])
     # assign the resulting list to two separate columns (s1, s2)
     remainder[['s1', 's2']] = pd.DataFrame(remainder[0].tolist(), index=remainder.index)
     # we no longer need the column with the list

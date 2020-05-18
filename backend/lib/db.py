@@ -3,6 +3,11 @@ from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
 from backend.helpers.dataframe import create_dataframe_in_parallel
+from backend.db.error_handling import print_psycopg2_exception
+import pprint
+import sys
+import logging
+import re
 
 ps = PorterStemmer()
 
@@ -19,8 +24,9 @@ def execute_values_wrap(table, fieldnametuple, values):
     try:
 
         cur = conn.cursor()
-        if not isinstance(values[0], tuple):
-            raise TypeError('values must be a list of tuples, not {} [{}]'.format(type(values), type(values[0])))
+        if not isinstance(values[0], list) and not isinstance(values[0], tuple):
+            raise TypeError(
+                'values must be a list of tuples or lists, not {} [{}]'.format(type(values), type(values[0])))
         fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
         query = "INSERT INTO %(table)s %(fieldnames)s VALUES" % {'table': table, 'fieldnames': fieldnames}
         query = ' '.join([query, "%s RETURNING id"])
@@ -31,9 +37,17 @@ def execute_values_wrap(table, fieldnametuple, values):
         for value_chunk in value_chunks:
             result = execute_values(cur, query, value_chunk, page_size=page_size)
             ids.extend([row[0] for row in cur.fetchall()])
+
         conn.commit()
     except (Exception, pg.DatabaseError) as error:
-        print(error)
+        err_type, err_obj, traceback = sys.exc_info()
+        print(err_type, err_obj, 'line number {}'.format(traceback.tb_lineno))
+        line_num = traceback.tb_lineno
+        print(error.diag)
+        pprint.pprint(dict(zip(fieldnametuple, values[line_num])))
+        print(query)
+
+
     finally:
         if conn is not None:
             conn.close()
@@ -449,23 +463,9 @@ def update_correction(response_id, original_word, correction):
 
 
 def save_coded_pairs(coded_pairs, fieldnames):
+    logging.debug('Saving coded pairs')
     conn = connect()
-    cur = conn.cursor()
-    values = []
-    for key, x in coded_pairs.items():
-        value = tuple([key[0], key[1]] + list(x.values()))
-        values.append(value)
-        if len(value) != len(fieldnames):
-            import pprint
-            pprint.pprint(value)
-            print(len(value))
-            pprint.pprint(fieldnames)
-            print(len(fieldnames))
-            print('error')
-            exit(0)
-    execute_values_wrap('coding', fieldnames, values)
-    # execute_values_wrap(cur, 'coding', fieldnames,
-    #                b      [[key[0], key[1]] + list(x.values()) for key, x in coded_pairs.items()])
+    execute_values_wrap('coding', fieldnames, coded_pairs.values.tolist())
     conn.commit()
 
 

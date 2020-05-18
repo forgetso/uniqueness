@@ -84,10 +84,13 @@ def process_data(rows):
 
 def setup():
     parser = argparse.ArgumentParser(description='DB setup')
-    parser.add_argument('limit', type=int, nargs='+',
+    parser.add_argument('--limit', type=int, nargs='+',
                         help='limit the number of rows imported')
     args = parser.parse_args()
-    main(limit=int(args.limit[0]))
+    if args.limit:
+        main(limit=int(args.limit[0]))
+    else:
+        main()
 
 
 if __name__ == "__main__":
