@@ -2,10 +2,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
-from backend.lib.db import get_coded_pairs, get_cue_response_pairs
+from backend.lib.db import get_coded_pairs, get_cue_response_pairs_coded
 import pandas as pd
 import argparse
 from backend.helpers.pairs import format_cue_response_pairs
+import numpy as np
 
 SAMPLE_SIZE = 10
 
@@ -19,8 +20,8 @@ def main(sample_size=None):
 
 
 def logisticRegression(data):
-    X_train, X_test, y_train, y_test = train_test_split(data.drop('source', axis=1),
-                                                        data['source'], test_size=0.30,
+    X_train, X_test, y_train, y_test = train_test_split(data.drop('user_id', axis=1),
+                                                        data['user_id'], test_size=0.30,
                                                         random_state=101)
 
     X__train_scaled = preprocessing.scale(X_train)
@@ -39,27 +40,10 @@ def logisticRegression(data):
 
 
 def getData():
-    dataset = []
-    coded_pairs = get_coded_pairs()
-    all_pairs = [x for x in get_cue_response_pairs(coded=True)]
+    cur = get_cue_response_pairs_coded()
+    df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
     # TODO put the incorrect spelling check in here
-    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs)
-    missing_pair = 0
-    for pair in cue_response_pairs:
-        coded_pair = coded_pairs.get(pair['key'])
-        if coded_pair:
-            data_dict = dict(coded_pair)
-            data_dict.update({'user_id': pair['user_id']})
-            data_dict.update({'source': pair['source']})
-            dataset.append(data_dict)
-        else:
-            #print('Key pair {} not present in coding table. Source {}'.format(pair['key'], pair['source']))
-            missing_pair += 1
-    print('{} missing pairs'.format(missing_pair))
-    print('{} coded pairs'.format(len(dataset)))
-    df = pd.DataFrame(dataset)
-    df = df.drop(columns=['cue', 'response', 'id', 'semantic_area', 'user_id'])
-    df = df.drop(columns=['length', 'syllables', 'number_of_words', 'nphon', 'exact', 'prevalent', 'concrete', 'semantic_area_changes', 'syllables_diff'])
+    df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw'])
 
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
@@ -74,8 +58,10 @@ def getData():
     # drop any columns with only zeroes
     df = df.loc[:, (df != 0).any(axis=0)]
     label_encoder = preprocessing.LabelEncoder()
-    # print(df['semantic_area'])
-    # df['semantic_area'] = label_encoder.fit_transform(df['semantic_area'])
+    df['phonology'] = df['phonology'].replace({np.nan: ''})
+    df['syntagmatic'] = df['syntagmatic'].replace({np.nan: ''})
+    df['phonology'] = label_encoder.fit_transform(df['phonology'])
+    df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
     df = pd.DataFrame(df).fillna(value=0)
     df = df.sort_values(by='source')
     return df

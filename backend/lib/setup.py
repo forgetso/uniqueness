@@ -284,7 +284,6 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
     cue text,
     response text,
     length int,
-    syllables_diff int,
     syllables int,
     capitalised bool,
     punctuation bool,

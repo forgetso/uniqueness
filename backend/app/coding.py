@@ -1,6 +1,6 @@
 from backend.helpers.string import syllables
-from backend.lib.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, get_all_words, \
-    get_all_measures
+from backend.lib.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, \
+    get_all_words, get_all_measures
 from backend.lib.setup import db_setup
 from nltk.stem import PorterStemmer
 import re
@@ -253,18 +253,20 @@ def get_coding(df, **kwargs):
     df = df.reset_index().join(measures_diff)
     df = df.drop(['cue', 'response', 'response_raw', 'cue_decoded', 'response_decoded'], axis=1)
     # print(df[df.columns[-6:]])
+
     # TODO check if the part of speech changes from cue to response
     # TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
     #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
-    # TODO contractions
-    # TODO is in ALL_WORDS
+    # TODO  contractions (don't)
+    # TODO  word is in ALL_WORDS
+    # TODO  encyclopaedic associations - e.g. if the cue is war and someone responds with the name of a particular war
     # TODO  obscene words
     # TODO  sexual references
     # TODO  slang
     # TODO  part_of_speech: take this from age of acquisition?
     # TODO  morpheme
     # TODO  years (1960, 2010, etc.)
-    # TODO  cultural_reference:
+    # TODO  cultural_reference (encyclopaedic):
     #  [movies,
     #   music,
     #   famous people,

@@ -73,10 +73,9 @@ def get_cues(min_length=None, limit=None):
     return [x for x in cur]
 
 
-def get_cue_response_pairs(limit=None, coded=None):
+def get_cue_response_pairs(limit=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    # TODO make this a RIGHT JOIN instead of SELECT IN ?
     query = """ SELECT * FROM (
                     SELECT  r.user_id AS user_id, 
                             r.cue AS cue,
@@ -87,18 +86,200 @@ def get_cue_response_pairs(limit=None, coded=None):
                             CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
                             COUNT(r.response) AS count,
                             source AS source
-                        FROM responses r
-                        LEFT JOIN corrections c ON r.id = c.response_id
-                """
-    if coded:
-        query += """RIGHT JOIN coding cod ON cod.response=r.response_clean AND cod.cue=r.cue_clean\n"""
+                            FROM responses r
+                            LEFT JOIN corrections c ON r.id = c.response_id
+                            WHERE LENGTH(r.response) > 3
+                            AND LENGTH(r.cue) > 3
+                            AND r.response != 'Unknown word'
+                            GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
+                            ORDER BY r.cue, r.response ASC
+                            ) responses_group"""
 
-    query += """ WHERE LENGTH(r.response) > 3
-                AND LENGTH(r.cue) > 3
-                AND r.response != 'Unknown word'
-                GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
-                ORDER BY r.cue, r.response ASC
-                ) responses_group"""
+    if limit:
+        query += """ LIMIT %s""" % str(int(limit))
+    cur.execute(query)
+
+    return cur
+
+
+def get_cue_response_pairs_coded(limit=None):
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """ SELECT * FROM (
+                    SELECT  r.user_id AS user_id, 
+                            r.cue AS cue,
+                            r.response AS response_raw,
+                            r.cue_clean,
+                            r.response_clean,
+                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
+                            CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
+                            COUNT(r.response) AS count,
+                            source AS source,
+                            cod.right_hemi_distance,
+                            cod.r_hemi_area_differs,
+                            cod.l_hemi_area_differs,
+                            cod.left_hemi_distance,
+                            cod.length,
+                            cod.syllables,
+                            cod.capitalised,
+                            cod.punctuation,
+                            cod.number_of_words,
+                            cod.derivationally_related_forms,
+                            cod.pertainyms,
+                            cod.instance_hypernyms,
+                            cod.hyponyms,
+                            cod.instance_hyponyms,
+                            cod.member_holonyms,
+                            cod.substance_holonyms,
+                            cod.part_holonyms,
+                            cod.member_meronyms,
+                            cod.substance_meronyms,
+                            cod.part_meronyms,
+                            cod.topic_domains,
+                            cod.region_domains,
+                            cod.usage_domains,
+                            cod.attributes,
+                            cod.entailments,
+                            cod.causes,
+                            cod.also_sees,
+                            cod.verb_groups,
+                            cod.similar_tos,
+                            cod.hypernyms,
+                            cod.root_hypernyms,
+                            cod.synonym,
+                            cod.antonyms,
+                            cod.exact,
+                            cod.affix,
+                            cod.prevalent,
+                            cod.concreteness_measure,
+                            cod.age,
+                            cod.valence,
+                            cod.arousal,
+                            cod.dominance,
+                            cod.response_ortho_neighbours,
+                            cod.unigram_freq,
+                            cod.unigram_count,
+                            cod.bigram_freq,
+                            cod.bigram_count,
+                            cod.trigram_freq,
+                            cod.trigram_count,
+                            cod.frequency,
+                            cod.ortho_frequency,
+                            cod.ortho_neighbours,
+                            cod.unconstrained_unigram_freq,
+                            cod.unconstrained_unigram_count,
+                            cod.unconstrained_bigram_freq,
+                            cod.unconstrained_bigram_count,
+                            cod.unconstrained_trigram_freq,
+                            cod.unconstrained_trigram_count,
+                            cod.ortho_neighbours_diff,
+                            cod.pknown,
+                            cod.prevalence,
+                            cod.nphon,
+                            cod.unsdens,
+                            cod.strdens,
+                            cod.unsbpav,
+                            cod.strbpav,
+                            cod.unstpav,
+                            cod.strtpav,
+                            cod.unspospav,
+                            cod.strpospav,
+                            cod.unslcpospav,
+                            cod.strlcpospav,
+                            cod.sfreq,
+                            cod.scdcnt,
+                            cod.syntagmatic,
+                            cod.phonology
+                            FROM responses r
+                            LEFT JOIN corrections c ON r.id = c.response_id
+                            RIGHT JOIN coding cod ON cod.response=r.response_clean AND cod.cue=r.cue_clean
+                            WHERE LENGTH(r.response) > 3
+                            AND LENGTH(r.cue) > 3
+                            AND r.response != 'Unknown word'
+                            GROUP BY r.user_id,
+                            r.cue,
+                            r.cue_clean,
+                            r.response_clean,
+                            r.response,
+                            c.correction,
+                            r.source,
+                            cod.right_hemi_distance,
+                            cod.r_hemi_area_differs,
+                            cod.l_hemi_area_differs,
+                            cod.left_hemi_distance,
+                            cod.length,
+                            cod.syllables,
+                            cod.capitalised,
+                            cod.punctuation,
+                            cod.number_of_words,
+                            cod.derivationally_related_forms,
+                            cod.pertainyms,
+                            cod.instance_hypernyms,
+                            cod.hyponyms,
+                            cod.instance_hyponyms,
+                            cod.member_holonyms,
+                            cod.substance_holonyms,
+                            cod.part_holonyms,
+                            cod.member_meronyms,
+                            cod.substance_meronyms,
+                            cod.part_meronyms,
+                            cod.topic_domains,
+                            cod.region_domains,
+                            cod.usage_domains,
+                            cod.attributes,
+                            cod.entailments,
+                            cod.causes,
+                            cod.also_sees,
+                            cod.verb_groups,
+                            cod.similar_tos,
+                            cod.hypernyms,
+                            cod.root_hypernyms,
+                            cod.synonym,
+                            cod.antonyms,
+                            cod.exact,
+                            cod.affix,
+                            cod.prevalent,
+                            cod.concreteness_measure,
+                            cod.age,
+                            cod.valence,
+                            cod.arousal,
+                            cod.dominance,
+                            cod.response_ortho_neighbours,
+                            cod.unigram_freq,
+                            cod.unigram_count,
+                            cod.bigram_freq,
+                            cod.bigram_count,
+                            cod.trigram_freq,
+                            cod.trigram_count,
+                            cod.frequency,
+                            cod.ortho_frequency,
+                            cod.ortho_neighbours,
+                            cod.unconstrained_unigram_freq,
+                            cod.unconstrained_unigram_count,
+                            cod.unconstrained_bigram_freq,
+                            cod.unconstrained_bigram_count,
+                            cod.unconstrained_trigram_freq,
+                            cod.unconstrained_trigram_count,
+                            cod.ortho_neighbours_diff,
+                            cod.pknown,
+                            cod.prevalence,
+                            cod.nphon,
+                            cod.unsdens,
+                            cod.strdens,
+                            cod.unsbpav,
+                            cod.strbpav,
+                            cod.unstpav,
+                            cod.strtpav,
+                            cod.unspospav,
+                            cod.strpospav,
+                            cod.unslcpospav,
+                            cod.strlcpospav,
+                            cod.sfreq,
+                            cod.scdcnt,
+                            cod.syntagmatic,
+                            cod.phonology
+                            ORDER BY r.cue, r.response ASC
+                            ) responses_group"""
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
