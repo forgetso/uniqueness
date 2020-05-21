@@ -179,10 +179,10 @@ def get_coding(df, **kwargs):
     assert (len(other_categories) == len(df))
     df = pd.concat([df, other_categories], axis=1, sort=False)
     # check for syntagmatic and add to dataframe
-    df = check_syntagmatic_pd(df)
+    df = check_syntagmatic(df)
 
     # check for affix and add to dataframe
-    df = check_affix_pd(df)
+    df = check_affix(df)
 
     # TODO what to do about words joined with hyphens?
     # TODO use this throughout instead of splitting multiple times
@@ -337,7 +337,7 @@ def nanindex(list_or_string, word):
         return np.nan
 
 
-def check_syntagmatic_pd(df):
+def check_syntagmatic(df):
     logging.debug('Dataframe length {}'.format(len(df)))
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
@@ -425,15 +425,17 @@ def check_phonology(cue, response):
     return None
 
 
-def check_affix_pd(df):
+def check_affix(df):
+    # TODO lots of things to fix in the check_affix function
     # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
-    # TODO reduce to cue!=response initially
+    # make sure they are not identical
+    response_subset = response_clean[response_clean != cue_clean]
     cue_index = pd.DataFrame([[nanindex(x, cue_clean[int(idx)])] for idx, x in enumerate(response_clean)])
     # get rid of any cue-response pairs where the cue is not in the response
     cue_present_index = [cue_index[0] >= 0]
-    response_subset = response_clean[cue_present_index[0]]
+    response_subset = response_subset[cue_present_index[0]]
     cue_subset = cue_clean[cue_present_index[0]]
     # shouldn't need to strip x here as spaces should already be replaced by underscores
     # split on first occurrence of cue only
@@ -460,6 +462,9 @@ def check_affix_pd(df):
     # the resulting data is only a subset of the dataframe so we need to apply it overall
     affix_col = pd.DataFrame(np.logical_and(cue_clean.isin(cue_indexes), response_clean.isin(response_indexes)),
                              columns=['affix'])
+    # TODO surely stem check is all that's needed and it should be put first to reduce the rest of the processing
+    stems_equal = pd.DataFrame(np.equal(df['cue_stem'], df['response_stem']), columns=['affix'])
+    affix_col = np.logical_or(affix_col, stems_equal)
     affix_col.index = df.index
     df = pd.concat([df, affix_col], axis=1, sort=False)
     return df

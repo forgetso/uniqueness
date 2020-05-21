@@ -1,6 +1,7 @@
-from backend.app.coding import check_syntagmatic_pd, check_phonology, check_affix_pd, relation_coding, basic_coding
+from backend.app.coding import check_syntagmatic, check_phonology, check_affix, relation_coding, basic_coding
 import pandas as pd
 import numpy as np
+from nltk import PorterStemmer
 
 
 def test_check_syntagmatic():
@@ -17,7 +18,7 @@ def test_check_syntagmatic():
     ]
     df = pd.DataFrame(data, columns=['cue_clean', 'response_clean', 'dummy_col'])
     df.set_index(['cue_clean', 'response_clean'], inplace=True)
-    result = check_syntagmatic_pd(df)
+    result = check_syntagmatic(df)
     expected = pd.DataFrame(['consecutivexy_cue_not_entered',
                              'consecutivexy',
                              'consecutiveyx',
@@ -53,16 +54,21 @@ def test_check_phonology():
     type = check_phonology(cue, response)
     assert (type == 'levenshtein')
 
-# def test_check_affix():
-#     cue = 'respondent'
-#     response = 'responded'
-#     affix = check_affix_pd(cue, response)
-#     assert (affix)
-#
-#     cue = 'light'
-#     response = 'lighter'
-#     affix = check_affix_pd(cue, response)
-#     assert (affix)
+
+def test_check_affix():
+    ps = PorterStemmer()
+    data = [
+        [b'light', b'lighter', ps.stem('light'), ps.stem('lighter')],
+        [b'respondent', b'responded', ps.stem('respondent'), ps.stem('responded')],
+        [b'athletic', b'athletes', ps.stem('athletic'), ps.stem('athletes')],
+    ]
+    df = pd.DataFrame(data, columns=['cue_clean', 'response_clean', 'cue_stem', 'response_stem'])
+    df.set_index(['cue_clean', 'response_clean'], inplace=True)
+    df = check_affix(df)
+    expected = pd.DataFrame([True, True, True, ], columns=['affix'])
+    df.reset_index(inplace=True)
+    assert (df['affix'].equals(expected['affix']))
+
 #
 #
 # def test_relation_coding():
