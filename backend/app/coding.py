@@ -430,13 +430,19 @@ def check_affix(df):
     # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
-    # make sure they are not identical
-    response_subset = response_clean[response_clean != cue_clean]
-    cue_index = pd.DataFrame([[nanindex(x, cue_clean[int(idx)])] for idx, x in enumerate(response_clean)])
+    # stem check first and then perform the remainder on a subset
+    stems_equal = pd.DataFrame(
+        np.logical_and(cue_clean != response_clean, np.equal(df['cue_stem'], df['response_stem'])),
+        columns=['affix'])
+    # make sure they are not identical and not already classed as affixes
+    not_identical_not_affixed = np.logical_and(response_clean != cue_clean, stems_equal['affix'] == False)
+    response_subset = response_clean[not_identical_not_affixed]
+    cue_subset = cue_clean[not_identical_not_affixed]
+    cue_index = pd.DataFrame([[nanindex(x, cue_subset[int(idx)])] for idx, x in enumerate(response_subset)])
     # get rid of any cue-response pairs where the cue is not in the response
     cue_present_index = [cue_index[0] >= 0]
     response_subset = response_subset[cue_present_index[0]]
-    cue_subset = cue_clean[cue_present_index[0]]
+    cue_subset = cue_subset[cue_present_index[0]]
     # shouldn't need to strip x here as spaces should already be replaced by underscores
     # split on first occurrence of cue only
     remainder = pd.DataFrame([[x.split(cue_subset[int(idx)], 1)] for idx, x in enumerate(response_subset)])
@@ -462,8 +468,6 @@ def check_affix(df):
     # the resulting data is only a subset of the dataframe so we need to apply it overall
     affix_col = pd.DataFrame(np.logical_and(cue_clean.isin(cue_indexes), response_clean.isin(response_indexes)),
                              columns=['affix'])
-    # TODO surely stem check is all that's needed and it should be put first to reduce the rest of the processing
-    stems_equal = pd.DataFrame(np.equal(df['cue_stem'], df['response_stem']), columns=['affix'])
     affix_col = np.logical_or(affix_col, stems_equal)
     affix_col.index = df.index
     df = pd.concat([df, affix_col], axis=1, sort=False)
