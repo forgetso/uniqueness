@@ -67,7 +67,7 @@ phonographic_measures = ['nphon',
                          'scdcnt']
 
 
-def main():
+def main(save=False):
     # TODO batch up the totals returned by the processes and print those instead of all the individual totals
     logging.debug('loading cue response pairs')
     cur = get_cue_response_pairs()
@@ -90,7 +90,7 @@ def main():
     start = time.perf_counter()
 
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
-    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding)
+    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding, save=save)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
 
@@ -108,7 +108,8 @@ def main():
     exit()
 
 
-def get_coding(df, **kwargs):
+def get_coding(df, save=False, **kwargs):
+    logging.debug(df)
     # var df: a dataframe of distinct cue - response pairs
     #
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
@@ -302,7 +303,8 @@ def get_coding(df, **kwargs):
     df['cue'] = df['cue'].str.decode('utf8')
     df['response'] = df['response'].str.decode('utf8')
     df = df.replace({np.nan: None})
-    save_coded_pairs(df, df.columns)
+    if save:
+        save_coded_pairs(df, df.columns)
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
 
     return totals
@@ -426,7 +428,6 @@ def check_phonology(cue, response):
 
 
 def check_affix(df):
-    # TODO lots of things to fix in the check_affix function
     # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
@@ -502,8 +503,9 @@ def check_measures(all_measures, distinct_words):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
+    parser.add_argument('--save', action="store_true", default=False, help="whether to save the coding, default is False")
     args = parser.parse_args()
-    main()
+    main(save = args.save)
 
 
 if __name__ == "__main__":

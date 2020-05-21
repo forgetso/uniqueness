@@ -52,10 +52,11 @@ def create_dataframe(item_list, columns_types=None, index=None):
 
     logging.debug('filling Nones')
     df.fillna(value=np.nan, inplace=True)
-
+    #TODO get kwargs working with pool. map
     if columns_types:
         logging.debug('setting types of columns...')
-        for c, d in columns_types:
+        logging.debug(columns_types)
+        for c, d in columns_types.items():
             df[c] = df[c].astype(d)
 
     return df

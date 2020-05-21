@@ -1,4 +1,5 @@
 import multiprocessing
+from itertools import product
 
 
 # split a list into evenly sized chunks
@@ -25,7 +26,8 @@ def job_pool(data, job_number, job_to_do, **kwargs):
     chunk_size = total / job_number
     slices = chunks(data, int(chunk_size))
     pool = multiprocessing.Pool(processes=job_number)
-    jobs = pool.map(job_to_do, slices)
+    # TODO get kwargs working with pool.starmap
+    jobs = pool.starmap(job_to_do, product(slices, kwargs))
     return jobs
 
 
