@@ -331,6 +331,7 @@ def relation_coding(cue, response):
 
 def nanindex(list_or_string, word):
     try:
+        print(list_or_string, word)
         return list_or_string.index(word)
     except ValueError:
         return np.nan
@@ -346,23 +347,23 @@ def check_syntagmatic_pd(df):
     # find the index of the cue in the response (not present returns nan)
     cue_index = pd.DataFrame([[nanindex(x, cue_clean[id])] for id, x in enumerate(response_split['response_clean'])])
     # get the column headers onto this data
-    syntagmatic = pd.DataFrame(cue_index, columns=['consecutivexy', 'consecutiveyx', 'othercollocational'])
     # if the cue is at the start then the category is x_y
-    syntagmatic['consecutivexy'] = np.equal(syntagmatic['consecutivexy'], 0)
+    syntagmatic = pd.DataFrame([])
+    syntagmatic['consecutivexy'] = np.equal(cue_index.loc[:, 0], 0)
     # if the cue is second then the category is y_x
-    syntagmatic['consecutiveyx'] = np.equal(syntagmatic['consecutiveyx'], 1)
+    syntagmatic['consecutiveyx'] = np.equal(cue_index.loc[:, 0], 1)
     # otherwise the cue is contained somewhere else in the phrase
-    syntagmatic['othercollocational'] = np.greater(syntagmatic['othercollocational'], 1)
+    syntagmatic['othercollocational'] = np.greater(cue_index.loc[:, 0], 1)
     # check for instances of the cue NOT being present in the response, the response being 2 words, and the response
     # beginning with for|and|nor|but|or|yet|so_ (e.g. cue = back, response = and forth)
     cue_not_present = cue_index.isnull().unstack().reset_index()
     cue_not_present = cue_not_present.drop(['level_0', 'level_1'], axis=1)
-    response_two_words = response_split[response_split['response_clean'].str.len() > 2]
+    response_two_words = response_split[response_split['response_clean'].str.len() >= 2]
     # intersection of a multi index with an integer index doesn't work
     more_than_two_words_and_cue_not_present_indices = cue_not_present.index[response_two_words.index]
-    # TODO this could be too broad and picking up random things
+    # TODO taking for out of this regex as it seems to return non-syntagmatic responses or proverbs
     consecutivexy_cue_not_entered_matches = response_clean[more_than_two_words_and_cue_not_present_indices].str.match(
-        '^(for|and|nor|but|or|yet|so)')
+        '^(and|but|or)_')
     consecutivexy_cue_not_entered_indices = more_than_two_words_and_cue_not_present_indices[
         consecutivexy_cue_not_entered_matches == True]
     cue_response_merged = cue_clean + response_clean
