@@ -1,5 +1,5 @@
 import json
-from backend.lib.db import connect, execute_values_wrap
+from backend.db.db import connect, execute_values_wrap
 from backend.lib.setup import db_setup
 from backend.settings import ALL_WORDS_FILE
 

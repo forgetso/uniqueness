@@ -3,7 +3,7 @@ from backend import settings
 import io
 import csv
 import datetime
-import backend.lib.db as db
+import backend.db.db as db
 from backend.helpers.string import check_spelling
 from backend.lib.setup import db_setup
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running

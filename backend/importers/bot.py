@@ -1,4 +1,4 @@
-from backend.lib.db import get_part_of_speech, get_cue_response_pairs, execute_values_wrap, connect, delete_responses
+from backend.db.db import get_part_of_speech, get_cue_response_pairs, execute_values_wrap, delete_responses
 import random
 import argparse
 from datetime import datetime as dt

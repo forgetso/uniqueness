@@ -1,6 +1,6 @@
 import requests
 import pymongo
-from backend.lib.db import get_acquisition_ages
+from backend.db.db import get_acquisition_ages
 from bs4 import BeautifulSoup
 import re
 import argparse

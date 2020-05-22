@@ -1,5 +1,5 @@
 from backend.helpers.string import syllables
-from backend.lib.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, \
+from backend.db.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, \
     get_all_words, get_all_measures
 from backend.lib.setup import db_setup
 from nltk.stem import PorterStemmer
@@ -67,21 +67,16 @@ phonographic_measures = ['nphon',
                          'scdcnt']
 
 
-def main(save=False):
-    # TODO batch up the totals returned by the processes and print those instead of all the individual totals
+def main(save=None, source=None):
     logging.debug('loading cue response pairs')
-    cur = get_cue_response_pairs()
+    cur = get_cue_response_pairs(source=source)
     all_pairs = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
     all_pairs['cue_clean'] = all_pairs['cue_clean'].str.encode('utf8')
     all_pairs['response_clean'] = all_pairs['response_clean'].str.encode('utf8')
-    # TODO create multi Index based on cue_clean and response_clean ???
-
     logging.debug('loaded {} cue response pairs'.format(len(all_pairs)))
     delete_coded_pairs()
     # make sure all of the required columns are in the coding table
     db_setup()
-
-    # TODO make this DISTINCT in the query? Or make a new function for that?
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs,
                                                                                 word_filter=ENGLISH1000_VOCAB)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
@@ -95,20 +90,16 @@ def main(save=False):
     logging.debug('time taken {}'.format(end - start))
 
     # take the individual results and sum them
-    totals = Counter()
-    for result in jobs:
-        totals = totals + result
-    pprint.pprint(totals)
+    totals = sum(jobs)
 
     # check the percentages of each categorisation
-    c = totals
-    l = all_pairs
-    d = [(i, c[i] / len(l) * 100.0) for i, count in c.most_common()]
-    pprint.pprint(d)
-    exit()
+    # TODO why are some of these over 100%? float errors?
+    percent_totals = totals.divide(len(distinct_cue_response_pairs)) * float(100)
+    pprint.pprint(percent_totals)
+    return percent_totals
 
 
-def get_coding(df, save=False, **kwargs):
+def get_coding(df, save):
     logging.debug(df)
     # var df: a dataframe of distinct cue - response pairs
     #
@@ -130,6 +121,7 @@ def get_coding(df, save=False, **kwargs):
     # trim down the cues and responses so we're only running functions once per word
     distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').drop_duplicates())
     distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').drop_duplicates())
+
     response_measures = check_measures(all_measures, distinct_responses)
     cue_measures = check_measures(all_measures, distinct_cues)
     # attach the various measures back to the full lists of cues and responses
@@ -144,8 +136,6 @@ def get_coding(df, save=False, **kwargs):
         right_on='cue_clean',
         how='left')
 
-    print(cue_measures_full)
-    print(response_measures_full)
     measures_diff = cue_measures_full.drop(['cue_clean', 'part_of_speech'], axis=1).subtract(
         response_measures_full.drop(
             ['response_clean', 'part_of_speech'], axis=1))
@@ -306,7 +296,7 @@ def get_coding(df, save=False, **kwargs):
     if save:
         save_coded_pairs(df, df.columns)
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
-
+    totals = df.count()
     return totals
 
 
@@ -333,7 +323,6 @@ def relation_coding(cue, response):
 
 def nanindex(list_or_string, word):
     try:
-        print(list_or_string, word)
         return list_or_string.index(word)
     except ValueError:
         return np.nan
@@ -444,40 +433,46 @@ def check_affix(df):
     cue_present_index = [cue_index[0] >= 0]
     response_subset = response_subset[cue_present_index[0]]
     cue_subset = cue_subset[cue_present_index[0]]
-    # shouldn't need to strip x here as spaces should already be replaced by underscores
-    # split on first occurrence of cue only
-    remainder = pd.DataFrame([[x.split(cue_subset[int(idx)], 1)] for idx, x in enumerate(response_subset)])
-    # assign the resulting list to two separate columns (s1, s2)
-    remainder[['s1', 's2']] = pd.DataFrame(remainder[0].tolist(), index=remainder.index)
-    # we no longer need the column with the list
-    remainder = remainder.drop(0, axis=1)
-    # check if the remainder is in the affixes for either split1 or split2
-    affix1 = np.logical_or(remainder['s1'].isin(AFFIXES), remainder['s2'].isin(AFFIXES))
-    # check if the resultant word is just cueresponse or responsecue
-    # TODO isn't this redundant because of syntagmatic checks?
-    #   Also this overrides the above by classifying anything that starts/ends the same and ends/stars
-    #   differently as being affixed.... This is not the case with anything, anyone, anywhere, whereabouts,
-    #   thereabouts. Should these be classified differently or dropped?
-    affix2 = np.logical_and(np.logical_and(remainder['s1'].str.len() == 0, remainder['s2'].str.len() > 0),
-                            np.logical_not(remainder['s2'].str.contains('_')))
-    affix3 = np.logical_and(np.logical_and(remainder['s2'].str.len() == 0, remainder['s1'].str.len() > 0),
-                            np.logical_not(remainder['s1'].str.contains('_')))
+    if len(response_subset) and len(cue_subset):
+        # the cue is present in some of the responses
+        # shouldn't need to strip x here as spaces should already be replaced by underscores
+        # split on first occurrence of cue only
+        remainder = pd.DataFrame([[x.split(cue_subset[int(idx)], 1)] for idx, x in enumerate(response_subset)])
+        # assign the resulting list to two separate columns (s1, s2)
 
-    affix_indexes = np.logical_or(np.logical_or(affix1, affix2), affix3)
-    cue_indexes = cue_subset[affix_indexes]
-    response_indexes = response_subset[affix_indexes]
-    # the resulting data is only a subset of the dataframe so we need to apply it overall
-    affix_col = pd.DataFrame(np.logical_and(cue_clean.isin(cue_indexes), response_clean.isin(response_indexes)),
-                             columns=['affix'])
-    affix_col = np.logical_or(affix_col, stems_equal)
+        remainder[['s1', 's2']] = pd.DataFrame(remainder[0].tolist(), index=remainder.index)
+        # we no longer need the column with the list
+        remainder = remainder.drop(0, axis=1)
+        # check if the remainder is in the affixes for either split1 or split2
+        affix1 = np.logical_or(remainder['s1'].isin(AFFIXES), remainder['s2'].isin(AFFIXES))
+        # check if the resultant word is just cueresponse or responsecue
+        # TODO isn't this redundant because of syntagmatic checks?
+        #   Also this overrides the above by classifying anything that starts/ends the same and ends/stars
+        #   differently as being affixed.... This is not the case with anything, anyone, anywhere, whereabouts,
+        #   thereabouts. Should these be classified differently or dropped?
+        affix2 = np.logical_and(np.logical_and(remainder['s1'].str.len() == 0, remainder['s2'].str.len() > 0),
+                                np.logical_not(remainder['s2'].str.contains('_')))
+        affix3 = np.logical_and(np.logical_and(remainder['s2'].str.len() == 0, remainder['s1'].str.len() > 0),
+                                np.logical_not(remainder['s1'].str.contains('_')))
+
+        affix_indexes = np.logical_or(np.logical_or(affix1, affix2), affix3)
+        cue_indexes = cue_subset[affix_indexes]
+        response_indexes = response_subset[affix_indexes]
+        # the resulting data is only a subset of the dataframe so we need to apply it overall
+        affix_col = pd.DataFrame(np.logical_and(cue_clean.isin(cue_indexes), response_clean.isin(response_indexes)),
+                                 columns=['affix'])
+        affix_col = np.logical_or(affix_col, stems_equal)
+    else:
+        affix_col = stems_equal
     affix_col.index = df.index
     df = pd.concat([df, affix_col], axis=1, sort=False)
     return df
 
 
 def check_measures(all_measures, distinct_words):
-    # create a column of stems based on the responses (i.e. schooling becomes school)
+    # TODO if multi word responses, get the measures for each word and then take the mean
     col_name = distinct_words.columns[0]
+    # TODO use the stem column that is already present in the overall dataframe
     stems = pd.DataFrame(
         [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in
          distinct_words[col_name]],
@@ -503,9 +498,11 @@ def check_measures(all_measures, distinct_words):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
-    parser.add_argument('--save', action="store_true", default=False, help="whether to save the coding, default is False")
+    parser.add_argument('--source', default=None, help="code responses from a particular source only")
+    parser.add_argument('--save', action="store_true", default=False,
+                        help="whether to save the coding, default is False")
     args = parser.parse_args()
-    main(save = args.save)
+    main(save=args.save, source=args.source)
 
 
 if __name__ == "__main__":

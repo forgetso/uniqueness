@@ -9,6 +9,7 @@ import sys
 import logging
 import re
 
+SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
 
 
@@ -73,7 +74,11 @@ def get_cues(min_length=None, limit=None):
     return [x for x in cur]
 
 
-def get_cue_response_pairs(limit=None):
+def get_cue_response_pairs(limit=None, source=None):
+    sourcestr = ""
+    if source and source in SOURCES:
+        sourcestr = """AND r.source = '{}'\n""".format(source)
+
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     query = """ SELECT * FROM (
@@ -91,9 +96,10 @@ def get_cue_response_pairs(limit=None):
                             WHERE LENGTH(r.response) > 3
                             AND LENGTH(r.cue) > 3
                             AND r.response != 'Unknown word'
+                            {sourcestr}
                             GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
                             ORDER BY r.cue, r.response ASC
-                            ) responses_group"""
+                            ) responses_group""".format(sourcestr=sourcestr)
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
@@ -488,7 +494,6 @@ def get_all_measures():
         ('word', '|S'),
         ('age', 'f'),
         ('part_of_speech', 'category'),
-        ('word_lemma', '|S'),
         ('arousal', 'f'),
         ('dominance', 'f'),
         ('valence', 'f'),

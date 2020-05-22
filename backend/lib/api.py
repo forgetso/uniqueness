@@ -1,11 +1,10 @@
 from flask import Flask, make_response
-from flask_restful import reqparse, abort, Api, Resource
+from flask_restful import reqparse, Api, Resource
 from flask_cors import CORS
 import random
 import json
-from backend.lib.db import get_cues, save_cue_response_pair, update_correction
+from backend.db.db import get_cues, save_cue_response_pair, update_correction
 import logging
-from backend.lib.spelling import Spelling
 import re
 from datetime import datetime as dt
 from backend.helpers.string import check_spelling

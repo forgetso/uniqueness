@@ -2,7 +2,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
-from backend.lib.db import get_cue_response_pairs_coded
+from backend.db.db import get_cue_response_pairs_coded
 import pandas as pd
 import argparse
 import numpy as np

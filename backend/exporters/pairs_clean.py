@@ -1,4 +1,4 @@
-from backend.lib.db import get_cue_response_pairs
+from backend.db.db import get_cue_response_pairs
 from backend.settings import DATA_FOLDER
 import argparse
 import random

@@ -3,8 +3,7 @@ import subprocess
 import time
 import json
 import argparse
-import pprint
-from backend.lib.db import delete_responses, save_cue_response_pairs_and_corrections
+from backend.db.db import delete_responses, save_cue_response_pairs_and_corrections
 from backend.lib.multiprocessor import job_pool
 from backend.helpers.string import check_spelling
 import multiprocessing as mp
@@ -13,10 +12,11 @@ from backend.helpers.string import clean_word
 SOURCE = 'humanbraincloud'
 
 
-def main(download=False):
+def main(download=False, keepexisting=None):
     home = str(Path.home())
     target = '{}/dev/uniqueness/data/'.format(home)
     target_file = '{}/humanbrain.json'.format(target)
+    delete = not keepexisting
     if download:
         id_rsa = '{}/.ssh/id_rsa'.format(home)
         p = subprocess.Popen(
@@ -25,16 +25,17 @@ def main(download=False):
             print('\nWaiting for data...\n')
             time.sleep(5)
         else:
-            multiprocess_human_brain_cloud_data(target_file)
+            multiprocess_human_brain_cloud_data(target_file, delete=delete)
     else:
-        multiprocess_human_brain_cloud_data(target_file)
+        multiprocess_human_brain_cloud_data(target_file, delete=delete)
 
 
-def multiprocess_human_brain_cloud_data(target_file):
+def multiprocess_human_brain_cloud_data(target_file, delete=None):
     with open(target_file, 'r') as f:
         json_data = list(json.loads(f.read()))
     print('Processing {} responses...'.format(len(json_data)))
-    delete_responses(SOURCE)
+    if delete:
+        delete_responses(SOURCE)
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
     jobs = job_pool(json_data, job_number, process_data)
@@ -107,8 +108,9 @@ def format_record(record):
 def setup():
     parser = argparse.ArgumentParser(description='Import human brain cloud data')
     parser.add_argument('--download', action='store_true', help='Download the data from AWS')
+    parser.add_argument('--keepexisting', action='store_true', default=True, help='Dont delete the existing records')
     args = parser.parse_args()
-    main(download=args.download)
+    main(download=args.download, keepexisting=args.keepexisting)
 
 
 if __name__ == "__main__":

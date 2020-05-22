@@ -1,8 +1,5 @@
-from backend.lib.db import connect
-import logging
-import getpass
+from backend.db.db import connect
 import argparse
-from backend import settings
 
 
 def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalences=None, concreteness=None, age=None,

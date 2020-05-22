@@ -16,6 +16,7 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     logging.debug('concatenating dataframes...')
     result = pd.concat(jobs)
     column_names = list(result.columns.values)
+    result['word'] = result['word'].str.decode('utf8')
     result['word'] = result['word'].str.lower()
     result['word'] = result['word'].str.encode('utf8')
     # TODO use columns_types
@@ -33,7 +34,7 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     # re-index on word (or whatever is passed in)
     if index:
         logging.debug('setting index to {}'.format(index))
-        result = result.set_index(index)
+        result = result.set_index([index])
 
     result.columns = [x for x in column_names if x not in result.index.names]
     # an example of a word that should always be present
@@ -41,22 +42,15 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     return result
 
 
-def create_dataframe(item_list, columns_types=None, index=None):
+def create_dataframe(item_list, columns_types=None):
     assert (isinstance(item_list, list))
     assert (isinstance(item_list[0], dict))
     logging.debug('creating df')
-    if index:
-        df = pd.DataFrame(item_list, index=index)
-    else:
-        df = pd.DataFrame(item_list)
-
+    df = pd.DataFrame(item_list)
     logging.debug('filling Nones')
     df.fillna(value=np.nan, inplace=True)
-    #TODO get kwargs working with pool. map
     if columns_types:
         logging.debug('setting types of columns...')
-        logging.debug(columns_types)
-        for c, d in columns_types.items():
+        for c, d in columns_types:
             df[c] = df[c].astype(d)
-
     return df
