@@ -18,7 +18,6 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     column_names = list(result.columns.values)
     result['word'] = result['word'].str.decode('utf8')
     result['word'] = result['word'].str.lower()
-    result['word'] = result['word'].str.encode('utf8')
     # TODO use columns_types
     non_numeric = ['word', 'part_of_speech']
     for column in result.columns:

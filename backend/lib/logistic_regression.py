@@ -9,18 +9,21 @@ import numpy as np
 import time
 import logging
 
-SAMPLE_SIZE = 3
+SAMPLE_SIZE = 1
 TO_PREDICT = 'user_id'
-
+MIN_RESPONSES = 50 * SAMPLE_SIZE
 logging.basicConfig(level=logging.DEBUG)
 
 
-def main(sample_size=None):
+def main(sample_size=None, source=None):
     start = time.perf_counter()
     logging.debug('Getting data')
-    data = getData()
+    data = getData(source=source)
     sample_size = sample_size or SAMPLE_SIZE
-    batched_data = batch_data(data, sample_size)
+    batched_data = data
+    if sample_size > 1:
+        batched_data = batch_data(data, sample_size)
+    print(batched_data.columns)
     classes, coefs, columns = logisticRegression(batched_data)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
@@ -31,7 +34,7 @@ def logisticRegression(data):
     X_train, X_test, y_train, y_test = train_test_split(data.drop(TO_PREDICT, axis=1),
                                                         data[TO_PREDICT], test_size=0.30,
                                                         random_state=101)
-
+    print(X_train)
     X__train_scaled = preprocessing.scale(X_train)
     X_test_scaled = preprocessing.scale(X_test)
     # create an instance and fit the model
@@ -43,12 +46,17 @@ def logisticRegression(data):
     return logmodel.classes_, logmodel.coef_, data.columns
 
 
-def getData():
-    cur = get_cue_response_pairs_coded()
+def getData(source=None):
+    cur = get_cue_response_pairs_coded(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
-    # TODO put the incorrect spelling check in here
-    df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw'])
-
+    user_id_group = df.groupby(by='user_id').agg(['count'])
+    min_responses_indices = user_id_group['response'].gt(MIN_RESPONSES)
+    users_with_min_responses = user_id_group.index[min_responses_indices['count']].values
+    if not len(users_with_min_responses):
+        exit('not enough responses from users')
+    df = df[df['user_id'].isin(users_with_min_responses)]
+    # TODO put the incorrect spelling check in here??
+    df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw', 'source'])
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
     #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
@@ -63,16 +71,16 @@ def getData():
     df = df.loc[:, (df != 0).any(axis=0)]
 
     logging.debug('replacing nans with strings in str columns')
-    label_encoder = preprocessing.LabelEncoder()
     df['phonology'] = df['phonology'].replace({np.nan: ''})
     df['syntagmatic'] = df['syntagmatic'].replace({np.nan: ''})
 
     logging.debug('encoding non-numeric columns')
+    label_encoder = preprocessing.LabelEncoder()
     df['phonology'] = label_encoder.fit_transform(df['phonology'])
     df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
 
     df = pd.DataFrame(df).fillna(value=0)
-    df = df.sort_values(by='source')
+    df = df.sort_values(by=TO_PREDICT)
     return df
 
 
@@ -89,7 +97,7 @@ def batch_data(df, size):
         group[TO_PREDICT] = key
         column_order = [TO_PREDICT] + group.columns.tolist()[:-1]
         group = group[column_order]
-        #TODO MemoryError: Unable to allocate 90.5 GiB for an array with shape (154023, 78895) and data type int64
+        # TODO MemoryError: Unable to allocate 90.5 GiB for an array with shape (154023, 78895) and data type int64
         #  check what size of output is coming from this function
         #  it should be smaller than what was passed in
         batched = pd.concat([batched, group])
@@ -98,8 +106,9 @@ def batch_data(df, size):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
+    parser.add_argument('--source', default=None, help="code responses from a particular source only")
     args = parser.parse_args()
-    main()
+    main(source=args.source)
 
 
 if __name__ == "__main__":

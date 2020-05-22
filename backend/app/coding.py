@@ -31,16 +31,6 @@ ps = PorterStemmer()
 # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = semantic_space_data['english1000_vocab']
-TOTALS = {
-    'phonology': 0,
-    'exact': 0,
-    'syntagmatic': 0,
-    'affix': 0,
-    'prevalent': 0,
-    'part_of_speech': 0,
-    'part_of_speech_changes': 0
-
-}
 punctuation_regex = re.compile(r'[\.\-\',]')
 
 ortho_measures = ['response_ortho_neighbours',
@@ -74,9 +64,10 @@ def main(save=None, source=None):
     all_pairs['cue_clean'] = all_pairs['cue_clean'].str.encode('utf8')
     all_pairs['response_clean'] = all_pairs['response_clean'].str.encode('utf8')
     logging.debug('loaded {} cue response pairs'.format(len(all_pairs)))
-    delete_coded_pairs()
-    # make sure all of the required columns are in the coding table
-    db_setup()
+    if save:
+        delete_coded_pairs()
+        # make sure all of the required columns are in the coding table
+        db_setup()
     cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs,
                                                                                 word_filter=ENGLISH1000_VOCAB)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
@@ -95,7 +86,7 @@ def main(save=None, source=None):
     # check the percentages of each categorisation
     # TODO why are some of these over 100%? float errors?
     percent_totals = totals.divide(len(distinct_cue_response_pairs)) * float(100)
-    pprint.pprint(percent_totals)
+    print(percent_totals.to_string())
     return percent_totals
 
 
@@ -113,24 +104,20 @@ def get_coding(df, save):
 
     # initialise brain data
     brain_map = BrainMap()
-    # code distinct list of cue response pairs
-    coded_pairs = pd.DataFrame()
 
-    totals = Counter(TOTALS)
-    fieldnames = None
     # trim down the cues and responses so we're only running functions once per word
-    distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').drop_duplicates())
-    distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').drop_duplicates())
+    distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8').drop_duplicates())
+    distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').str.decode('utf8').drop_duplicates())
 
     response_measures = check_measures(all_measures, distinct_responses)
     cue_measures = check_measures(all_measures, distinct_cues)
     # attach the various measures back to the full lists of cues and responses
-    response_measures_full = pd.DataFrame(df.index.get_level_values('response_clean')).merge(
+    response_measures_full = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8')).merge(
         response_measures,
         left_on='response_clean',
         right_on='response_clean',
         how='left')
-    cue_measures_full = pd.DataFrame(df.index.get_level_values('cue_clean')).merge(
+    cue_measures_full = pd.DataFrame(df.index.get_level_values('cue_clean').str.decode('utf8')).merge(
         cue_measures,
         left_on='cue_clean',
         right_on='cue_clean',
@@ -151,10 +138,8 @@ def get_coding(df, save):
     df['length'] = df['response_decoded'].str.len()
     df['syllables'] = np.vectorize(syllables)(df['response_raw'])
     df['capitalised'] = df['response_raw'].str.isupper()
-    df['punctuation'] = df['response_raw'].str.contains(
-        punctuation_regex)
-    df['number_of_words'] = df['response_decoded'].str.split(
-        '_').str.len()
+    df['punctuation'] = df['response_raw'].str.contains(punctuation_regex)
+    df['number_of_words'] = df['response_decoded'].str.split('_').str.len()
     # TODO do this with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
     relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
                                                     df.index.get_level_values('response_clean'))
@@ -472,11 +457,10 @@ def check_affix(df):
 def check_measures(all_measures, distinct_words):
     # TODO if multi word responses, get the measures for each word and then take the mean
     col_name = distinct_words.columns[0]
+
     # TODO use the stem column that is already present in the overall dataframe
     stems = pd.DataFrame(
-        [[response, ps.stem(response.decode('utf8')).encode('utf8')] for response in
-         distinct_words[col_name]],
-        columns=[col_name, 'stem'])
+        [[response, ps.stem(response)] for response in distinct_words[col_name]], columns=[col_name, 'stem'])
 
     logging.debug('Stems length is {}'.format(len(stems)))
     all_measures_words = all_measures.index.get_level_values(level='word')
@@ -492,7 +476,19 @@ def check_measures(all_measures, distinct_words):
     logging.debug('stem_measures_full')
     logging.debug('stem measures shape {}'.format(stem_measures_full.shape))
     # replace the nan values in measures with the stem measures
-    words_measures_full.update(stem_measures_full)
+    words_measures_full.update(stem_measures_full, overwrite=False)
+    multi_words = distinct_words[distinct_words[col_name].str.contains('_')]
+    split_words = multi_words[col_name].str.split('_')
+    # split is  a list of words [first, second, third] which we want to return [True, True, True] as being in all_measures
+    # then we want to get all these measures and take the mean
+    # this is done for each split list
+    split_words_measures = pd.DataFrame(
+        [all_measures[all_measures.index.isin(split)].mean().T for split in split_words.values],
+        columns=all_measures.columns)
+    split_words_measures.index = pd.Index(multi_words[col_name])
+    words_measures_full.set_index(col_name, inplace=True)
+    words_measures_full.update(split_words_measures, overwrite=False)
+    words_measures_full.reset_index(inplace=True)
     return words_measures_full
 
 

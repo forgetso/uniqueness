@@ -108,7 +108,10 @@ def get_cue_response_pairs(limit=None, source=None):
     return cur
 
 
-def get_cue_response_pairs_coded(limit=None):
+def get_cue_response_pairs_coded(limit=None, source=None):
+    sourcestr = ""
+    if source and source in SOURCES:
+        sourcestr = """AND r.source = '{}'\n""".format(source)
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     query = """ SELECT * FROM (
@@ -202,6 +205,7 @@ def get_cue_response_pairs_coded(limit=None):
                             WHERE LENGTH(r.response) > 3
                             AND LENGTH(r.cue) > 3
                             AND r.response != 'Unknown word'
+                            {sourcestr}
                             GROUP BY r.user_id,
                             r.cue,
                             r.cue_clean,
@@ -285,7 +289,7 @@ def get_cue_response_pairs_coded(limit=None):
                             cod.syntagmatic,
                             cod.phonology
                             ORDER BY r.cue, r.response ASC
-                            ) responses_group"""
+                            ) responses_group""".format(sourcestr=sourcestr)
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
@@ -623,6 +627,7 @@ def save_corrections(corrections_values):
     # todo better checks or maybe pass in dict instead, check all values...
     # original word
     try:
+
         assert (type(corrections_values[0][0]) is str)
         # corrections
         assert (type(corrections_values[0][1]) is list)
@@ -666,8 +671,13 @@ def delete_coded_pairs():
 def delete_responses(source):
     conn = connect()
     cur = conn.cursor()
-    query = """DELETE FROM responses WHERE source = %s"""
+    query = """DELETE FROM responses WHERE source = %s RETURNING id"""
     cur.execute(query, (source,))
+    # nasty
+    ids = [x[0] for x in cur.fetchall()]
+    if ids:
+        query = """DELETE FROM corrections WHERE response_id IN (SELECT * FROM UNNEST(%s))"""
+        cur.execute(query, (ids,))
     conn.commit()
 
 
