@@ -6,6 +6,7 @@ import pandas as pd
 
 UNKNOWN_AREA_LABEL = b'U'
 
+
 # TODO Even when restricting the algorithm to words used in the Gallant vocab, roughly 12% of words do not return a semantic area.
 #   Is this because they are not statistically significant in a voxel?
 
@@ -63,17 +64,21 @@ class BrainMap():
         response_left = np.dot(w.T, self.lsemwts)
         response_right = np.dot(w.T, self.rsemwts)
         # get the indices of the labels that the regions correspond to
-        r_indices = np.vstack(np.argmax(response_right, axis=1))
-        l_indices = np.vstack(np.argmax(response_left, axis=1))
-        # l_significant = pragmatic_info['lsignif'][l_indices]
-        l_labels = self.pragmatic_info['lnames'][l_indices]
-        # r_significant = pragmatic_info['rsignif'][r_indices]
-        r_labels = self.pragmatic_info['rnames'][r_indices]
+        r_labels = None
+        l_labels = None
+        if len(response_right):
+            r_indices = np.vstack(np.argmax(response_right, axis=1))
+            r_labels = self.pragmatic_info['rnames'][r_indices].flatten()
+
+        if len(response_left):
+            l_indices = np.vstack(np.argmax(response_left, axis=1))
+            l_labels = self.pragmatic_info['lnames'][l_indices].flatten()
+
         # if the regions are significant then the labels are present, otherwise they are an empty byte string
         words_subset = self.english1000_vocab[words_found]
         labels = pd.DataFrame({'word': words_subset,
-                               'left_hemi_label': l_labels.flatten(),
-                               'right_hemi_label': r_labels.flatten()})
+                               'left_hemi_label': l_labels,
+                               'right_hemi_label': r_labels})
         return labels
 
     def get_semantic_coordinates(self, hemi, labels):

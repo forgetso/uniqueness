@@ -3,11 +3,9 @@ from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
 from backend.helpers.dataframe import create_dataframe_in_parallel
-from backend.db.error_handling import print_psycopg2_exception
 import pprint
 import sys
 import logging
-import re
 
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
@@ -86,7 +84,7 @@ def get_cue_response_pairs(limit=None, source=None):
                             r.cue AS cue,
                             r.response AS response_raw,
                             r.cue_clean,
-                            r.response_clean,
+                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response_clean END AS response_clean,
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
                             CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
                             COUNT(r.response) AS count,
@@ -119,7 +117,7 @@ def get_cue_response_pairs_coded(limit=None, source=None):
                             r.cue AS cue,
                             r.response AS response_raw,
                             r.cue_clean,
-                            r.response_clean,
+                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response_clean END AS response_clean,
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
                             CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
                             COUNT(r.response) AS count,
@@ -165,7 +163,6 @@ def get_cue_response_pairs_coded(limit=None, source=None):
                             cod.valence,
                             cod.arousal,
                             cod.dominance,
-                            cod.response_ortho_neighbours,
                             cod.unigram_freq,
                             cod.unigram_count,
                             cod.bigram_freq,
@@ -254,7 +251,6 @@ def get_cue_response_pairs_coded(limit=None, source=None):
                             cod.valence,
                             cod.arousal,
                             cod.dominance,
-                            cod.response_ortho_neighbours,
                             cod.unigram_freq,
                             cod.unigram_count,
                             cod.bigram_freq,

@@ -24,40 +24,20 @@ UNKNOWN_AREA_LABEL = b'U'
 MIN_CUE_LENGTH = 3
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
-all_measures = get_all_measures()
-logging.info('There are {} words in ALL MEASURES'.format(len(all_measures)))
+ALL_MEASURES = get_all_measures()
+logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
 # s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
-semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
-ENGLISH1000_VOCAB = semantic_space_data['english1000_vocab']
-punctuation_regex = re.compile(r'[\.\-\',]')
-
-ortho_measures = ['response_ortho_neighbours',
-                  'unigram_count',
-                  'bigram_count',
-                  'trigram_count',
-                  'unconstrained_unigram_count',
-                  'unconstrained_bigram_freq',
-                  'unconstrained_trigram_freq',
-                  'ortho_neighbours_diff']
-
-phonographic_measures = ['nphon',
-                         'unsdens',
-                         'strdens',
-                         'unsbpav',
-                         'strbpav',
-                         'unstpav',
-                         'strtpav',
-                         'unspospav',
-                         'strpospav',
-                         'unslcpospav',
-                         'strlcpospav',
-                         'sfreq',
-                         'scdcnt']
+SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
+ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
+PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
 
 
-def main(save=None, source=None):
+def main(save=None, source=None, filter=None):
+    word_filter = None
+    if filter:
+        word_filter = ENGLISH1000_VOCAB
     logging.debug('loading cue response pairs')
     cur = get_cue_response_pairs(source=source)
     all_pairs = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
@@ -68,8 +48,9 @@ def main(save=None, source=None):
         delete_coded_pairs()
         # make sure all of the required columns are in the coding table
         db_setup()
-    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs,
-                                                                                word_filter=ENGLISH1000_VOCAB)
+    # TODO add a preprocessing spell check job to insert the corrections for all responses at once and save to the
+    #   corrections table
+    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs, word_filter=word_filter)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
     if not len(all_pairs):
         raise ValueError('No responses to code...')
@@ -109,8 +90,8 @@ def get_coding(df, save):
     distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8').drop_duplicates())
     distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').str.decode('utf8').drop_duplicates())
 
-    response_measures = check_measures(all_measures, distinct_responses)
-    cue_measures = check_measures(all_measures, distinct_cues)
+    response_measures = check_measures(ALL_MEASURES, distinct_responses)
+    cue_measures = check_measures(ALL_MEASURES, distinct_cues)
     # attach the various measures back to the full lists of cues and responses
     response_measures_full = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8')).merge(
         response_measures,
@@ -138,7 +119,7 @@ def get_coding(df, save):
     df['length'] = df['response_decoded'].str.len()
     df['syllables'] = np.vectorize(syllables)(df['response_raw'])
     df['capitalised'] = df['response_raw'].str.isupper()
-    df['punctuation'] = df['response_raw'].str.contains(punctuation_regex)
+    df['punctuation'] = df['response_raw'].str.contains(PUNCTUATION_REGEX)
     df['number_of_words'] = df['response_decoded'].str.split('_').str.len()
     # TODO do this with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
     relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
@@ -381,19 +362,19 @@ def check_phonology(cue, response):
 
     # TODO add zero to the end of shorter  last two?
     # FIXME This is too loose a definition
-    try:
-        # e.g. C630 M300
-        if response_soundex[-3:].index(cue_soundex[-2:]) > -1 and levenshtein_distance <= 3:
-            return 'soundex'
-    except ValueError:
-        pass
-
-    try:
-        # e.g. C630 M300
-        if cue_soundex[-3:].index(response_soundex[-2:]) > -1 and levenshtein_distance <= 3:
-            return 'soundex'
-    except ValueError:
-        pass
+    # try:
+    #     # e.g. C630 M300
+    #     if response_soundex[-3:].index(cue_soundex[-2:]) > -1 and levenshtein_distance <= 3:
+    #         return 'soundex'
+    # except ValueError:
+    #     pass
+    #
+    # try:
+    #     # e.g. C630 M300
+    #     if cue_soundex[-3:].index(response_soundex[-2:]) > -1 and levenshtein_distance <= 3:
+    #         return 'soundex'
+    # except ValueError:
+    #     pass
 
     if levenshtein_distance < 2:
         return 'levenshtein'
@@ -495,10 +476,11 @@ def check_measures(all_measures, distinct_words):
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
     parser.add_argument('--source', default=None, help="code responses from a particular source only")
+    parser.add_argument('--filter', default=None, help="restrict responses to those that appear in a word filter list")
     parser.add_argument('--save', action="store_true", default=False,
                         help="whether to save the coding, default is False")
     args = parser.parse_args()
-    main(save=args.save, source=args.source)
+    main(save=args.save, source=args.source, filter=args.filter)
 
 
 if __name__ == "__main__":
