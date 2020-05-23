@@ -23,7 +23,6 @@ def main(sample_size=None, source=None):
     batched_data = data
     if sample_size > 1:
         batched_data = batch_data(data, sample_size)
-    print(batched_data.columns)
     classes, coefs, columns = logisticRegression(batched_data)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
@@ -34,11 +33,12 @@ def logisticRegression(data):
     X_train, X_test, y_train, y_test = train_test_split(data.drop(TO_PREDICT, axis=1),
                                                         data[TO_PREDICT], test_size=0.30,
                                                         random_state=101)
-    print(X_train)
     X__train_scaled = preprocessing.scale(X_train)
     X_test_scaled = preprocessing.scale(X_test)
+    # TODO maybe fill nans with the mean?
     # create an instance and fit the model
     logmodel = LogisticRegression()
+
     logmodel.fit(X__train_scaled, y_train)
     # predictions
     predictions = logmodel.predict(X_test_scaled)
@@ -55,7 +55,6 @@ def getData(source=None):
     if not len(users_with_min_responses):
         exit('not enough responses from users')
     df = df[df['user_id'].isin(users_with_min_responses)]
-    # TODO put the incorrect spelling check in here??
     df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw', 'source'])
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
@@ -73,7 +72,7 @@ def getData(source=None):
     logging.debug('replacing nans with strings in str columns')
     df['phonology'] = df['phonology'].replace({np.nan: ''})
     df['syntagmatic'] = df['syntagmatic'].replace({np.nan: ''})
-
+    # print(np.where(np.isnan(df)))
     logging.debug('encoding non-numeric columns')
     label_encoder = preprocessing.LabelEncoder()
     df['phonology'] = label_encoder.fit_transform(df['phonology'])

@@ -51,7 +51,6 @@ class BrainMap():
     def get_semantic_area(self, words):
         # get the words in the semantic model that have been given as WA responses (10470,) True or False
         words_found = np.isin(self.english1000_vocab, words)
-
         # words_regions = self.english1000_embedding[:, words_found]
         # - average semantic VM weights within each area and across subjects
         # `lsemwts` (985 features x 192 areas), `rsemwts` (985 features x 128 areas)
