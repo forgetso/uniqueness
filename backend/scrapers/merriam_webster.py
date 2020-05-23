@@ -11,7 +11,6 @@ ACQUISITION_AGES = get_acquisition_ages()
 SOURCE = 'merriam_webster'
 
 
-
 def process(word=None):
     uri = 'https://www.merriam-webster.com/dictionary/{word}'
     db = pymongo.MongoClient(host='localhost')['words_to_scrape']
@@ -30,12 +29,19 @@ def process(word=None):
     synonyms = {}
     antonyms = {}
     pos_list = []
+    definitions_text = None
+    alternate_spelling = None
     definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
-
     for defition_div in definitions_container:
         definitions_text = defition_div.find('span', {'class': 'dtText'})
         if definitions_text:
             definitions.append(re.sub(r'\s{2,}', ' ', definitions_text.get_text().strip().replace('\n', '')))
+
+    if not definitions_text:
+        for defition_div in definitions_container:
+            cxl = defition_div.find('span', {'class': 'cxl'})
+            if cxl.get_text() == 'British spelling of':
+                alternate_spelling = cxl.next_sibling.next_sibling['href']
 
     syn_ant_wrapper = soup.find(id="synonyms-anchor")
     if syn_ant_wrapper:
@@ -52,17 +58,18 @@ def process(word=None):
                 if 'antonym' in previous:
                     antonyms[pos] = syn_ant_list.get_text()
 
-    if not len(pos_list):
+    if not len(pos_list) and definitions:
         pos_list = [getPos(soup)]
 
-    if definitions:
+    if definitions or alternate_spelling:
         result = {
             word:
                 {
                     'definitions': definitions,
                     'synonyms': synonyms,
                     'antonyms': antonyms,
-                    'pos': pos_list
+                    'pos': pos_list,
+                    'alternative_spelling': alternate_spelling
                 }
         }
         db.mw.update({'word': word}, result, upsert=True)
@@ -76,6 +83,7 @@ def getPos(soup, previous=None):
             pos = previous.split(':')[1].strip()
     if not pos:
         header = soup.findAll('div', {'class': 'row entry-header'})[0]
+
         pos = header.find('a').get_text().lower()
     return pos
 
