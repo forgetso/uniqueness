@@ -82,9 +82,12 @@ def getPos(soup, previous=None):
         if ':' in previous:
             pos = previous.split(':')[1].strip()
     if not pos:
-        header = soup.findAll('div', {'class': 'row entry-header'})[0]
+        header = soup.findAll('div', {'class': 'row entry-header'}) + soup.findAll('div', {
+            'class': 'row entry-header long-headword'})
+        if header:
+            header = header[0]
+            pos = header.find('a').get_text().lower()
 
-        pos = header.find('a').get_text().lower()
     return pos
 
 
