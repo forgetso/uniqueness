@@ -54,6 +54,9 @@ def getDefinitions(definitions_container):
         definitions_texts = defition_div.findAll('span', {'class': 'dtText'})
         for definition_text in definitions_texts:
             definitions.append(re.sub(r'\s{2,}', ' ', definition_text.get_text().strip().replace('\n', '')))
+        definitions_texts = defition_div.findAll('span', {'class': 'unText'})
+        for definition_text in definitions_texts:
+            definitions.append(re.sub(r'\s{2,}', ' ', definition_text.get_text().strip().replace('\n', '')))
 
     if not len(definitions):
         for defition_div in definitions_container:
