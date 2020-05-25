@@ -24,11 +24,8 @@ def process(word=None):
     request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
     definition_wrapper = soup.find(id="definition-wrapper")
-
     definitions = []
-    synonyms = {}
-    antonyms = {}
-    pos_list = []
+
     definitions_text = None
     alternate_spelling = None
     sub_category = None
@@ -49,6 +46,19 @@ def process(word=None):
             if cxl.get_text() == 'British spelling of':
                 alternate_spelling = cxl.next_sibling.next_sibling['href']
 
+    synonyms, antonyms, pos_list = getRelations(soup)
+
+    if not len(pos_list) and definitions:
+        pos_list = [getPos(soup)]
+
+    if definitions or alternate_spelling:
+        storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
+
+
+def getRelations(soup):
+    synonyms = {}
+    antonyms = {}
+    pos_list = []
     syn_ant_wrapper = soup.find(id="synonyms-anchor")
     if syn_ant_wrapper:
         syn_ant_lists = syn_ant_wrapper.findAll('ul', {'class': 'mw-list'})
@@ -63,24 +73,7 @@ def process(word=None):
                     synonyms[pos] = syn_ant_list.get_text()
                 if 'antonym' in previous:
                     antonyms[pos] = syn_ant_list.get_text()
-
-    if not len(pos_list) and definitions:
-        pos_list = [getPos(soup)]
-
-    if definitions or alternate_spelling:
-        result = {
-            word:
-                {
-                    'definitions': definitions,
-                    'synonyms': synonyms,
-                    'antonyms': antonyms,
-                    'pos': pos_list,
-                    'alternative_spelling': alternate_spelling,
-                    'sub_category': sub_category
-                }
-        }
-        db.mw.update({'word': word}, result, upsert=True)
-        db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
+    return synonyms, antonyms, pos_list
 
 
 def getPos(soup, previous=None):
@@ -96,6 +89,22 @@ def getPos(soup, previous=None):
             pos = header.find('a').get_text().lower()
 
     return pos
+
+
+def storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category):
+    result = {
+        word:
+            {
+                'definitions': definitions,
+                'synonyms': synonyms,
+                'antonyms': antonyms,
+                'pos': pos_list,
+                'alternative_spelling': alternate_spelling,
+                'sub_category': sub_category
+            }
+    }
+    db.mw.update({'word': word}, result, upsert=True)
+    db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
 
 
 def setup():
