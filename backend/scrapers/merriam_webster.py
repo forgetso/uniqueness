@@ -31,7 +31,13 @@ def process(word=None):
     pos_list = []
     definitions_text = None
     alternate_spelling = None
+    sub_category = None
     definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
+    # todo find out what all these different entries are
+    if not definitions_container:
+        definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('medical-entry-'))
+        if definitions_container:
+            sub_category = 'medical'
     for defition_div in definitions_container:
         definitions_text = defition_div.find('span', {'class': 'dtText'})
         if definitions_text:
@@ -69,7 +75,8 @@ def process(word=None):
                     'synonyms': synonyms,
                     'antonyms': antonyms,
                     'pos': pos_list,
-                    'alternative_spelling': alternate_spelling
+                    'alternative_spelling': alternate_spelling,
+                    'sub_category': sub_category
                 }
         }
         db.mw.update({'word': word}, result, upsert=True)
