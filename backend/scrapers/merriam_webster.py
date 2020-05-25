@@ -24,10 +24,7 @@ def process(word=None):
     request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
     definition_wrapper = soup.find(id="definition-wrapper")
-    definitions = []
 
-    definitions_text = None
-    alternate_spelling = None
     sub_category = None
     definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
     # todo find out what all these different entries are
@@ -35,16 +32,8 @@ def process(word=None):
         definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('medical-entry-'))
         if definitions_container:
             sub_category = 'medical'
-    for defition_div in definitions_container:
-        definitions_text = defition_div.find('span', {'class': 'dtText'})
-        if definitions_text:
-            definitions.append(re.sub(r'\s{2,}', ' ', definitions_text.get_text().strip().replace('\n', '')))
 
-    if not definitions_text:
-        for defition_div in definitions_container:
-            cxl = defition_div.find('span', {'class': 'cxl'})
-            if cxl.get_text() == 'British spelling of':
-                alternate_spelling = cxl.next_sibling.next_sibling['href']
+    definitions, alternate_spelling = getDefinitions(definitions_container)
 
     synonyms, antonyms, pos_list = getRelations(soup)
 
@@ -53,6 +42,22 @@ def process(word=None):
 
     if definitions or alternate_spelling:
         storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
+
+
+def getDefinitions(definitions_container):
+    definitions = []
+    alternate_spelling = None
+    for defition_div in definitions_container:
+        definitions_texts = defition_div.findAll('span', {'class': 'dtText'})
+        for definition_text in definitions_texts:
+            definitions.append(re.sub(r'\s{2,}', ' ', definition_text.get_text().strip().replace('\n', '')))
+
+    if not len(definitions):
+        for defition_div in definitions_container:
+            cxl = defition_div.find('span', {'class': 'cxl'})
+            if cxl.get_text() == 'British spelling of':
+                alternate_spelling = cxl.next_sibling.next_sibling['href']
+    return definitions, alternate_spelling
 
 
 def getRelations(soup):
