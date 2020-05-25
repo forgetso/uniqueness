@@ -24,7 +24,7 @@ def process(word=None):
     request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
     definition_wrapper = soup.find(id="definition-wrapper")
-
+    definitions = None
     sub_category = None
     definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
     # todo find out what all these different entries are
@@ -33,7 +33,10 @@ def process(word=None):
         if definitions_container:
             sub_category = 'medical'
 
-    definitions, alternate_spelling = getDefinitions(definitions_container)
+    if not definitions_container and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
+        alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next('a').get_text()
+    else:
+        definitions, alternate_spelling = getDefinitions(definitions_container)
 
     synonyms, antonyms, pos_list = getRelations(soup)
 
