@@ -21,12 +21,16 @@ def format_cue_response_pairs(all_pairs, word_filter=None):
         logging.debug('{} in all pairs after word filter'.format(len(all_pairs)))
 
     distinct_pairs = all_pairs[['cue', 'response', 'response_raw', 'cue_clean', 'response_clean']].copy()
+    # TODO this causes unhashable type list when splitting data for multiprocessing - have to split in each process
+    # distinct_pairs['response_split'] = distinct_pairs['response_clean'].str.decode('utf8').str.split('_')
+    # distinct_pairs['cue_split'] = distinct_pairs['cue_clean'].str.decode('utf8').str.split('_')
     distinct_pairs = distinct_pairs.set_index(['cue_clean', 'response_clean'])
     distinct_pairs = distinct_pairs.drop_duplicates()
     distinct_pairs['cue_decoded'] = np.vectorize(unidecode.unidecode)(distinct_pairs['cue'])
     distinct_pairs['response_decoded'] = np.vectorize(unidecode.unidecode)(distinct_pairs['response'])
     distinct_pairs['cue_stem'] = distinct_pairs['cue'].apply(ps.stem)
     distinct_pairs['response_stem'] = distinct_pairs['response'].apply(ps.stem)
+
     logging.debug('{} distinct cue response pairs'.format(len(distinct_pairs)))
     all_pairs = all_pairs.set_index(['cue_clean', 'response_clean'])
 

@@ -75,6 +75,7 @@ class BrainMap():
 
         # if the regions are significant then the labels are present, otherwise they are an empty byte string
         words_subset = self.english1000_vocab[words_found]
+
         labels = pd.DataFrame({'word': words_subset,
                                'left_hemi_label': l_labels,
                                'right_hemi_label': r_labels})
@@ -83,6 +84,8 @@ class BrainMap():
     def get_semantic_coordinates(self, hemi, labels):
         if hemi not in self.hemi_data:
             raise KeyError('hemi must be one of {}'.format(self.hemi_data.keys()))
+        print(labels)
+        print(self.coordinates[hemi].index)
         coordinates_intersect = np.intersect1d(labels, self.coordinates[hemi].index)
         coordinates = np.c_[
             coordinates_intersect,
@@ -104,3 +107,8 @@ class BrainMap():
 
     def get_distance(self, coord_a, coord_b):
         return np.sqrt(np.sum((np.subtract(coord_a, coord_b)) ** 2, axis=0).astype(float))
+
+    # given various different hemi labels, calculate the centroid
+    def get_centroid_of_labels(self, areas):
+        return
+

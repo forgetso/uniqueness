@@ -78,9 +78,12 @@ def get_coding(df, save):
     # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
     # phonographic neighbourhoods, active brain region.
 
+    # Splits are needed for many of the functions below
+    df['response_split'] = df.index.get_level_values('response_clean').str.decode('utf8').str.split('_')
+    df['cue_split'] = df.index.get_level_values('cue_clean').str.decode('utf8').str.split('_')
+
     # TODO consider the categories found in the Gallant Research:
     #   (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
-    # TODO consider when cue and response form one word, e.g. fear + less = fearless
 
     # trim down the cues and responses so we're only running functions once per word
     distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8').drop_duplicates())
@@ -104,6 +107,7 @@ def get_coding(df, save):
         response_measures_full.drop(
             ['response_clean', 'part_of_speech'], axis=1))
     # TODO get the parts of speech from s2v if they are missing from all_measures
+    # TODO parts of speech changes
     # pos_changes = pd.DataFrame([[nanindex(x, cue_measures_full['part_of_speech'][id]) == np.nan] for id, x in
     #                           enumerate(response_measures_full['part_of_speech'])])
     # print(pos_changes)
@@ -194,6 +198,7 @@ def get_coding(df, save):
     # TODO  dictionary_similarity
 
     # save data to the db
+    # df.drop(['response_split', 'cue_split'], inplace=True)
     df = df.rename({'cue_clean': 'cue', 'response_clean': 'response'}, axis=1)
     df['cue'] = df['cue'].str.decode('utf8')
     df['response'] = df['response'].str.decode('utf8')
@@ -257,7 +262,7 @@ def check_syntagmatic(df):
     response_two_words = response_split[response_split['response_clean'].str.len() >= 2]
     # intersection of a multi index with an integer index doesn't work
     more_than_two_words_and_cue_not_present_indices = cue_not_present.index[response_two_words.index]
-    # TODO taking for out of this regex as it seems to return non-syntagmatic responses or proverbs
+    # for was removed from this regex as it seems to return non-syntagmatic responses or proverbs
     consecutivexy_cue_not_entered_matches = response_clean[more_than_two_words_and_cue_not_present_indices].str.match(
         '^(and|but|or)_')
     consecutivexy_cue_not_entered_indices = more_than_two_words_and_cue_not_present_indices[
@@ -270,7 +275,6 @@ def check_syntagmatic(df):
     syntagmatic['consecutivexy'] = np.logical_or(syntagmatic['consecutivexy'], consecutivexy)
     # join response and cue and check if the merge is present in ALL WORDS
     syntagmatic['consecutiveyx'] = np.logical_or(syntagmatic['consecutiveyx'], consecutiveyx)
-    # TODO categorise consecutivexy and consecutiveyx as 0 and 1
     syntagmatic['consecutivexy_cue_not_entered'] = syntagmatic.index.isin(consecutivexy_cue_not_entered_indices)
     # roll up the various categories into one column and give different values for each
     syntagmatic = pd.DataFrame(np.where(syntagmatic == 1, syntagmatic.columns, np.nan))
@@ -375,9 +379,7 @@ def check_affix(df):
 
 
 def check_measures(all_measures, distinct_words):
-    # TODO if multi word responses, get the measures for each word and then take the mean
     col_name = distinct_words.columns[0]
-
     # TODO use the stem column that is already present in the overall dataframe
     stems = pd.DataFrame(
         [[response, ps.stem(response)] for response in distinct_words[col_name]], columns=[col_name, 'stem'])
@@ -412,83 +414,75 @@ def check_semantic_atlas(df):
     # ### semantic atlas from Gallant et. al
     # initialise brain data
     brain_map = BrainMap()
+    col1 = 'cue_clean'
+    col2 = 'response_clean'
+    stem1 = 'cue_stem'
+    stem2 = 'response_stem'
+    col1_l, col1_r = create_hemi_labels(col1)
+    col2_l, col2_r = create_hemi_labels(col2)
+    stem1_l, stem1_r = create_hemi_labels(stem1)
+    stem2_l, stem2_r = create_hemi_labels(stem2)
+
     # cue semantic areas are only used to determine if the area changes between cue and response
-    cues = df.index.get_level_values('cue_clean').unique()
-    responses = df.index.get_level_values('response_clean').unique()
-    df = merge_semantic_columns(brain_map, {'cue_clean': cues, 'response_clean': responses}, df)
+    cues = df.index.get_level_values(col1).unique()
+    responses = df.index.get_level_values(col2).unique()
+    df = merge_semantic_columns(brain_map, {col1: cues, col2: responses}, df)
 
     # gets 2% more of the responses coded with hemi labels
     # filter the nans in cue and response data and then look for the stem instead
-    cue_filter = np.logical_or(df['cue_clean_l_hemi_label'].isna(), df['cue_clean_r_hemi_label'].isna())
-    cues_missing_hemi_label = df['cue_stem'][cue_filter]
-    cue_stems = df['cue_stem'][df['cue_stem'].isin(cues_missing_hemi_label)].str.encode('utf8').unique()
-
-    response_filter = np.logical_or(df['response_clean_l_hemi_label'].isna(), df['response_clean_r_hemi_label'].isna())
-    responses_missing_hemi_label = df['response_stem'][df['response_stem'].isin(response_filter)]
-    response_stems = df['response_stem'][df['response_stem'].isin(responses_missing_hemi_label)].str.encode(
-        'utf8').unique()
-
-    df = merge_semantic_columns(brain_map, {'cue_stem': cue_stems, 'response_stem': response_stems}, df, decode=True)
+    cue_stems = get_unlabelled(df, [col1_l, col1_r], stem1, encode=True)
+    response_stems = get_unlabelled(df, [col2_l, col2_r], stem2, encode=True)
+    df = merge_semantic_columns(brain_map, {stem1: cue_stems, stem2: response_stems}, df, decode=True)
 
     # take the stem label if the original hemi label is NaN
-    df['response_clean_l_hemi_label'].fillna(df['response_stem_l_hemi_label'], inplace=True)
-    df['response_clean_r_hemi_label'].fillna(df['response_stem_r_hemi_label'], inplace=True)
-    df['cue_clean_l_hemi_label'].fillna(df['cue_stem_l_hemi_label'], inplace=True)
-    df['cue_clean_r_hemi_label'].fillna(df['cue_stem_r_hemi_label'], inplace=True)
+    df[col2_l].fillna(df[stem2_l], inplace=True)
+    df[col2_r].fillna(df[stem2_r], inplace=True)
+    df[col1_l].fillna(df[stem1_l], inplace=True)
+    df[col1_r].fillna(df[stem1_r], inplace=True)
 
     # then drop the stem labels
-    df.drop(
-        ['cue_stem_l_hemi_label', 'cue_stem_r_hemi_label', 'response_stem_l_hemi_label', 'response_stem_r_hemi_label'],
-        axis=1, inplace=True)
+    df.drop([stem1_l, stem1_r, stem2_l, stem2_r], axis=1, inplace=True)
 
-    #TODO get semantic areas for individual words in multi word responses and then take the area at the centroid
+    # get the averaged area for multi word cues and responses
+    df = semantic_atlas_multi_word(df, brain_map)
+    exit(0)
 
     # Fill with U (Unknown) to avoid intersecting with labels that are not statistically significant
-    df['response_clean_l_hemi_label'] = df['response_clean_l_hemi_label'].fillna(b'').replace(to_replace=b'',
-                                                                                              value=UNKNOWN_AREA_LABEL)
-    df['response_clean_r_hemi_label'] = df['response_clean_r_hemi_label'].fillna(b'').replace(to_replace=b'',
-                                                                                              value=UNKNOWN_AREA_LABEL)
-    df['cue_clean_l_hemi_label'] = df['cue_clean_l_hemi_label'].fillna(b'').replace(to_replace=b'',
-                                                                                    value=UNKNOWN_AREA_LABEL)
-    df['cue_clean_r_hemi_label'] = df['cue_clean_r_hemi_label'].fillna(b'').replace(to_replace=b'',
-                                                                                    value=UNKNOWN_AREA_LABEL)
-    df['r_hemi_area_differs'] = np.logical_and.reduce((df['response_clean_r_hemi_label'] !=
-                                                       df['cue_clean_r_hemi_label'],
-                                                       df['response_clean_r_hemi_label'] != UNKNOWN_AREA_LABEL,
-                                                       df['cue_clean_r_hemi_label'] != UNKNOWN_AREA_LABEL))
-    df['l_hemi_area_differs'] = np.logical_and.reduce((df['response_clean_l_hemi_label'] !=
-                                                       df['cue_clean_l_hemi_label'],
-                                                       df['response_clean_l_hemi_label'] != UNKNOWN_AREA_LABEL,
-                                                       df['cue_clean_l_hemi_label'] != UNKNOWN_AREA_LABEL))
-    right_unknown_areas = np.logical_or(df['response_clean_r_hemi_label'] == UNKNOWN_AREA_LABEL,
-                                        df['cue_clean_r_hemi_label'] == UNKNOWN_AREA_LABEL)
+    df[col2_l] = df[col2_l].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
+    df[col2_r] = df[col2_r].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
+    df[col1_l] = df[col1_l].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
+    df[col1_r] = df[col1_r].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
+    df['r_hemi_area_differs'] = np.logical_and.reduce((df[col2_r] != df[col1_r],
+                                                       df[col2_r] != UNKNOWN_AREA_LABEL,
+                                                       df[col1_r] != UNKNOWN_AREA_LABEL))
+    df['l_hemi_area_differs'] = np.logical_and.reduce((df[col2_l] !=
+                                                       df[col1_l],
+                                                       df[col2_l] != UNKNOWN_AREA_LABEL,
+                                                       df[col1_l] != UNKNOWN_AREA_LABEL))
+    right_unknown_areas = np.logical_or(df[col2_r] == UNKNOWN_AREA_LABEL, df[col1_r] == UNKNOWN_AREA_LABEL)
     right_hemi_differs = df['r_hemi_area_differs'].copy(deep=True)
     right_hemi_differs[right_unknown_areas] = np.nan
     df['r_hemi_area_differs'] = right_hemi_differs
-    left_unknown_areas = np.logical_or(df['response_clean_l_hemi_label'] == UNKNOWN_AREA_LABEL,
-                                       df['cue_clean_l_hemi_label'] == UNKNOWN_AREA_LABEL)
+    left_unknown_areas = np.logical_or(df[col2_l] == UNKNOWN_AREA_LABEL, df[col1_l] == UNKNOWN_AREA_LABEL)
     left_hemi_differs = df['l_hemi_area_differs'].copy(deep=True)
     left_hemi_differs[left_unknown_areas] = np.nan
     df['l_hemi_area_differs'] = left_hemi_differs
 
-    left_hemi_distance = brain_map.get_distances_between_semantic_areas('left', df['cue_clean_l_hemi_label'],
-                                                                        df['response_clean_l_hemi_label'])
-
-    right_hemi_distance = brain_map.get_distances_between_semantic_areas('right', df['cue_clean_r_hemi_label'],
-                                                                         df['response_clean_r_hemi_label'])
+    # distances between hemi labels
+    left_hemi_distance = brain_map.get_distances_between_semantic_areas('left', df[col1_l], df[col2_l])
+    right_hemi_distance = brain_map.get_distances_between_semantic_areas('right', df[col1_r], df[col2_r])
     df = df.merge(left_hemi_distance['left_hemi_distance'], how='left', left_index=True, right_index=True)
     df = df.merge(right_hemi_distance['right_hemi_distance'], how='left', left_index=True, right_index=True)
 
     # these are indicative of the actual words, which we do not want to model. We want to model attributes of the words.
-    df = df.drop(
-        ['response_clean_l_hemi_label',
-         'response_clean_r_hemi_label',
-         'cue_clean_l_hemi_label',
-         'cue_clean_l_hemi_label',
-         'cue_clean_r_hemi_label',
-         'cue_stem', 'response_stem'],
-        axis=1)
+    df = df.drop([col2_l, col2_r, col1_l, col1_l, col1_r, stem1, stem2], axis=1)
     return df
+
+
+def create_hemi_labels(col):
+    col_l = '{}_l_hemi_label'.format(col)
+    col_r = '{}_r_hemi_label'.format(col)
+    return col_l, col_r
 
 
 def merge_semantic_columns(brain_map, cols, df, decode=None):
@@ -496,18 +490,110 @@ def merge_semantic_columns(brain_map, cols, df, decode=None):
     for col_prefix, col in cols.items():
         semantic_areas = brain_map.get_semantic_area(col)
         areas.append(semantic_areas)
+        # if col_prefix == 'word':
+        #     print('col_prefix is {}'.format(col_prefix))
+        #     logging.debug('column looks like:')
+        #     print(col)
+        #     logging.debug('semantic areas that have been labelled')
+        #     print(semantic_areas[semantic_areas.notnull()])
 
     # semantic areas
     both_semantic_areas = pd.concat(areas).drop_duplicates()
+
     if decode:
-        both_semantic_areas['word'] = both_semantic_areas['word'].str.decode('utf8')
+        col_name = both_semantic_areas.columns[0]
+        both_semantic_areas[col_name] = both_semantic_areas[col_name].str.decode('utf8')
+
     both_semantic_areas.set_index('word', inplace=True)
 
-    for col_prefix, col in cols.items():
+    for col_prefix in cols:
         df = df.join(both_semantic_areas, on=col_prefix)
         df.rename(columns={'left_hemi_label': '{}_l_hemi_label'.format(col_prefix),
                            'right_hemi_label': '{}_r_hemi_label'.format(col_prefix)}, inplace=True)
+
     return df
+
+
+def semantic_atlas_multi_word(df, brain_map):
+    # TODO get semantic areas for individual words in multi word responses and then take the area at the centroid
+    cue_splits = unpack_splits(df['cue_split'])
+    response_splits = unpack_splits(df['response_split'])
+    # unpack the splits into one or two big columns?
+    unpacked_words = pd.DataFrame(np.unique(np.sort(np.append(cue_splits[:, 0], response_splits[:, 0].T, axis=0))),
+                                  columns=['word'])
+    unpacked_words_encode = pd.DataFrame(unpacked_words['word'].str.encode('utf8'), columns=['word'])
+
+    # words from split columns are unencoded so we need to decode the labels returned from semantic atlas
+    cols = {'word': unpacked_words_encode}
+    unpacked_labelled = merge_semantic_columns(brain_map, cols=cols, df=unpacked_words, decode=True)
+    # we now have a df of words against their original indices in the overall cue/response df, plus hemi labels
+    # we need to attach coordinates to each of the labels
+    unpacked_labelled['word_l_hemi_label'] = unpacked_labelled['word_l_hemi_label'].fillna(b'').replace(to_replace=b'',
+                                                                                                        value=UNKNOWN_AREA_LABEL)
+    unpacked_labelled['word_r_hemi_label'] = unpacked_labelled['word_r_hemi_label'].fillna(b'').replace(to_replace=b'',
+                                                                                                        value=UNKNOWN_AREA_LABEL)
+    left = brain_map.get_semantic_coordinates(hemi='left', labels=unpacked_labelled['word_l_hemi_label'])
+    right = brain_map.get_semantic_coordinates(hemi='right', labels=unpacked_labelled['word_r_hemi_label'])
+    unpacked_labelled = unpacked_labelled.merge(left, left_on='word_l_hemi_label', right_index=True)
+    unpacked_labelled.rename({'coord_x': 'l_coord_x', 'coord_y': 'l_coord_y', 'coord_z': 'l_coord_z'}, inplace=True,
+                             axis=1)
+    unpacked_labelled = unpacked_labelled.merge(right, left_on='word_r_hemi_label', right_index=True)
+    unpacked_labelled.rename({'coord_x': 'r_coord_x', 'coord_y': 'r_coord_y', 'coord_z': 'r_coord_z'}, inplace=True,
+                             axis=1)
+    unpacked_words = unpacked_words.merge(unpacked_labelled, left_on='word', right_on='word')
+    cue_splits = merge_coordinates_with_splits(unpacked_words, cue_splits)
+    response_splits = merge_coordinates_with_splits(unpacked_words, response_splits)
+    df.reset_index(inplace=True)
+    # left_hemi_distance = brain_map.get_distance((cue_splits['l_coord_x'],
+    #                                              cue_splits['l_coord_y'],
+    #                                              cue_splits['l_coord_z']),
+    #                                             (response_splits['l_coord_x'],
+    #                                              response_splits['l_coord_y'],
+    #                                              response_splits['l_coord_z']))
+    df.reset_index()
+
+    cue_splits.index = cue_splits.index.astype(int)
+    response_splits.index = response_splits.index.astype(int)
+    print(cue_splits)
+    df = df.merge(cue_splits, left_index=True, right_index=True)
+    df = df.merge(response_splits, left_index=True, right_index=True)
+    print(df[df.columns[-6:]])
+    #TODO need to just return the coordinates separately probably as distance column does not yet exist in df
+    exit(0)
+
+
+def merge_coordinates_with_splits(unpacked_words, split_col):
+    split_col = pd.DataFrame(split_col, columns=['word', 'rowid']).merge(unpacked_words, left_on='word',
+                                                                         right_on='word').sort_values('rowid')
+    split_col.drop(['word', 'word_l_hemi_label', 'word_r_hemi_label'], inplace=True, axis=1)
+    split_col = split_col.astype('float')
+    split_col_centre = split_col.groupby('rowid').mean()
+
+    return split_col_centre
+
+
+def get_unlabelled(df, should_be_labelled, other_col, encode=None):
+    # takes a list of columns and checks if there are any nans present
+    # returns values from other_col where nans are present in should_be_labelled
+    nancheck = []
+    for col in should_be_labelled:
+        nancheck.append(df[col].isna())
+    if len(nancheck) > 2:
+        # These would need to be unpacked into wrapping logical_ors or(a, or(b, or...)
+        raise NotImplemented('Checks for more than 2 columns have not yet been impmented')
+    filter = np.logical_or(nancheck[0], nancheck[1])
+    missing_hemi_label = df[other_col][filter]
+    if encode:
+        other_col = df[other_col][df[other_col].isin(missing_hemi_label)].str.encode('utf8').unique()
+    else:
+        other_col = df[other_col][df[other_col].isin(missing_hemi_label)].str.unique()
+    return other_col
+
+
+def unpack_splits(splits):
+    # return a list of individual words from columns of word lists and include the original column index of the list
+    unpacked = np.vstack([np.c_[x, [idx] * len(x)] for idx, x in enumerate(splits) if len(x) > 2])
+    return unpacked
 
 
 def setup():
