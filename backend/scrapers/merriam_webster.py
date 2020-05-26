@@ -105,7 +105,7 @@ def getPos(soup, previous=None):
         if header:
             header = header[0]
             link = header.find('a')
-            if link['id'] != 'save-to-list-link':
+            if link.id != 'save-to-list-link':
                 pos = link.get_text()
     return pos
 
