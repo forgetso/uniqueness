@@ -9,6 +9,7 @@ from backend.scrapers.user_agents import user_agent_list
 
 ACQUISITION_AGES = get_acquisition_ages()
 SOURCE = 'merriam_webster'
+REF_REGEX = re.compile(r'^cxl')
 
 
 def process(word=None):
@@ -34,14 +35,17 @@ def process(word=None):
             sub_category = 'medical'
 
     if not definitions_container and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
-        alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next('a').get_text()
+        alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next(
+            'a').get_text()
     else:
         definitions, alternate_spelling = getDefinitions(definitions_container)
 
     synonyms, antonyms, pos_list = getRelations(soup)
 
     if not len(pos_list) and definitions:
-        pos_list = [getPos(soup)]
+        pos = getPos(soup)
+        if pos:
+            pos_list = [pos]
 
     if definitions or alternate_spelling:
         storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
@@ -60,9 +64,12 @@ def getDefinitions(definitions_container):
 
     if not len(definitions):
         for defition_div in definitions_container:
-            cxl = defition_div.find('span', {'class': 'cxl'})
-            if cxl.get_text() == 'British spelling of':
-                alternate_spelling = cxl.next_sibling.next_sibling['href']
+            cxl = defition_div.find('span', {'class': REF_REGEX})
+            next_sibling = cxl.next_sibling.next_sibling
+            cxl_text = cxl.get_text()
+            alternate_spelling = next_sibling['href']
+            if not cxl_text == 'British spelling of':
+                definitions.append(' '.join([cxl_text, next_sibling['href']]))
     return definitions, alternate_spelling
 
 
@@ -97,8 +104,9 @@ def getPos(soup, previous=None):
             'class': 'row entry-header long-headword'})
         if header:
             header = header[0]
-            pos = header.find('a').get_text().lower()
-
+            link = header.find('a')
+            if link.id != 'save-to-list-link':
+                pos = link.get_text()
     return pos
 
 
