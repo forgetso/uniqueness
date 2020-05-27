@@ -62,14 +62,14 @@ def getDefinitions(definitions_container):
         for definition_text in definitions_texts:
             definitions.append(re.sub(r'\s{2,}', ' ', definition_text.get_text().strip().replace('\n', '')))
 
-    if not len(definitions):
-        for defition_div in definitions_container:
-            cxl = defition_div.find('span', {'class': REF_REGEX})
-            next_sibling = cxl.next_sibling.next_sibling
-            cxl_text = cxl.get_text()
-            alternate_spelling = next_sibling['href']
-            if not cxl_text == 'British spelling of':
-                definitions.append(' '.join([cxl_text, next_sibling['href']]))
+    # do this as well instead of either/or
+    for defition_div in definitions_container:
+        cxl = defition_div.find('span', {'class': REF_REGEX})
+        next_sibling = cxl.next_sibling.next_sibling
+        cxl_text = cxl.get_text()
+        alternate_spelling = next_sibling['href']
+        if not cxl_text == 'British spelling of':
+            definitions.append(' '.join([cxl_text, next_sibling['href']]))
     return definitions, alternate_spelling
 
 
