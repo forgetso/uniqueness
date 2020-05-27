@@ -65,11 +65,12 @@ def getDefinitions(definitions_container):
     # do this as well instead of either/or
     for defition_div in definitions_container:
         cxl = defition_div.find('span', {'class': REF_REGEX})
-        next_sibling = cxl.next_sibling.next_sibling
-        cxl_text = cxl.get_text()
-        alternate_spelling = next_sibling['href']
-        if not cxl_text == 'British spelling of':
-            definitions.append(' '.join([cxl_text, next_sibling['href']]))
+        if cxl:
+            next_sibling = cxl.next_sibling.next_sibling
+            cxl_text = cxl.get_text()
+            alternate_spelling = next_sibling['href']
+            if not cxl_text == 'British spelling of':
+                definitions.append(' '.join([cxl_text, next_sibling['href']]))
     return definitions, alternate_spelling
 
 
@@ -105,7 +106,7 @@ def getPos(soup, previous=None):
         if header:
             header = header[0]
             link = header.find('a')
-            if link.id != 'save-to-list-link':
+            if link.get('id') != 'save-to-list-link':
                 pos = link.get_text()
     return pos
 
