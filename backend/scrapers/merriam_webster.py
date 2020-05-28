@@ -86,8 +86,10 @@ def getRelations(soup):
             for syn_ant_list in syn_ant_lists:
                 previous = syn_ant_list.previous_sibling.lower()
                 pos = getPos(soup, previous=previous)
+                print(pos)
                 if pos:
                     pos_list.append(pos)
+
                 if 'synonym' in previous:
                     synonyms[pos] = syn_ant_list.get_text()
                 if 'antonym' in previous:
@@ -104,10 +106,11 @@ def getPos(soup, previous=None):
         header = soup.findAll('div', {'class': 'row entry-header'}) + soup.findAll('div', {
             'class': 'row entry-header long-headword'})
         if header:
-            header = header[0]
-            link = header.find('a')
-            if link.get('id') != 'save-to-list-link':
-                pos = link.get_text()
+            div = header[0].find('div', {'class': 'col-12'})
+            if div:
+                span = div.find('span', {'class': 'fl'})
+                if span:
+                    pos = span.get_text()
     return pos
 
 
@@ -123,6 +126,7 @@ def storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spe
                 'sub_category': sub_category
             }
     }
+    print(result)
     db.mw.update({'word': word}, result, upsert=True)
     db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
 
