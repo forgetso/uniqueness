@@ -86,7 +86,6 @@ def getRelations(soup):
             for syn_ant_list in syn_ant_lists:
                 previous = syn_ant_list.previous_sibling.lower()
                 pos = getPos(soup, previous=previous)
-                print(pos)
                 if pos:
                     pos_list.append(pos)
 
@@ -126,7 +125,6 @@ def storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spe
                 'sub_category': sub_category
             }
     }
-    print(result)
     db.mw.update({'word': word}, result, upsert=True)
     db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
 
