@@ -84,17 +84,17 @@ class BrainMap():
     def get_semantic_coordinates(self, hemi, labels):
         if hemi not in self.hemi_data:
             raise KeyError('hemi must be one of {}'.format(self.hemi_data.keys()))
-        print(labels)
-        print(self.coordinates[hemi].index)
         coordinates_intersect = np.intersect1d(labels, self.coordinates[hemi].index)
         coordinates = np.c_[
             coordinates_intersect,
             self.coordinates[hemi][self.coordinates[hemi].index.isin(coordinates_intersect)]
         ]
+
         coordinates = pd.DataFrame(coordinates, columns=['label', 'coord_x', 'coord_y', 'coord_z']).set_index('label')
         return coordinates
 
     def get_distances_between_semantic_areas(self, hemi, area_x, area_y):
+        #TODO send coords back with df for later use? This would make things much easier for multi words
         x_coords = self.get_semantic_coordinates(hemi, area_x.values)
         y_coords = self.get_semantic_coordinates(hemi, area_y.values)
         area_x_df = pd.DataFrame(area_x).merge(x_coords, left_on=area_x.name, right_index=True)
