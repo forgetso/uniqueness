@@ -68,9 +68,10 @@ def getDefinitions(definitions_container):
         if cxl:
             next_sibling = cxl.next_sibling.next_sibling
             cxl_text = cxl.get_text()
-            alternate_spelling = next_sibling['href']
-            if not cxl_text == 'British spelling of':
-                definitions.append(' '.join([cxl_text, next_sibling['href']]))
+            if 'href' in next_sibling:
+                alternate_spelling = next_sibling['href']
+                if not cxl_text == 'British spelling of':
+                    definitions.append(' '.join([cxl_text, next_sibling['href']]))
     return definitions, alternate_spelling
 
 
