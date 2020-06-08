@@ -3,7 +3,7 @@ import subprocess
 import os
 import random
 from backend.settings_private import PROXY_LOGIN, PROXY_PASSWORD
-from backend.settings import PROJECT_ROOT
+from backend.settings import PROJECT_ROOT, IP
 import logging
 from backend.scrapers.human_brain_cloud import process as human_brain_cloud
 import time
@@ -24,7 +24,7 @@ USERPASSCONFIG = 'auth-user-pass {}'.format(USERPASSFILE)
 
 def process(humanbrain=None):
     ## getting the IP address using socket.gethostbyname() method
-    ip_address_initial = get('https://api.ipify.org').text
+    ip_address_initial = IP
 
     files_path = [''.join([VPN_CONFIG_FOLDER_FULL, x]) for x in os.listdir(VPN_CONFIG_FOLDER_FULL) if
                   x.startswith('us') and x != 'userpass.txt']
