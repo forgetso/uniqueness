@@ -9,17 +9,19 @@ import numpy as np
 import time
 import logging
 
-SAMPLE_SIZE = 1
+SAMPLE_SIZE = 5
 TO_PREDICT = 'user_id'
 MIN_RESPONSES = 50 * SAMPLE_SIZE
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 def main(sample_size=None, source=None):
     start = time.perf_counter()
     logging.debug('Getting data')
-    data = getData(source=source)
     sample_size = sample_size or SAMPLE_SIZE
+    min_responses = 50 * sample_size
+    data = getData(source=source, min_responses=min_responses)
+
     batched_data = data
     if sample_size > 1:
         batched_data = batch_data(data, sample_size)
@@ -38,24 +40,25 @@ def logisticRegression(data):
     # TODO maybe fill nans with the mean?
     # create an instance and fit the model
     logmodel = LogisticRegression()
-
     logmodel.fit(X__train_scaled, y_train)
     # predictions
     predictions = logmodel.predict(X_test_scaled)
     print(classification_report(y_test, predictions))
+    logging.info('Random chance would have been {}'.format(str(1/len(logmodel.classes_))))
     return logmodel.classes_, logmodel.coef_, data.columns
 
 
-def getData(source=None):
+def getData(source=None, min_responses=None):
+    min_responses = min_responses or MIN_RESPONSES
     cur = get_cue_response_pairs_coded(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
     user_id_group = df.groupby(by='user_id').agg(['count'])
-    min_responses_indices = user_id_group['response'].gt(MIN_RESPONSES)
+    min_responses_indices = user_id_group['response'].gt(min_responses)
     users_with_min_responses = user_id_group.index[min_responses_indices['count']].values
     if not len(users_with_min_responses):
         exit('not enough responses from users')
     df = df[df['user_id'].isin(users_with_min_responses)]
-    df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw', 'source'])
+    df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw', 'source', 'count'])
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
     #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
@@ -79,6 +82,7 @@ def getData(source=None):
     df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
 
     df = pd.DataFrame(df).fillna(value=0)
+    df = df.astype(float)
     df = df.sort_values(by=TO_PREDICT)
     return df
 
@@ -86,20 +90,20 @@ def getData(source=None):
 def batch_data(df, size):
     # GROUP BY variable to predict
     # GROUP BY n rows and calculate mean
+    logging.info('There are {} samples to batch'.format(len(df)))
     groups = {key: df.loc[value] for key, value in df.groupby(TO_PREDICT).groups.items()}
     batched = pd.DataFrame()
     logging.debug('batching data...')
     for key, group in groups.items():
         logging.debug('batching {}'.format(key))
-        group = group.reset_index(drop=True)
+        group.reset_index(drop=True, inplace=True)
         group = group.groupby(group.index // size).mean()
-        group[TO_PREDICT] = key
-        column_order = [TO_PREDICT] + group.columns.tolist()[:-1]
-        group = group[column_order]
+        logging.info('There are {} samples for key {}'.format(len(group), key))
         # TODO MemoryError: Unable to allocate 90.5 GiB for an array with shape (154023, 78895) and data type int64
         #  check what size of output is coming from this function
         #  it should be smaller than what was passed in
         batched = pd.concat([batched, group])
+    batched = batched.loc[:, ~df.columns.duplicated()]
     return batched
 
 

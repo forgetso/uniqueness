@@ -6,7 +6,6 @@ from nltk.stem import PorterStemmer
 import re
 import jellyfish
 from backend.lib.wordnet_relations import WordnetRelations
-from collections import Counter
 from backend.lib.multiprocessor import job_pool
 import time
 import argparse
@@ -103,9 +102,16 @@ def get_coding(df, save):
         right_on='cue_clean',
         how='left')
 
+    assert (len(cue_measures_full) == len(response_measures_full))
+
     measures_diff = cue_measures_full.drop(['cue_clean', 'part_of_speech'], axis=1).subtract(
         response_measures_full.drop(
             ['response_clean', 'part_of_speech'], axis=1))
+
+    measures_diff['cue_clean'] = cue_measures_full['cue_clean'].str.encode('utf8')
+    measures_diff['response_clean'] = response_measures_full['response_clean'].str.encode('utf8')
+    measures_diff.set_index(['cue_clean', 'response_clean'], inplace=True)
+
     # TODO get the parts of speech from s2v if they are missing from all_measures
     # TODO parts of speech changes
     # pos_changes = pd.DataFrame([[nanindex(x, cue_measures_full['part_of_speech'][id]) == np.nan] for id, x in
@@ -115,11 +121,12 @@ def get_coding(df, save):
 
     # df['exact_match'] = df.index.get_level_values(
     #     'response_clean') == df.index.get_level_values('cue_clean')
-    df['length'] = df['response_decoded'].str.len()
-    df['syllables'] = np.vectorize(syllables)(df['response_raw'])
-    df['capitalised'] = df['response_raw'].str.isupper()
-    df['punctuation'] = df['response_raw'].str.contains(PUNCTUATION_REGEX)
-    df['number_of_words'] = df['response_decoded'].str.split('_').str.len()
+    df['length'] = df['cue_decoded'].str.len() - df['response_decoded'].str.len()
+    df['syllables'] = np.vectorize(syllables)(df['cue']) - np.vectorize(syllables)(df['response_raw'])
+    df['capitalised'] = np.equal(df['cue'].str.isupper(), df['response_raw'].str.isupper())
+    df['punctuation'] = np.equal(df['cue'].str.contains(PUNCTUATION_REGEX), df['response_raw'].str.contains(
+        PUNCTUATION_REGEX))
+    df['number_of_words'] = df['cue_decoded'].str.split('_').str.len() - df['response_decoded'].str.split('_').str.len()
     # TODO do this with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
     relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
                                                     df.index.get_level_values('response_clean'))
@@ -150,7 +157,8 @@ def get_coding(df, save):
     # TODO add proverb check for syntagmatic
 
     ### various word measures related to the response and cue that have been subtracted from each other to give distances
-    df = df.reset_index().join(measures_diff)
+    df = df.join(measures_diff)
+    df.reset_index(inplace=True)
     df = df.drop(['cue', 'response', 'response_raw', 'cue_decoded', 'response_decoded'], axis=1)
     # print(df[df.columns[-6:]])
 
@@ -200,6 +208,7 @@ def get_coding(df, save):
     # save data to the db
     # df.drop(['response_split', 'cue_split'], inplace=True)
     df = df.rename({'cue_clean': 'cue', 'response_clean': 'response'}, axis=1)
+    df.drop(['response_split', 'cue_split'], inplace=True, axis=1)
     df['cue'] = df['cue'].str.decode('utf8')
     df['response'] = df['response'].str.decode('utf8')
     df = df.replace({np.nan: None})
@@ -208,21 +217,6 @@ def get_coding(df, save):
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
     totals = df.count()
     return totals
-
-
-def basic_coding(response, response_raw, response_split):
-    basic = pd.DataFrame({'length': None,
-                          # 'response_time': None,
-                          'syllables': None,
-                          'capitalised': False,
-                          'punctuation': False,
-                          'number_of_words': None})
-    basic['length'] = len(response)
-    basic['syllables'] = syllables(response)
-    basic['capitalised'] = str.isupper(response[0])
-    basic['punctuation'] = True if re.search(r'[\.\-\',]', response_raw) else False
-    basic['number_of_words'] = len(response_split)
-    return basic
 
 
 def relation_coding(cue, response):
@@ -629,7 +623,7 @@ def get_unlabelled(df, should_be_labelled, other_col, encode=None):
         nancheck.append(df[col].isna())
     if len(nancheck) > 2:
         # These would need to be unpacked into wrapping logical_ors or(a, or(b, or...)
-        raise NotImplemented('Checks for more than 2 columns have not yet been impmented')
+        raise NotImplemented('Checks for more than 2 columns have not yet been implmented')
     filter = np.logical_or(nancheck[0], nancheck[1])
     missing_hemi_label = df[other_col][filter]
     if encode:

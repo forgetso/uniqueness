@@ -442,7 +442,7 @@ def get_all_measures():
     # TODO words with multiple parts are smushed together. perhaps these should be stored differently on import
     query = """SELECT
                     
-                    a.lemma_highest_pos as word_lemma,
+                    LOWER(a.lemma_highest_pos) as word_lemma,
                     AVG(a.aoa_kup_lemma) as age,
                     string_agg(a.dom_pos_subtlex, ',') as part_of_speech,
                     string_agg(o.word, ',') as word,
@@ -486,8 +486,8 @@ def get_all_measures():
                 LEFT JOIN emotions e ON o.word=e.word
                 LEFT JOIN acquisition_age a ON o.word=a.word
                 LEFT JOIN phonographic phon ON o.word=phon.word
-                GROUP BY a.lemma_highest_pos
-                ORDER BY a.lemma_highest_pos ASC;"""
+                GROUP BY LOWER(a.lemma_highest_pos)
+                ORDER BY LOWER(a.lemma_highest_pos) ASC;"""
     cur.execute(query)
 
     item_dtype = [
