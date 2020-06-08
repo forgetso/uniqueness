@@ -21,3 +21,4 @@ ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])
 DATA_FOLDER = ''.join([CWD, '/data'])
 JOB_NUMBER = int(cpu_count() / 2)
 LOG_LEVEL = 'DEBUG'
+IP='77.102.139.244'
