@@ -4,13 +4,13 @@ import io
 import csv
 import datetime
 import backend.db.db as db
-from backend.helpers.string import check_spelling
+from backend.lib.helpers.string import check_spelling
 from backend.lib.setup import db_setup
 from backend.lib.multiprocessor import dispatch_jobs, jobs_running
 import time
 import multiprocessing as mp
 import argparse
-from backend.helpers.string import clean_word
+from backend.lib.helpers.string import clean_word
 
 SOURCE = 'smallworldofwords'
 

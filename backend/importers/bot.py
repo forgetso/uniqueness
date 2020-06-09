@@ -2,7 +2,7 @@ from backend.db.db import get_part_of_speech, get_cue_response_pairs, execute_va
 import random
 import argparse
 from datetime import datetime as dt
-from backend.helpers.string import clean_word
+from backend.lib.helpers import clean_word
 import numpy as np
 from backend.settings import SEMANTIC_SPACE_FOLDER
 PARTS_OF_SPEECH = get_part_of_speech()

@@ -1,5 +1,5 @@
 import re
-from backend.lib.spelling import Spelling
+from backend.lib.cueresponsespelling import CueResponseSpelling
 import numpy as np
 
 
@@ -26,8 +26,8 @@ def clean_word(word):
 #   list of corrections
 #   dict of corrections keyed on word(s) from response
 def check_spelling(cue, response):
-    if not cue or not response:
-        raise ValueError('Missing cue or response. Cue: {}, Response: {}'.format(cue, response))
+    if not response:
+        raise ValueError('Missing response. Response: {}'.format(response))
     corrections_list = []
     if '_' in response:
         response_list = response.split('_')
@@ -35,7 +35,7 @@ def check_spelling(cue, response):
         response_list = response.split(' ')
     corrections_dict = {}
     for response_word in response_list:
-        speller = Spelling(cue, response_word)
+        speller = CueResponseSpelling(cue, response_word)
         corrections = speller.get_corrections()
         if corrections:
             corrections_dict[response_word] = corrections

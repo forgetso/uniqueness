@@ -5,9 +5,9 @@ import json
 import argparse
 from backend.db.db import delete_responses, save_cue_response_pairs_and_corrections
 from backend.lib.multiprocessor import job_pool
-from backend.helpers.string import check_spelling
+from backend.lib.helpers import check_spelling
 import multiprocessing as mp
-from backend.helpers.string import clean_word
+from backend.lib.helpers import clean_word
 from os import listdir
 
 SOURCE = 'humanbraincloud'

@@ -7,7 +7,7 @@ from backend.db.db import get_cues, save_cue_response_pair, update_correction
 import logging
 import re
 from datetime import datetime as dt
-from backend.helpers.string import check_spelling
+from backend.lib.helpers import check_spelling
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'

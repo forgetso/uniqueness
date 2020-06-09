@@ -2,7 +2,7 @@ import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
-from backend.helpers.dataframe import create_dataframe_in_parallel
+from backend.lib.helpers.dataframe import create_dataframe_in_parallel
 import pprint
 import sys
 import logging

@@ -53,3 +53,17 @@ def create_dataframe(item_list, columns_types=None):
         for c, d in columns_types:
             df[c] = df[c].astype(d)
     return df
+
+
+def unpack_splits(splits, length=None):
+    # return a list of individual words from columns of word lists and include the original column index of the list
+    unpacked = None
+    if not length:
+        length = 2
+    try:
+        unpacked = np.vstack([np.c_[x, [idx] * len(x)] for idx, x in enumerate(splits) if len(x) >= length])
+    except ValueError:
+        # the array may be empty if there are no multi word strings, causing concatenate to fail with
+        # "ValueError: need at least one array to concatenate"
+        pass
+    return unpacked

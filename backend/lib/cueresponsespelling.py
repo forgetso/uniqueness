@@ -13,14 +13,16 @@ sym_spell.load_bigram_dictionary(dictionary_path, 0, 2)
 CORRECTIONS_LIMIT = 10
 
 
-# TODO add all known words from wordassoc cues and other sources
-
-class Spelling:
+class CueResponseSpelling:
     def __init__(self, cue, response):
-        self.cue = cue
+        # the word we're trying to correct
         self.response = response
-        if not isinstance(self.cue, str) or not isinstance(self.response, str):
-            raise TypeError('Cue and Response must be strings: {},  {}'.format(cue, response))
+        # optional cue word for reducing the number of corrections returned. e.g. if someone is presented with
+        # foggy as a cue word and they responded with grogy then the cue will help to identify that the response
+        # is misspelled and should probably be groggy
+        self.cue = cue
+        if not isinstance(self.response, str):
+            raise TypeError('Response must be a string: {}'.format(response))
 
     def get_corrections(self):
         corrections_list = []
@@ -28,7 +30,9 @@ class Spelling:
             return corrections_list
         corrections = self.check_spelling(self.response)
         if corrections:
-            corrections = self.reduce_correction_options(self.cue, self.response, corrections)
+            # this class can be used to check individual words as well, the cue is optional
+            if isinstance(self.cue, str) and len(self.cue) > 0:
+                corrections = self.reduce_correction_options(self.cue, self.response, corrections)
             corrections_list = sorted(list(corrections))
         return corrections_list
 

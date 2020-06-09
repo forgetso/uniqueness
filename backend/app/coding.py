@@ -1,4 +1,4 @@
-from backend.helpers.string import syllables
+from backend.lib.helpers.string import syllables
 from backend.db.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, \
     get_all_words, get_all_measures
 from backend.lib.setup import db_setup
@@ -11,12 +11,12 @@ import time
 import argparse
 from backend.lib.semantic_atlas import BrainMap
 from backend.settings import SEMANTIC_SPACE_FOLDER, JOB_NUMBER
-from backend.helpers.pairs import format_cue_response_pairs
+from backend.lib.helpers.pairs import format_cue_response_pairs
 import os
-import pprint
 import numpy as np
 import pandas as pd
 import logging
+from backend.lib.helpers.dataframe import unpack_splits
 
 UNKNOWN_AREA_LABEL = b'U'
 # logging.basicConfig(level=LOG_LEVEL)
@@ -631,18 +631,6 @@ def get_unlabelled(df, should_be_labelled, other_col, encode=None):
     else:
         other_col = df[other_col][df[other_col].isin(missing_hemi_label)].str.unique()
     return other_col
-
-
-def unpack_splits(splits):
-    # return a list of individual words from columns of word lists and include the original column index of the list
-    unpacked = None
-    try:
-        unpacked = np.vstack([np.c_[x, [idx] * len(x)] for idx, x in enumerate(splits) if len(x) > 2])
-    except ValueError:
-        # the array may be empty if there are no multi word strings, causing concatenate to fail with
-        # "ValueError: need at least one array to concatenate"
-        pass
-    return unpacked
 
 
 def get_distance_between_coords(brain_map, df, label_col_left, label_col_right, row_filter, hemi, both_multi=None):
