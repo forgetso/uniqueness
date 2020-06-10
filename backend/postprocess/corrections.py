@@ -3,7 +3,7 @@ from backend.db.db import get_cue_response_pairs, save_corrections
 import pandas as pd
 import numpy as np
 from backend.lib.helpers.string import check_spelling
-
+from backend.lib.helpers.dataframe import get_unpacked_words
 
 # gets the cue response pairs, pulls all cues and responses into a unique list and then spell checks them
 # saves the spell check suggestion when there is only one suggestion otherwise does not save anything
@@ -14,6 +14,11 @@ def main(source=None):
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
     unpacked_words = get_unpacked_words(df)
 
+    # get the corrections attached first of all and worry about how to apply them later
+    unpacked_words['correction'] = np.vectorize(get_corrections)(
+        np.empty(unpacked_words['word'].shape),
+        unpacked_words['word'])
+
     df = merge_corrections(df, unpacked_words, 'cue')
     df = merge_corrections(df, unpacked_words, 'response')
 
@@ -22,23 +27,6 @@ def main(source=None):
     corrections = pd.concat([cue_corrections, response_corrections])
     save_corrections(corrections_values=corrections.values.tolist())
     return
-
-
-def get_unpacked_words(df):
-    cue_clean = df['cue_clean']
-    response_clean = df['response_clean']
-    # get the words from the columns as big lists of individual words (instead of multi word cues/responses)
-    unpacked_words = pd.DataFrame(np.unique(np.vstack((cue_clean, response_clean))), columns=['word']).sort_values(
-        by=['word'])
-    unpacked_words = unpacked_words[~unpacked_words['word'].isnull()]
-    unpacked_words.replace("", np.nan, inplace=True)
-    unpacked_words.dropna(inplace=True)
-    # get the corrections attached first of all and worry about how to apply them later
-    unpacked_words['correction'] = np.vectorize(get_corrections)(
-        np.empty(unpacked_words['word'].shape),
-        unpacked_words['word'])
-    return unpacked_words
-
 
 def get_corrections(cue, response):
     correction = None

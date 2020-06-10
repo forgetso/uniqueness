@@ -1,9 +1,38 @@
 import argparse
 from backend.db.db import get_cue_response_pairs, save_corrections
+import pandas as pd
+from sense2vec import Sense2Vec
+from backend.settings import SENSE2VEC_FOLDER
+import numpy as np
+from backend.lib.helpers.dataframe import get_unpacked_words
+
+s2v = Sense2Vec().from_disk(path=SENSE2VEC_FOLDER)
+
 
 def main(source=None):
     cur = get_cue_response_pairs(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    unpacked_words = get_unpacked_words(df)
+    unpacked_words = pd.concat([unpacked_words.reset_index(drop=True), get_s2v_sense(unpacked_words['word'])],axis=1)
+    df = merge_senses(df, unpacked_words, 'cue')
+    df = merge_senses(df, unpacked_words, 'response')
+
+
+def get_s2v_sense(words):
+    senses = pd.DataFrame(np.vectorize(s2v.get_best_sense)(words), columns=['sense'])
+    senses['sense'].fillna(value='', inplace=True)
+    senses = senses['sense'].str.split('|', expand=True).rename({1: 'sense'}, axis=1).reset_index(
+        drop=True)
+    senses.drop(0, inplace=True, axis=1)
+    print(senses)
+    return senses
+
+
+def merge_senses(df, unpacked_words, word_type):
+    df = df.merge(unpacked_words, left_on='{}_clean'.format(word_type), right_on='word', how='left')
+    df.rename({'sense': '{}_sense'.format(word_type)}, axis=1, inplace=True)
+    df.drop({'word'}, inplace=True, axis=1)
+    return df
 
 
 def setup():

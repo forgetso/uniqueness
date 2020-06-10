@@ -1,13 +1,15 @@
 from sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER, DATA_FOLDER
-from multiprocessing import shared_memory, Array, Value
-import ctypes
-import numpy as np
-from sys import getsizeof
+from multiprocessing import Array
 import resource
 import os.path
 
 BYTE_FILE = ''.join([DATA_FOLDER, '/s2v_bytestring'])
+WORD_TYPES = ('ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN',
+              'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X')
+NUM_TYPES = ('CARDINAL', 'ORDINAL', 'DATE', 'TIME', 'QUANTITY', 'MONEY', 'PERCENT')
+NAMED_ENTITITES = ('PERSON', 'NORP', 'FACILITY', 'ORG', 'GPE', 'LOC','LAW', 'PRODUCT', 'EVENT', 'WORK_OF_ART',
+                   'LANGUAGE')
 
 
 # TODO add more functionality for dealing with s2v
@@ -28,7 +30,6 @@ class s2vWrap:
             exit('Exiting to free up RAM')
         self.get_s2v()
 
-
     def get_shared_value(self):
         # f = open(BYTE_FILE, 'rb')
         # shared_value = Value(ctypes.c_char_p, f.read(), lock=False)
@@ -47,11 +48,7 @@ class s2vWrap:
 
     def create_s2v_keys(self, word):
         keys = []
-        word_types = ['ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN',
-                      'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
-        named_entities = ['PERSON', 'NORP', 'FACILITY', 'ORG', 'GPE', 'LOC', 'PRODUCT', 'EVENT' 'WORK_OF_ART',
-                          'LANGUAGE']
-        all_things = word_types + named_entities
+        all_things = WORD_TYPES + NAMED_ENTITITES
         for word_type in all_things:
             keys.append(''.join([word, '|', word_type]))
         return keys

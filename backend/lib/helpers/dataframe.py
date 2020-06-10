@@ -67,3 +67,15 @@ def unpack_splits(splits, length=None):
         # "ValueError: need at least one array to concatenate"
         pass
     return unpacked
+
+
+def get_unpacked_words(df):
+    cue_clean = df['cue_clean']
+    response_clean = df['response_clean']
+    # get the words from the columns as big lists of individual words (instead of multi word cues/responses)
+    unpacked_words = pd.DataFrame(np.unique(np.vstack((cue_clean, response_clean))), columns=['word']).sort_values(
+        by=['word'])
+    unpacked_words = unpacked_words[~unpacked_words['word'].isnull()]
+    unpacked_words.replace("", np.nan, inplace=True)
+    unpacked_words.dropna(inplace=True)
+    return unpacked_words
