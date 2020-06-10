@@ -79,24 +79,77 @@ def get_cue_response_pairs(limit=None, source=None):
 
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """ SELECT * FROM (
-                    SELECT  r.id as rowid,
-                            r.user_id AS user_id, 
-                            r.cue AS cue,
-                            r.response AS response_raw,
-                            r.cue_clean,
-                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response_clean END AS response_clean,
-                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
-                            CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
-                            source AS source
-                            FROM responses r
-                            LEFT JOIN corrections c ON r.id = c.response_id
-                            WHERE LENGTH(r.response) > 3
-                            AND LENGTH(r.cue) > 3
-                            AND r.response != 'Unknown word'
-                            {sourcestr}
-                            ORDER BY r.cue, r.response ASC
-                            ) responses_group""".format(sourcestr=sourcestr)
+
+    query = """
+            SELECT 
+          cues.rowid, 
+          cues.user_id, 
+          cues.cue, 
+          cues.cue_clean, 
+          cues.c_incorrect_spelling, 
+          responses.response_raw, 
+          responses.response, 
+          responses.response_clean, 
+          responses.r_incorrect_spelling, 
+          cues.source 
+        FROM 
+          (
+            SELECT 
+              r.id as rowid, 
+              r.user_id AS user_id, 
+              r.cue AS cue, 
+              CASE WHEN c.correction IS NOT NULL 
+              AND c.type = 'c' THEN c.correction ELSE r.cue_clean END AS cue_clean, 
+              CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS c_incorrect_spelling, 
+              source AS source 
+            FROM 
+              responses r 
+              LEFT JOIN corrections c ON r.id = c.response_id 
+              AND c.type = 'c' 
+            WHERE 
+              LENGTH(r.response) > 3 
+              AND LENGTH(r.cue) > 3 
+              AND r.response != 'Unknown word' 
+              {sourcestr}
+            GROUP BY 
+              r.id, 
+              r.user_id, 
+              r.cue, 
+              r.response, 
+              cue_clean, 
+              c.correction, 
+              c.type
+          ) cues 
+          LEFT JOIN (
+            SELECT 
+              r.id as rowid, 
+              r.response AS response_raw, 
+              CASE WHEN c.correction IS NOT NULL 
+              AND c.type = 'r' THEN c.correction ELSE r.response_clean END AS response_clean, 
+              CASE WHEN c.correction IS NOT NULL 
+              AND c.type = 'r' THEN c.correction ELSE r.response END AS response, 
+              CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS r_incorrect_spelling 
+            FROM 
+              responses r 
+              LEFT JOIN corrections c ON r.id = c.response_id 
+              AND c.type = 'r' 
+            WHERE 
+              LENGTH(r.response) > 3 
+              AND LENGTH(r.cue) > 3 
+              AND r.response != 'Unknown word' 
+              {sourcestr}
+            GROUP BY 
+              r.id, 
+              r.user_id, 
+              r.cue, 
+              r.response, 
+              cue_clean, 
+              c.correction, 
+              c.type
+          ) responses ON cues.rowid = responses.rowid
+          ORDER BY cue, response ASC
+        """.format(sourcestr=sourcestr)
+
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
@@ -106,6 +159,7 @@ def get_cue_response_pairs(limit=None, source=None):
 
 
 def get_cue_response_pairs_coded(limit=None, source=None):
+    #TODO update this with the new query
     sourcestr = ""
     if source and source in SOURCES:
         sourcestr = """AND r.source = '{}'\n""".format(source)
