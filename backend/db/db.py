@@ -80,14 +80,14 @@ def get_cue_response_pairs(limit=None, source=None):
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     query = """ SELECT * FROM (
-                    SELECT  r.user_id AS user_id, 
+                    SELECT  r.id as rowid,
+                            r.user_id AS user_id, 
                             r.cue AS cue,
                             r.response AS response_raw,
                             r.cue_clean,
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response_clean END AS response_clean,
                             CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
                             CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
-                            COUNT(r.response) AS count,
                             source AS source
                             FROM responses r
                             LEFT JOIN corrections c ON r.id = c.response_id
@@ -95,7 +95,6 @@ def get_cue_response_pairs(limit=None, source=None):
                             AND LENGTH(r.cue) > 3
                             AND r.response != 'Unknown word'
                             {sourcestr}
-                            GROUP BY r.user_id, r.cue, r.cue_clean, r.response_clean, r.response, c.correction, r.source
                             ORDER BY r.cue, r.response ASC
                             ) responses_group""".format(sourcestr=sourcestr)
 
@@ -588,53 +587,40 @@ def save_cue_response_pair(cue_response_pair):
     return id_of_new_row
 
 
-def save_cue_response_pairs_and_corrections(cue_response_pairs):
+def save_cue_response_pairs(cue_response_pairs):
     response_values = []
-    corrections_values = []
     for cue_response_pair in cue_response_pairs:
-        corrections_values.append([cue_response_pair.get('response'),
-                                   cue_response_pair.get('corrections'),
-                                   cue_response_pair.get('correction')])
-        cue_response_pair.pop('corrections', [])
-        cue_response_pair.pop('correction', None)
         response_values.append(tuple(cue_response_pair.values()))
     fieldnamelist = list(cue_response_pairs[0].keys())
     fieldnametuple = tuple(fieldnamelist)
     response_ids = execute_values_wrap('responses', fieldnametuple, response_values)
     if len(response_ids) != len(response_values):
         raise ValueError('Number of database rows inserted does not equal original number of records')
-    for idx, response_id in enumerate(response_ids):
-        corrections_values[idx].append(response_id)
-        if len(corrections_values[idx]) != 4:
-            raise ValueError('Field(s) missing from corrections record')
-        # cast to tuple to avoid this https://github.com/psycopg/psycopg2/issues/537
-        corrections_values[idx] = list(corrections_values[idx])
-    # get rid of empty list corrections
-    corrections_values = [tuple(c) for c in corrections_values if len(c[1])]
-    correction_ids = []
-    if corrections_values:
-        correction_ids = save_corrections(corrections_values)
+
     # cleanup old corrections
     delete_corrections()
-    return response_ids, correction_ids
+    return response_ids
 
 
 def save_corrections(corrections_values):
-    # todo better checks or maybe pass in dict instead, check all values...
-    # original word
+    # TODO better checks.
+    # TODO maybe pass in dict instead
+    delete_corrections()
     try:
-
+        # original word
         assert (type(corrections_values[0][0]) is str)
         # corrections
-        assert (type(corrections_values[0][1]) is list)
-        # correction
-        assert (type(corrections_values[0][2]) is str or corrections_values[0][2] is None)
+        # assert (type(corrections_values[0][1]) is list)
+        # # correction
+        assert (type(corrections_values[0][1]) is str or corrections_values[0][2] is None)
         # response id
-        assert (type(corrections_values[0][3]) is int)
-    except IndexError:
-        print(corrections_values)
+        assert (type(corrections_values[0][2]) is int)
+        # type
+        assert (corrections_values[0][3] in ('c', 'r'))
+    except IndexError as e:
+        print(e, corrections_values)
         exit(0)
-    fieldnametuple = ('original_word', 'corrections', 'correction', 'response_id')
+    fieldnametuple = ('original_word', 'correction', 'response_id', 'type')
     correction_ids = execute_values_wrap('corrections', fieldnametuple, corrections_values)
     if len(corrections_values) != len(correction_ids):
         raise ValueError('Number of database rows inserted does not equal original number of records')

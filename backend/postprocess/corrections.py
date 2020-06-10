@@ -1,44 +1,72 @@
 import argparse
-from backend.db.db import get_cue_response_pairs
+from backend.db.db import get_cue_response_pairs, save_corrections
 import pandas as pd
-from backend.lib.helpers.dataframe import unpack_splits
 import numpy as np
 from backend.lib.helpers.string import check_spelling
 
 
+# gets the cue response pairs, pulls all cues and responses into a unique list and then spell checks them
+# saves the spell check suggestion when there is only one suggestion otherwise does not save anything
+# TODO save the corrections when there are more than one suggestion and then work out which one to use, if any
+# TODO properly consider corrections for multi word responses
 def main(source=None):
     cur = get_cue_response_pairs(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
-    # TODO do this for unique lists of words
-    cue_raw = df['cue']
-    response_raw = df['response_raw']
-    # get the words from the columns as big lists of individual words (instead of multi word cues/responses)
-    cues_unpacked = unpack_splits(cue_raw.str.split('_'), length=1)
-    responses_unpacked = unpack_splits(response_raw.str.split('_'), length=1)
-    unpacked_words = pd.DataFrame(
-        np.unique(np.sort(np.append(cues_unpacked[:, 0], responses_unpacked[:, 0].T, axis=0))),
-        columns=['word'])
-    # get the corrections attached first of all and worry about how to apply them later
-    unpacked_words['corrections'] = np.vectorize(get_corrections)(np.empty(unpacked_words['word'].shape),
-                                                                  unpacked_words['word'])
+    unpacked_words = get_unpacked_words(df)
 
-    # TODO use the correction only if the sense is not a person, a company, a website, etc.
-    final = get_s2v_sense()
+    df = merge_corrections(df, unpacked_words, 'cue')
+    df = merge_corrections(df, unpacked_words, 'response')
+
+    cue_corrections = format_corrections_for_db(df, 'cue')
+    response_corrections = format_corrections_for_db(df, 'response')
+    corrections = pd.concat([cue_corrections, response_corrections])
+    save_corrections(corrections_values=corrections.values.tolist())
     return
+
+
+def get_unpacked_words(df):
+    cue_clean = df['cue_clean']
+    response_clean = df['response_clean']
+    # get the words from the columns as big lists of individual words (instead of multi word cues/responses)
+    unpacked_words = pd.DataFrame(np.unique(np.vstack((cue_clean, response_clean))), columns=['word']).sort_values(
+        by=['word'])
+    unpacked_words = unpacked_words[~unpacked_words['word'].isnull()]
+    unpacked_words.replace("", np.nan, inplace=True)
+    unpacked_words.dropna(inplace=True)
+    # get the corrections attached first of all and worry about how to apply them later
+    unpacked_words['correction'] = np.vectorize(get_corrections)(
+        np.empty(unpacked_words['word'].shape),
+        unpacked_words['word'])
+    return unpacked_words
 
 
 def get_corrections(cue, response):
     correction = None
     _incorrect_spelling, corrections_list, corrections_dict = check_spelling(cue, response)
-
     if len(corrections_list) == 1 and corrections_list[0].term != response.lower():
         # TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
         correction = corrections_list[0].term
     return correction
 
 
-def get_s2v_sense():
-    return
+def merge_corrections(df, unpacked_words, corrections_type):
+    df = df.merge(unpacked_words, left_on='{}_clean'.format(corrections_type), right_on='word', how='left')
+    df.rename({'correction': '{}_correction'.format(corrections_type)}, axis=1, inplace=True)
+    df.drop({'word'}, inplace=True, axis=1)
+    return df
+
+
+def format_corrections_for_db(df, corrections_type):
+    correction_col = '{}_correction'.format(corrections_type)
+    word_col = '{}_clean'.format(corrections_type)
+    corrections = df[~df[correction_col].isnull()]
+    corrections = corrections[[word_col, correction_col, 'rowid', ]]
+    corrections.rename(
+        {word_col: 'original_word',
+         correction_col: 'corrections'},
+        inplace=True, axis=1)
+    corrections['type'] = corrections_type[0]
+    return corrections
 
 
 def setup():

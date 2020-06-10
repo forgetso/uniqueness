@@ -3,11 +3,10 @@ import subprocess
 import time
 import json
 import argparse
-from backend.db.db import delete_responses, save_cue_response_pairs_and_corrections
+from backend.db.db import delete_responses, save_cue_response_pairs
 from backend.lib.multiprocessor import job_pool
-from backend.lib.helpers import check_spelling
 import multiprocessing as mp
-from backend.lib.helpers import clean_word
+from backend.lib.helpers.string import clean_word
 from os import listdir
 
 SOURCE = 'humanbraincloud'
@@ -74,7 +73,7 @@ def process_data(json_data):
                     responses.append(formatted_sub_record)
                     # distinct_responses.add(formatted_sub_record['response'])
     if responses:
-        save_cue_response_pairs_and_corrections(responses)
+        save_cue_response_pairs(responses)
         return len(responses)
 
 
@@ -90,16 +89,6 @@ def format_record(record):
     response['created'] = record['t']
     response['source'] = SOURCE
 
-    incorrect_spelling, corrections_list, corrections_dict = check_spelling(response['cue'], response['response'])
-    # pull out the actual corrections strings into a list instead of the SuggestItem class
-    corrections_dict = {k: [x.term for x in v] for k, v in corrections_dict.items()}
-    response['corrections'] = [x.term for x in corrections_list]
-    if len(corrections_list) == 1 and corrections_list[0].term != response['response']:
-        # TODO smarter spelling corrections here, use relation stength of suggestions to cue, soundex, etc.
-        response['correction'] = corrections_list[0].term
-    # TODO include these later and store country for players using UI
-    # response['country'] = record['playerCc']
-    # response['playerName'] = record['playerName']
     return response
 
 
