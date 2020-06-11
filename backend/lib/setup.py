@@ -59,7 +59,8 @@ def db_setup(wordassoc=None, responses=None, affixes=None, norms=None, prevalenc
         response_clean text,
         time_duration int,
         correction_ids int[],
-        sense_id int,
+        cue_sense_id int,
+        response_sense_id int,
         source text)
         """)
         conn.commit()

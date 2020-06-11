@@ -6,6 +6,7 @@ from backend.lib.helpers.dataframe import create_dataframe_in_parallel
 import pprint
 import sys
 import logging
+import numpy as np
 
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
@@ -150,7 +151,6 @@ def get_cue_response_pairs(limit=None, source=None):
           ORDER BY cue, response ASC
         """.format(sourcestr=sourcestr)
 
-
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
     cur.execute(query)
@@ -159,7 +159,7 @@ def get_cue_response_pairs(limit=None, source=None):
 
 
 def get_cue_response_pairs_coded(limit=None, source=None):
-    #TODO update this with the new query
+    # TODO update this with the new query
     sourcestr = ""
     if source and source in SOURCES:
         sourcestr = """AND r.source = '{}'\n""".format(source)
@@ -588,6 +588,16 @@ def get_all_measures():
     return df
 
 
+def get_senses():
+    conn = connect()
+    cur = conn.cursor()
+    query = """SELECT id as senseid, sense FROM s2vsenses ORDER BY sense ASC"""
+    cur.execute(query)
+    result = {x[1]: x[0] for x in cur}
+    conn.close()
+    return result
+
+
 def explode_word_stems(cur):
     item_list = []
     for item in cur:
@@ -679,6 +689,21 @@ def save_corrections(corrections_values):
     if len(corrections_values) != len(correction_ids):
         raise ValueError('Number of database rows inserted does not equal original number of records')
     return correction_ids
+
+
+def update_senses(df):
+    conn = connect()
+    cur = conn.cursor()
+    senses = get_senses()
+    df['cue_sense_id'] = df['cue_sense'].map(senses)
+    df['response_sense_id'] = df['response_sense'].map(senses)
+    values = df[['cue_sense_id', 'response_sense_id', 'rowid']].replace({np.nan: None}).values.tolist()
+    query = """UPDATE responses AS r 
+                  SET cue_sense_id = e.cue_sense_id, response_sense_id = e.response_sense_id
+                  FROM (VALUES %s) AS e(cue_sense_id,response_sense_id, id) 
+                  WHERE e.id = r.id;"""
+    pg.extras.execute_values(cur, query, values, template=None, page_size=100)
+    conn.commit()
 
 
 def update_correction(response_id, original_word, correction):
