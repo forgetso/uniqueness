@@ -7,7 +7,8 @@ from backend.db.db import get_cues, save_cue_response_pair, update_correction
 import logging
 import re
 from datetime import datetime as dt
-from backend.lib.helpers import check_spelling
+from backend.lib.helpers.string import check_spelling
+from backend.settings import LOG_LEVEL
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -31,7 +32,7 @@ logging.info('getting cues...')
 CUES = get_cues()
 logging.info('done')
 # logging.getLogger('flask_cors').level = logging.DEBUG
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=LOG_LEVEL)
 HEADERS = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*'}
 
 

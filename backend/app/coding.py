@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import logging
 from backend.lib.helpers.dataframe import unpack_splits
+from backend.lib.sense2vec import NUM_TYPES, NAMED_ENTITITES
 
 UNKNOWN_AREA_LABEL = b'U'
 # logging.basicConfig(level=LOG_LEVEL)
@@ -31,6 +32,7 @@ ps = PorterStemmer()
 SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
+DROP_BEFORE_SAVING = ['cue_raw', 'response_raw', 'cue_decoded', 'response_decoded', 'response_split', 'cue_split']
 
 
 def main(save=None, source=None, filter=None):
@@ -47,9 +49,7 @@ def main(save=None, source=None, filter=None):
         delete_coded_pairs()
         # make sure all of the required columns are in the coding table
         db_setup()
-    # TODO add a preprocessing spell check job to insert the corrections for all responses at once and save to the
-    #   corrections table
-    cue_response_pairs, distinct_cue_response_pairs = format_cue_response_pairs(all_pairs, word_filter=word_filter)
+    distinct_cue_response_pairs = format_cue_response_pairs(all_pairs, word_filter=word_filter)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
     if not len(all_pairs):
         raise ValueError('No responses to code...')
@@ -77,13 +77,78 @@ def get_coding(df, save):
     # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
     # phonographic neighbourhoods, active brain region.
 
+    # First, work out which spelling corrections should be used
+    df = check_corrections(df)
+
     # Splits are needed for many of the functions below
     df['response_split'] = df.index.get_level_values('response_clean').str.decode('utf8').str.split('_')
     df['cue_split'] = df.index.get_level_values('cue_clean').str.decode('utf8').str.split('_')
 
-    # TODO consider the categories found in the Gallant Research:
-    #   (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
+    # attach the measures from all measures to the cues/responses and then subtract one from the other to get the diff
+    measures_diff = get_measures_diff(df)
 
+    # should exact match be considered?
+    df['length'] = df['cue_decoded'].str.len() - df['response_decoded'].str.len()
+    df['syllables'] = np.vectorize(syllables)(df['cue_raw']) - np.vectorize(syllables)(df['response_raw'])
+    df['capitalised'] = np.equal(df['cue_raw'].str.isupper(), df['response_raw'].str.isupper())
+    df['punctuation'] = np.equal(df['cue_raw'].str.contains(PUNCTUATION_REGEX), df['response_raw'].str.contains(
+        PUNCTUATION_REGEX))
+    df['number_of_words'] = df['cue_decoded'].str.split('_').str.len() - df['response_decoded'].str.split('_').str.len()
+
+    relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
+                                                    df.index.get_level_values('response_clean'))
+
+    wordnet_categories = pd.json_normalize(relations_array)
+    wordnet_categories.index = df.index
+
+    assert (len(wordnet_categories) == len(df))
+
+    # why is phonology lumped in here?
+    wordnet_categories['phonology'] = np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded'])
+    wordnet_categories['phonology'] = wordnet_categories['phonology'].astype('category')
+
+    assert (len(wordnet_categories) == len(df))
+
+    df = pd.concat([df, wordnet_categories], axis=1, sort=False)
+
+    # check for syntagmatic and add to dataframe
+    df = check_syntagmatic(df)
+
+    # check for affix and add to dataframe
+    df = check_affix(df)
+
+    # add the semantic brain area data
+    df = check_semantic_atlas(df)
+
+    # various word measures related to the response and cue that have been subtracted from each other to give distances
+    df = df.join(measures_diff)
+
+    # check if the part of speech changes from cue to response, based on pos column and s2vsense
+    df = check_senses_and_pos(df)
+
+    df.reset_index(inplace=True)
+
+    # get rid of unnecessary columns
+    df = df.drop(DROP_BEFORE_SAVING, axis=1)
+
+    # look at the final 6 columns
+    # print(df[df.columns[-6:]])
+
+    # save data to the db
+    df = df.rename({'cue_clean': 'cue', 'response_clean': 'response'}, axis=1)
+    df['cue'] = df['cue'].str.decode('utf8')
+    df['response'] = df['response'].str.decode('utf8')
+    df = df.replace({np.nan: None})
+
+    if save:
+        save_coded_pairs(df, df.columns)
+
+    logging.debug('Job with PID {} reached end'.format(os.getpid()))
+    totals = df.count()
+    return totals
+
+
+def get_measures_diff(df):
     # trim down the cues and responses so we're only running functions once per word
     distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8').drop_duplicates())
     distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').str.decode('utf8').drop_duplicates())
@@ -110,113 +175,12 @@ def get_coding(df, save):
 
     measures_diff['cue_clean'] = cue_measures_full['cue_clean'].str.encode('utf8')
     measures_diff['response_clean'] = response_measures_full['response_clean'].str.encode('utf8')
+    # add the parts of speech back into the measures
+    measures_diff['cue_pos'] = cue_measures_full['part_of_speech']
+    measures_diff['response_pos'] = response_measures_full['part_of_speech']
+
     measures_diff.set_index(['cue_clean', 'response_clean'], inplace=True)
-
-    # TODO get the parts of speech from s2v if they are missing from all_measures
-    # TODO parts of speech changes
-    # pos_changes = pd.DataFrame([[nanindex(x, cue_measures_full['part_of_speech'][id]) == np.nan] for id, x in
-    #                           enumerate(response_measures_full['part_of_speech'])])
-    # print(pos_changes)
-    # print(measures_diff)
-
-    # df['exact_match'] = df.index.get_level_values(
-    #     'response_clean') == df.index.get_level_values('cue_clean')
-    df['length'] = df['cue_decoded'].str.len() - df['response_decoded'].str.len()
-    df['syllables'] = np.vectorize(syllables)(df['cue']) - np.vectorize(syllables)(df['response_raw'])
-    df['capitalised'] = np.equal(df['cue'].str.isupper(), df['response_raw'].str.isupper())
-    df['punctuation'] = np.equal(df['cue'].str.contains(PUNCTUATION_REGEX), df['response_raw'].str.contains(
-        PUNCTUATION_REGEX))
-    df['number_of_words'] = df['cue_decoded'].str.split('_').str.len() - df['response_decoded'].str.split('_').str.len()
-    # TODO do this with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
-    relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
-                                                    df.index.get_level_values('response_clean'))
-    other_categories = pd.json_normalize(relations_array)
-    other_categories.index = df.index
-    # the numpy vectorize function has no index as only the cue and response columns are passed in
-    # so add the index back on to allow the dataframes to be concatenated
-
-    assert (len(other_categories) == len(df))
-
-    other_categories['phonology'] = np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded'])
-    other_categories['phonology'] = other_categories['phonology'].astype('category')
-    assert (len(other_categories) == len(df))
-    df = pd.concat([df, other_categories], axis=1, sort=False)
-
-    # check for syntagmatic and add to dataframe
-    df = check_syntagmatic(df)
-
-    # check for affix and add to dataframe
-    df = check_affix(df)
-
-    # add the semantic brain area data
-    df = check_semantic_atlas(df)
-
-    # TODO what to do about words joined with hyphens?
-    # TODO use this throughout instead of splitting multiple times
-    # TODO add s2v check for syntagmatic
-    # TODO add proverb check for syntagmatic
-
-    ### various word measures related to the response and cue that have been subtracted from each other to give distances
-    df = df.join(measures_diff)
-    df.reset_index(inplace=True)
-    df = df.drop(['cue', 'response', 'response_raw', 'cue_decoded', 'response_decoded'], axis=1)
-    # print(df[df.columns[-6:]])
-
-    # TODO check if the part of speech changes from cue to response
-    # TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
-    #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
-    # TODO  contractions (don't)
-    # TODO  word is in ALL_WORDS
-    # TODO  encyclopaedic associations - e.g. if the cue is war and someone responds with the name of a particular war
-    # TODO  obscene words
-    # TODO  sexual references
-    # TODO  slang
-    # TODO  part_of_speech: take this from age of acquisition?
-    # TODO  morpheme
-    # TODO  years (1960, 2010, etc.)
-    # TODO  cultural_reference (encyclopaedic):
-    #  [movies,
-    #   music,
-    #   famous people,
-    #   books (1984, farenheit 451),
-    #   poems,
-    #   computer games,
-    #   tv shows,
-    #   brands,
-    #   historical dates,
-    #   characters,
-    #   superheroes,
-    #   religion,
-    #   web sites,
-    #   web status codes (404),
-    #   emergency services numbers,
-    #   scientific numbers (365, pi, gravity, phi, etc.)
-    #       ]
-    # TODO food references
-    #  [cocktails,
-    #   recipes,
-    #   etc.
-    #   ]
-    #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
-    #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
-    #   game, Portal.
-    # TODO  company reference [walmart, asda, etc.]
-    # TODO  geographical_reference [country, state, city, town, village, post code]
-    # TODO  corpus_similarity
-    # TODO  dictionary_similarity
-
-    # save data to the db
-    # df.drop(['response_split', 'cue_split'], inplace=True)
-    df = df.rename({'cue_clean': 'cue', 'response_clean': 'response'}, axis=1)
-    df.drop(['response_split', 'cue_split'], inplace=True, axis=1)
-    df['cue'] = df['cue'].str.decode('utf8')
-    df['response'] = df['response'].str.decode('utf8')
-    df = df.replace({np.nan: None})
-    if save:
-        save_coded_pairs(df, df.columns)
-    logging.debug('Job with PID {} reached end'.format(os.getpid()))
-    totals = df.count()
-    return totals
+    return measures_diff
 
 
 def relation_coding(cue, response):
@@ -402,6 +366,35 @@ def check_measures(all_measures, distinct_words):
     words_measures_full.update(split_words_measures, overwrite=False)
     words_measures_full.reset_index(inplace=True)
     return words_measures_full
+
+
+def check_corrections(df):
+    # rules for handling spelling corrections
+    # 1. check if there are spelling corrections for cue/response
+    # 2. check if the sense, as defined by sense2vec, is numeric or a named_entity
+    # TODO check if the senses are the same, e.g. both ORGS or both PERSONs, as it is likelier that the response is an
+    #   ORG or PERSON
+    unfiltered_senses = np.array(NUM_TYPES + NAMED_ENTITITES)
+    for x in ['cue', 'response']:
+        sensecol = '{}_sense'.format(x)
+        decodedcol = '{}_decoded'.format(x)
+        corr_col = '{}_correction'.format(x)
+        spellcol = '{}_bad_spell'.format(x[0])
+        indexcol = '{}_clean'.format(x)
+        df[spellcol] = np.logical_and.reduce((~df[sensecol].isin(unfiltered_senses),
+                                              df[corr_col].notnull(),
+                                              df[corr_col] != df[decodedcol]))
+
+        rename_index = np.where(df[spellcol] == True)
+        rename_dict = dict(zip(df.index.get_level_values(indexcol)[rename_index].values,
+                               df[corr_col].str.encode('utf8').values[rename_index]))
+        df.rename(rename_dict, inplace=True, axis=0)
+    return df
+
+
+def check_senses_and_pos(df):
+    print(df[['cue_sense', 'cue_pos', 'response_sense', 'response_pos']])
+    return df
 
 
 def check_semantic_atlas(df):
@@ -687,3 +680,52 @@ def setup():
 
 if __name__ == "__main__":
     setup()
+    # TODO wordnet stuff with pandas? probably means rewriting or wrapping relation_coding to accept dataframes
+    # TODO consider the categories found in the Gallant Research:
+    #   (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
+    # TODO what to do about words joined with hyphens?
+    # TODO use this throughout instead of splitting multiple times
+    # TODO add s2v check for syntagmatic
+    # TODO add proverb check for syntagmatic
+    # TODO check if the part of speech changes from cue to response
+    # TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
+    #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
+    # TODO  contractions (don't)
+    # TODO  word is in ALL_WORDS
+    # TODO  encyclopaedic associations - e.g. if the cue is war and someone responds with the name of a particular war
+    # TODO  obscene words
+    # TODO  sexual references
+    # TODO  slang
+    # TODO  part_of_speech: take this from age of acquisition?
+    # TODO  morpheme
+    # TODO  years (1960, 2010, etc.)
+    # TODO  cultural_reference (encyclopaedic):
+    #  [movies,
+    #   music,
+    #   famous people,
+    #   books (1984, farenheit 451),
+    #   poems,
+    #   computer games,
+    #   tv shows,
+    #   brands,
+    #   historical dates,
+    #   characters,
+    #   superheroes,
+    #   religion,
+    #   web sites,
+    #   web status codes (404),
+    #   emergency services numbers,
+    #   scientific numbers (365, pi, gravity, phi, etc.)
+    #       ]
+    # TODO food references
+    #  [cocktails,
+    #   recipes,
+    #   etc.
+    #   ]
+    #   The part of speech (Person, etc.) is a good start for deriving further information from the full cue/
+    #   response pair. For example, (portal, chell). Chell is picked up as a person but is a character in the
+    #   game, Portal.
+    # TODO  company reference [walmart, asda, etc.]
+    # TODO  geographical_reference [country, state, city, town, village, post code]
+    # TODO  corpus_similarity
+    # TODO  dictionary_similarity

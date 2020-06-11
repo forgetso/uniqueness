@@ -85,28 +85,30 @@ def get_cue_response_pairs(limit=None, source=None):
             SELECT 
           cues.rowid, 
           cues.user_id, 
-          cues.cue, 
-          cues.cue_clean, 
-          cues.c_incorrect_spelling, 
+          cues.cue_raw,
+          cues.cue_clean,
+          cues.cue_correction, 
+          cues.cue_sense,
           responses.response_raw, 
-          responses.response, 
-          responses.response_clean, 
-          responses.r_incorrect_spelling, 
+          responses.response_clean,
+          responses.response_correction,
+          responses.response_sense,
           cues.source 
         FROM 
           (
             SELECT 
               r.id as rowid, 
               r.user_id AS user_id, 
-              r.cue AS cue, 
-              CASE WHEN c.correction IS NOT NULL 
-              AND c.type = 'c' THEN c.correction ELSE r.cue_clean END AS cue_clean, 
-              CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS c_incorrect_spelling, 
+              r.cue AS cue_raw, 
+              c.correction AS cue_correction,
+              r.cue_clean,
+              s.sense AS cue_sense,
               source AS source 
             FROM 
               responses r 
               LEFT JOIN corrections c ON r.id = c.response_id 
-              AND c.type = 'c' 
+              AND c.type = 'c'
+              LEFT JOIN s2vsenses s ON r.cue_sense_id = s.id 
             WHERE 
               LENGTH(r.response) > 3 
               AND LENGTH(r.cue) > 3 
@@ -119,21 +121,21 @@ def get_cue_response_pairs(limit=None, source=None):
               r.response, 
               cue_clean, 
               c.correction, 
-              c.type
+              c.type,
+              cue_sense
           ) cues 
           LEFT JOIN (
             SELECT 
               r.id as rowid, 
               r.response AS response_raw, 
-              CASE WHEN c.correction IS NOT NULL 
-              AND c.type = 'r' THEN c.correction ELSE r.response_clean END AS response_clean, 
-              CASE WHEN c.correction IS NOT NULL 
-              AND c.type = 'r' THEN c.correction ELSE r.response END AS response, 
-              CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS r_incorrect_spelling 
+              c.correction AS response_correction,
+              r.response_clean,
+              s.sense AS response_sense
             FROM 
               responses r 
               LEFT JOIN corrections c ON r.id = c.response_id 
               AND c.type = 'r' 
+              LEFT JOIN s2vsenses s ON r.response_sense_id = s.id 
             WHERE 
               LENGTH(r.response) > 3 
               AND LENGTH(r.cue) > 3 
@@ -146,13 +148,15 @@ def get_cue_response_pairs(limit=None, source=None):
               r.response, 
               cue_clean, 
               c.correction, 
-              c.type
+              c.type,
+              response_sense
           ) responses ON cues.rowid = responses.rowid
-          ORDER BY cue, response ASC
+          ORDER BY cue_clean, response_clean ASC
         """.format(sourcestr=sourcestr)
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
+    logging.debug(query)
     cur.execute(query)
 
     return cur
@@ -692,6 +696,7 @@ def save_corrections(corrections_values):
 
 
 def update_senses(df):
+    # later, if generalising use sql.Identifier(c) for passing in columns
     conn = connect()
     cur = conn.cursor()
     senses = get_senses()

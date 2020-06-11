@@ -1,6 +1,6 @@
 import os
 from multiprocessing import cpu_count
-
+import logging
 CWD = os.getcwd()
 PROJECT_ROOT = '/home/chris/dev/uniqueness'
 PG_USER = 'backend'
@@ -20,5 +20,5 @@ PHONOGRAPHIC_FILE = ''.join([CWD, '/data/IPhOD2_Words.txt'])
 ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])
 DATA_FOLDER = ''.join([CWD, '/data'])
 JOB_NUMBER = int(cpu_count() / 2)
-LOG_LEVEL = 'DEBUG'
+LOG_LEVEL = logging.INFO
 IP='77.102.139.244'

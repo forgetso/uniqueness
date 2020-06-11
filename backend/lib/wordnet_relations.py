@@ -1,6 +1,6 @@
 from nltk.corpus import wordnet as wn
 from nltk.stem import PorterStemmer
-from backend.lib.helpers import clean_word
+from backend.lib.helpers.string import clean_word
 
 synset_relations = [
     'instance_hypernyms',

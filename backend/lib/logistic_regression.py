@@ -8,11 +8,12 @@ import argparse
 import numpy as np
 import time
 import logging
+from backend.settings import LOG_LEVEL
 
 SAMPLE_SIZE = 5
 TO_PREDICT = 'user_id'
 MIN_RESPONSES = 50 * SAMPLE_SIZE
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=LOG_LEVEL)
 
 
 def main(sample_size=None, source=None):

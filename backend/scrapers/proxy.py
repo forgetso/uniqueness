@@ -3,18 +3,17 @@ import subprocess
 import os
 import random
 from backend.settings_private import PROXY_LOGIN, PROXY_PASSWORD
-from backend.settings import PROJECT_ROOT, IP
+from backend.settings import PROJECT_ROOT, IP, LOG_LEVEL
 import logging
 from backend.scrapers.human_brain_cloud import process as human_brain_cloud
 import time
 from requests import get
 import psutil
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=LOG_LEVEL)
 # this cannot be worked out using os.getcwd as the proxy script needs to be run from sudo so the CWD would be
 # wrong in this case (root/..etc)
 CWD = PROJECT_ROOT
-print(CWD)
 FNULL = open(os.devnull, 'w')
 VPN_CONFIG_FOLDER = '/vpn/ovpn_udp/'
 VPN_CONFIG_FOLDER_FULL = ''.join([CWD, VPN_CONFIG_FOLDER])

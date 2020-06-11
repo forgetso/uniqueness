@@ -16,6 +16,7 @@ from psycopg2 import __version__ as psycopg2_version
 import sys
 import logging
 
+
 logging.basicConfig(level=logging.DEBUG)
 
 # import the psycopg2 library's __version__ string

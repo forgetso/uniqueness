@@ -9,9 +9,9 @@ from backend.scrapers.user_agents import user_agent_list
 import json
 import subprocess
 import re
-from backend.settings import PROJECT_ROOT
+from backend.settings import PROJECT_ROOT, LOG_LEVEL
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=LOG_LEVEL)
 
 URLS_TO_VISIT = [
     'https://www.humanbraincloud.com',
