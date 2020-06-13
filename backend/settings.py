@@ -20,5 +20,5 @@ PHONOGRAPHIC_FILE = ''.join([CWD, '/data/IPhOD2_Words.txt'])
 ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])
 DATA_FOLDER = ''.join([CWD, '/data'])
 JOB_NUMBER = int(cpu_count() / 2)
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
 IP='77.102.139.244'

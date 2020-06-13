@@ -28,11 +28,10 @@ ALL_MEASURES = get_all_measures()
 logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
 ALL_WORDS = get_all_words()
 ps = PorterStemmer()
-# s2v = Sense2Vec().from_disk(SENSE2VEC_FOLDER)
 SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
-DROP_BEFORE_SAVING = ['cue_raw', 'response_raw', 'cue_decoded', 'response_decoded', 'response_split', 'cue_split']
+DROP_BEFORE_SAVING = ['{}_raw', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense']
 
 
 def main(save=None, source=None, filter=None):
@@ -46,9 +45,15 @@ def main(save=None, source=None, filter=None):
     all_pairs['response_clean'] = all_pairs['response_clean'].str.encode('utf8')
     logging.debug('loaded {} cue response pairs'.format(len(all_pairs)))
     if save:
+        logging.debug('deleting existing coding')
         delete_coded_pairs()
         # make sure all of the required columns are in the coding table
-        db_setup()
+        logging.debug('setting up db')
+        try:
+            db_setup()
+        except Exception as e:
+            print('Database setup error {}'.format(e))
+            exit(0)
     distinct_cue_response_pairs = format_cue_response_pairs(all_pairs, word_filter=word_filter)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
     if not len(all_pairs):
@@ -56,6 +61,7 @@ def main(save=None, source=None, filter=None):
     start = time.perf_counter()
 
     # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
+    logging.debug('dispatching jobs...')
     jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding, save=save)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
@@ -71,6 +77,7 @@ def main(save=None, source=None, filter=None):
 
 
 def get_coding(df, save):
+    logging.debug('in job...')
     # var df: a dataframe of distinct cue - response pairs
     #
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
@@ -129,7 +136,11 @@ def get_coding(df, save):
     df.reset_index(inplace=True)
 
     # get rid of unnecessary columns
-    df = df.drop(DROP_BEFORE_SAVING, axis=1)
+    drop_before_saving = []
+    for x in ['cue', 'response']:
+        for col in DROP_BEFORE_SAVING:
+            drop_before_saving.append(col.format(x))
+    df = df.drop(drop_before_saving, axis=1)
 
     # look at the final 6 columns
     # print(df[df.columns[-6:]])
@@ -374,7 +385,7 @@ def check_corrections(df):
     # 2. check if the sense, as defined by sense2vec, is numeric or a named_entity
     # TODO check if the senses are the same, e.g. both ORGS or both PERSONs, as it is likelier that the response is an
     #   ORG or PERSON
-    unfiltered_senses = np.array(NUM_TYPES + NAMED_ENTITITES)
+    unfiltered_senses = np.array([x.lower() for x in NUM_TYPES + NAMED_ENTITITES])
     for x in ['cue', 'response']:
         sensecol = '{}_sense'.format(x)
         decodedcol = '{}_decoded'.format(x)
@@ -393,7 +404,40 @@ def check_corrections(df):
 
 
 def check_senses_and_pos(df):
-    print(df[['cue_sense', 'cue_pos', 'response_sense', 'response_pos']])
+    cue_pos = df['cue_pos'].copy(deep=True)
+    cue_sense = df['cue_sense'].copy(deep=True)
+    response_pos = df['response_pos'].copy(deep=True)
+    response_sense = df['response_sense'].copy(deep=True)
+    # part of speech is the same for cue and response if... (NaNs are not equal so don't need to worry about these)
+    pos_equal = np.logical_or.reduce((
+        np.equal(cue_pos, response_pos),
+        np.equal(cue_pos, response_sense),
+        np.equal(cue_sense, response_pos),
+        np.equal(cue_sense, response_sense)
+    ))
+    # the remaining records to be checked
+    remaining = df[~pos_equal]
+    # not nans
+    cue_pos_not_null = ~remaining['cue_pos'].isnull()
+    cue_sense_not_null = ~remaining['cue_sense'].isnull()
+    response_pos_not_null = ~remaining['response_pos'].isnull()
+    response_sense_not_null = ~remaining['response_sense'].isnull()
+    # we need at least one of the cue pos/sense and one of the res pos/sense to not be NaN and also not equal
+    pos_diff = np.logical_or.reduce((
+        np.logical_and(cue_pos_not_null, cue_sense_not_null),
+        np.logical_and(cue_pos_not_null, response_sense_not_null),
+        np.logical_and(response_pos_not_null, cue_sense_not_null),
+        np.logical_and(response_pos_not_null, response_sense_not_null)
+    ))
+    # everything else we cannot tell as the pos/senses are NaN for both cue and/or response cols
+
+    pos_diff_indexes = remaining.index[pos_diff]
+    pos_equal_indexes = df.index[pos_equal]
+    pos_unknown_indexes = remaining[~pos_diff]
+    df['pos_changes'] = np.nan
+    df['pos_changes'].loc[pos_diff_indexes] = True
+    df['pos_changes'].loc[pos_equal_indexes] = False
+
     return df
 
 
@@ -476,12 +520,6 @@ def merge_semantic_columns(brain_map, cols, df, decode=None):
     for col_prefix, col in cols.items():
         semantic_areas = brain_map.get_semantic_area(col)
         areas.append(semantic_areas)
-        # if col_prefix == 'word':
-        #     print('col_prefix is {}'.format(col_prefix))
-        #     logging.debug('column looks like:')
-        #     print(col)
-        #     logging.debug('semantic areas that have been labelled')
-        #     print(semantic_areas[semantic_areas.notnull()])
 
     # semantic areas
     both_semantic_areas = pd.concat(areas).drop_duplicates()
@@ -594,7 +632,6 @@ def semantic_atlas_multi_word(df, brain_map, cue_hemi_l, cue_hemi_r, res_hemi_l,
                  'response_{}_coord_z'.format(side)], inplace=True, axis=1)
     # set the index back to what it was
     df.set_index(['cue_clean', 'response_clean'], inplace=True)
-    # print(df[df.columns[-6:]])
     return df
 
 

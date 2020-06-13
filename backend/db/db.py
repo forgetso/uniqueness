@@ -88,11 +88,11 @@ def get_cue_response_pairs(limit=None, source=None):
           cues.cue_raw,
           cues.cue_clean,
           cues.cue_correction, 
-          cues.cue_sense,
+          LOWER(cues.cue_sense) as cue_sense,
           responses.response_raw, 
           responses.response_clean,
           responses.response_correction,
-          responses.response_sense,
+          LOWER(responses.response_sense) as response_sense,
           cues.source 
         FROM 
           (
