@@ -85,6 +85,12 @@ def process(humanbrain=None):
         logging.debug(e)
         logging.debug('attempting to kill open vpn processes')
         kill(proxy_process)
+        time.sleep(1)
+        if checkIfProcessRunning('openvpn'):
+            processes = findProcessIdByName('openvpn')
+            logging.debug('had to kill the processes with the kernel')
+            for p in processes:
+                os.kill(p['pid'], -9)
 
 
 def kill(process):
@@ -92,6 +98,42 @@ def kill(process):
     for child in parent.children(recursive=True):  # or parent.children() for recursive=False
         child.kill()
     parent.kill()
+
+
+def checkIfProcessRunning(processName):
+    '''
+    Check if there is any running process that contains the given name processName.
+    '''
+    # Iterate over the all the running process
+    for proc in psutil.process_iter():
+        try:
+            # Check if process name contains the given name string.
+            if processName.lower() in proc.name().lower():
+                return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    return False
+
+
+def findProcessIdByName(processName):
+    '''
+    Get a list of all the PIDs of a all the running process whose name contains
+    the given string processName
+    '''
+
+    listOfProcessObjects = []
+
+    # Iterate over the all the running process
+    for proc in psutil.process_iter():
+        try:
+            pinfo = proc.as_dict(attrs=['pid', 'name', 'create_time'])
+            # Check if process name contains the given name string.
+            if processName.lower() in pinfo['name'].lower():
+                listOfProcessObjects.append(pinfo)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    return listOfProcessObjects
 
 
 def setup():
