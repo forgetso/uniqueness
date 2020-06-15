@@ -21,6 +21,7 @@ def connect():
 def execute_values_wrap(table, fieldnametuple, values, returning=None):
     # TODO make this thread safe
     # TODO make this SQL injection safe
+    # user sql.Identifier?
     conn = connect()
     return_list = []
     page_size = 1000
@@ -92,75 +93,30 @@ def get_cue_response_pairs(limit=None, source=None):
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
     query = """
-            SELECT 
-          cues.rowid, 
-          cues.user_id, 
-          cues.cue_raw,
-          cues.cue_clean,
-          cues.cue_correction, 
-          LOWER(cues.cue_sense) as cue_sense,
-          responses.response_raw, 
-          responses.response_clean,
-          responses.response_correction,
-          LOWER(responses.response_sense) as response_sense,
-          cues.source 
+        SELECT 
+          r.id AS rowid, 
+          r.user_id, 
+          r.cue AS cue_raw, 
+          r.cue_clean, 
+          c_corrections.correction AS cue_correction, 
+          LOWER(c_sense.sense) as cue_sense, 
+          r.response AS response_raw, 
+          r.response_clean, 
+          r_corrections.correction AS response_correction, 
+          LOWER(r_sense.sense) as response_sense, 
+          r.source 
         FROM 
-          (
-            SELECT 
-              r.id as rowid, 
-              r.user_id AS user_id, 
-              r.cue AS cue_raw, 
-              c.correction AS cue_correction,
-              r.cue_clean,
-              s.sense AS cue_sense,
-              source AS source 
-            FROM 
-              responses r 
-              LEFT JOIN corrections c ON r.id = c.response_id 
-              AND c.type = 'c'
-              LEFT JOIN s2vsenses s ON r.cue_sense_id = s.id 
-            WHERE 
-              LENGTH(r.response) > 3 
-              AND LENGTH(r.cue) > 3 
-              AND r.response != 'Unknown word' 
-              {sourcestr}
-            GROUP BY 
-              r.id, 
-              r.user_id, 
-              r.cue, 
-              r.response, 
-              cue_clean, 
-              c.correction, 
-              c.type,
-              cue_sense
-          ) cues 
-          LEFT JOIN (
-            SELECT 
-              r.id as rowid, 
-              r.response AS response_raw, 
-              c.correction AS response_correction,
-              r.response_clean,
-              s.sense AS response_sense
-            FROM 
-              responses r 
-              LEFT JOIN corrections c ON r.id = c.response_id 
-              AND c.type = 'r' 
-              LEFT JOIN s2vsenses s ON r.response_sense_id = s.id 
-            WHERE 
-              LENGTH(r.response) > 3 
-              AND LENGTH(r.cue) > 3 
-              AND r.response != 'Unknown word' 
-              {sourcestr}
-            GROUP BY 
-              r.id, 
-              r.user_id, 
-              r.cue, 
-              r.response, 
-              cue_clean, 
-              c.correction, 
-              c.type,
-              response_sense
-          ) responses ON cues.rowid = responses.rowid
+          responses r 
+          LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 
+          LEFT JOIN s2vsenses AS r_sense ON r.response_sense_id = r_sense.id 
+          LEFT JOIN corrections AS c_corrections ON r.id = c_corrections.response_id 
+          AND c_corrections.type = 'c' 
+          LEFT JOIN corrections AS r_corrections ON r.id = r_corrections.response_id 
+          AND c_corrections.type = 'r' 
+        WHERE 
+          LENGTH(r.response) > 3 
+          AND LENGTH(r.cue) > 3 
+          {sourcestr}
           ORDER BY cue_clean, response_clean ASC
         """.format(sourcestr=sourcestr)
 
@@ -172,158 +128,127 @@ def get_cue_response_pairs(limit=None, source=None):
     return cur
 
 
-def get_cue_response_pairs_coded(limit=None, source=None, extrajoin=None, extracols=None):
+def get_cue_response_pairs_coded(limit=None, source=None):
     sourcestr = ""
     if source and source in SOURCES:
         sourcestr = """AND r.source = '{}'\n""".format(source)
-    extrajoinstr = ''
-    extracolsstr = ''
-    cuejoinstr = ''
-    if extrajoin:
-        # TODO make this safer
-        extrajoinstr = 'LEFT JOIN {} extra ON CAST(r.{} AS INT) = CAST(extra.{} AS INT)'.format(extrajoin[0],
-                                                                                                extrajoin[1],
-                                                                                                extrajoin[2])
-        extracolsstr = ''.join([",extra.", ",\nextra.".join(extracols)])
-        cuejoinstr = extracolsstr.replace('extra.', 'cues.')
-    print(extrajoinstr)
-    print(extracolsstr)
 
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """SELECT DISTINCT
-                  cues.rowid, 
-                  cues.user_id, 
-                  cues.cue_raw, 
-                  cues.cue_clean, 
-                  cues.cue_correction, 
-                  LOWER(cues.cue_sense) as cue_sense, 
-                  responses.response_raw, 
-                  responses.response_clean, 
-                  responses.response_correction, 
-                  LOWER(responses.response_sense) as response_sense, 
-                  cues.source,
-                  cod.right_hemi_distance, 
-                  cod.r_hemi_area_differs, 
-                  cod.l_hemi_area_differs, 
-                  cod.left_hemi_distance, 
-                  cod.length, 
-                  cod.syllables, 
-                  cod.capitalised, 
-                  cod.punctuation, 
-                  cod.number_of_words, 
-                  cod.derivationally_related_forms, 
-                  cod.pertainyms, 
-                  cod.instance_hypernyms, 
-                  cod.hyponyms, 
-                  cod.instance_hyponyms, 
-                  cod.member_holonyms, 
-                  cod.substance_holonyms, 
-                  cod.part_holonyms, 
-                  cod.member_meronyms, 
-                  cod.substance_meronyms, 
-                  cod.part_meronyms, 
-                  cod.topic_domains, 
-                  cod.region_domains, 
-                  cod.usage_domains, 
-                  cod.attributes, 
-                  cod.entailments, 
-                  cod.causes, 
-                  cod.also_sees, 
-                  cod.verb_groups, 
-                  cod.similar_tos, 
-                  cod.hypernyms, 
-                  cod.root_hypernyms, 
-                  cod.synonym, 
-                  cod.antonyms, 
-                  cod.exact, 
-                  cod.affix, 
-                  cod.prevalent, 
-                  cod.concreteness_measure, 
-                  cod.age, 
-                  cod.valence, 
-                  cod.arousal, 
-                  cod.dominance, 
-                  cod.unigram_freq, 
-                  cod.unigram_count, 
-                  cod.bigram_freq, 
-                  cod.bigram_count, 
-                  cod.trigram_freq, 
-                  cod.trigram_count, 
-                  cod.frequency, 
-                  cod.ortho_frequency, 
-                  cod.ortho_neighbours, 
-                  cod.unconstrained_unigram_freq, 
-                  cod.unconstrained_unigram_count, 
-                  cod.unconstrained_bigram_freq, 
-                  cod.unconstrained_bigram_count, 
-                  cod.unconstrained_trigram_freq, 
-                  cod.unconstrained_trigram_count, 
-                  cod.ortho_neighbours_diff, 
-                  cod.pknown, 
-                  cod.prevalence, 
-                  cod.nphon, 
-                  cod.unsdens, 
-                  cod.strdens, 
-                  cod.unsbpav, 
-                  cod.strbpav, 
-                  cod.unstpav, 
-                  cod.strtpav, 
-                  cod.unspospav, 
-                  cod.strpospav, 
-                  cod.unslcpospav, 
-                  cod.strlcpospav, 
-                  cod.sfreq, 
-                  cod.scdcnt, 
-                  cod.syntagmatic, 
-                  cod.phonology,
-                  cod.pos_changes,
-                  cod.bad_spell
-                  {cuejoinstr}
-                FROM 
-                  (
-                    SELECT 
-                      r.id as rowid, 
-                      r.user_id AS user_id, 
-                      r.cue AS cue_raw, 
-                      c.correction AS cue_correction, 
-                      r.cue_clean, 
-                      s.sense AS cue_sense, 
-                      source AS source
-                      {extracolsstr}
-                    FROM 
-                      responses r 
-                      LEFT JOIN corrections c ON r.id = c.response_id 
-                      AND c.type = 'c' 
-                      LEFT JOIN s2vsenses s ON r.cue_sense_id = s.id
-                      {extrajoinstr} 
-                    WHERE 
-                      LENGTH(r.response) > 3 
-                      AND LENGTH(r.cue) > 3 
-                      AND r.response != 'Unknown word'
-                      {sourcestr}
-                  ) cues 
-                  LEFT JOIN (
-                    SELECT 
-                      r.id as rowid, 
-                      r.response AS response_raw, 
-                      c.correction AS response_correction, 
-                      r.response_clean, 
-                      s.sense AS response_sense
-                    FROM 
-                      responses r 
-                      LEFT JOIN corrections c ON r.id = c.response_id 
-                      AND c.type = 'r' 
-                      LEFT JOIN s2vsenses s ON r.cue_sense_id = s.id 
-                    WHERE 
-                      LENGTH(r.response) > 3 
-                      AND LENGTH(r.cue) > 3 
-                      AND r.response != 'Unknown word'
-                      {sourcestr}
-                  ) responses ON cues.rowid = responses.rowid 
-                  RIGHT JOIN coding cod ON cod.response = responses.response_clean 
-                  AND cod.cue = cues.cue_clean
-""".format(sourcestr=sourcestr, extrajoinstr=extrajoinstr, extracolsstr=extracolsstr, cuejoinstr=cuejoinstr)
+    query = """
+        SELECT 
+          r.id AS rowid, 
+          r.user_id, 
+          r.cue AS cue_raw, 
+          r.cue_clean, 
+          c_corrections.correction AS cue_correction, 
+          LOWER(c_sense.sense) as cue_sense, 
+          r.response AS response_raw, 
+          r.response_clean, 
+          r_corrections.correction AS response_correction, 
+          LOWER(r_sense.sense) as response_sense, 
+          r.source, 
+          u.age, 
+          u.nativelanguage, 
+          u.gender, 
+          u.education, 
+          u.city, 
+          u.country, 
+          cod.right_hemi_distance, 
+          cod.r_hemi_area_differs, 
+          cod.l_hemi_area_differs, 
+          cod.left_hemi_distance, 
+          cod.length, 
+          cod.syllables, 
+          cod.capitalised, 
+          cod.punctuation, 
+          cod.number_of_words, 
+          cod.derivationally_related_forms, 
+          cod.pertainyms, 
+          cod.instance_hypernyms, 
+          cod.hyponyms, 
+          cod.instance_hyponyms, 
+          cod.member_holonyms, 
+          cod.substance_holonyms, 
+          cod.part_holonyms, 
+          cod.member_meronyms, 
+          cod.substance_meronyms, 
+          cod.part_meronyms, 
+          cod.topic_domains, 
+          cod.region_domains, 
+          cod.usage_domains, 
+          cod.attributes, 
+          cod.entailments, 
+          cod.causes, 
+          cod.also_sees, 
+          cod.verb_groups, 
+          cod.similar_tos, 
+          cod.hypernyms, 
+          cod.root_hypernyms, 
+          cod.synonym, 
+          cod.antonyms, 
+          cod.exact, 
+          cod.affix, 
+          cod.prevalent, 
+          cod.concreteness_measure, 
+          cod.age AS age_of_acquisition, 
+          cod.valence, 
+          cod.arousal, 
+          cod.dominance, 
+          cod.unigram_freq, 
+          cod.unigram_count, 
+          cod.bigram_freq, 
+          cod.bigram_count, 
+          cod.trigram_freq, 
+          cod.trigram_count, 
+          cod.frequency, 
+          cod.ortho_frequency, 
+          cod.ortho_neighbours, 
+          cod.unconstrained_unigram_freq, 
+          cod.unconstrained_unigram_count, 
+          cod.unconstrained_bigram_freq, 
+          cod.unconstrained_bigram_count, 
+          cod.unconstrained_trigram_freq, 
+          cod.unconstrained_trigram_count, 
+          cod.ortho_neighbours_diff, 
+          cod.pknown, 
+          cod.prevalence, 
+          cod.nphon, 
+          cod.unsdens, 
+          cod.strdens, 
+          cod.unsbpav, 
+          cod.strbpav, 
+          cod.unstpav, 
+          cod.strtpav, 
+          cod.unspospav, 
+          cod.strpospav, 
+          cod.unslcpospav, 
+          cod.strlcpospav, 
+          cod.sfreq, 
+          cod.scdcnt, 
+          cod.syntagmatic, 
+          cod.phonology, 
+          cod.pos_changes, 
+          cod.bad_spell 
+        FROM 
+          responses r 
+          LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 
+          LEFT JOIN s2vsenses AS r_sense ON r.response_sense_id = r_sense.id 
+          LEFT JOIN corrections AS c_corrections ON r.id = c_corrections.response_id 
+          AND c_corrections.type = 'c' 
+          LEFT JOIN corrections AS r_corrections ON r.id = r_corrections.response_id 
+          AND c_corrections.type = 'r' 
+          LEFT JOIN users u ON u.id = r.user_id 
+          LEFT JOIN coding cod ON cod.response = r.response 
+          AND cod.cue = r.cue 
+        WHERE 
+          LENGTH(r.response) > 3 
+          AND LENGTH(r.cue) > 3 
+          {sourcestr}
+        ORDER BY 
+          cue_clean, 
+          response_clean ASC
+""".format(sourcestr=sourcestr)
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
