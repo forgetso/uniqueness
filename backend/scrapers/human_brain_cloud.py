@@ -24,7 +24,7 @@ URLS_TO_VISIT = [
     'https://www.humanbraincloud.com/api/cache/stats/MostProlificRecently.json?uid={random_id}'
 ]
 
-GET_UID_SCRIPT = '{}/backend/helpers/get_uid.js'.format(PROJECT_ROOT)
+GET_UID_SCRIPT = '{}/backend/lib/helpers/get_uid.js'.format(PROJECT_ROOT)
 
 
 def process():
