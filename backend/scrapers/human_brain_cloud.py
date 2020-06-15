@@ -50,7 +50,7 @@ def process():
             record['_id'] = record['id']
             record.pop('id')
             db.data.update({'_id': record['_id']}, record, upsert=True)
-        logging.debug('Collected {} records'.format(len(result['data'])))
+        logging.info('Collected {} records'.format(len(result['data'])))
 
 
 def fake_visit(random_id):
