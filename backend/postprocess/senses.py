@@ -10,7 +10,7 @@ import logging
 
 logging.basicConfig(level=LOG_LEVEL)
 s2v = Sense2Vec().from_disk(path=SENSE2VEC_FOLDER)
-
+#TODO make this multiprocess
 
 def main(source=None):
     cur = get_cue_response_pairs(source=source)

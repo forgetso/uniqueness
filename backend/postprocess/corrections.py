@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 from backend.lib.helpers.string import check_spelling
 from backend.lib.helpers.dataframe import get_unpacked_words
+from backend.lib.multiprocessor import job_pool
+import logging
+from backend.settings import LOG_LEVEL, JOB_NUMBER
+import time
 
 
 # gets the cue response pairs, pulls all cues and responses into a unique list and then spell checks them
@@ -11,9 +15,20 @@ from backend.lib.helpers.dataframe import get_unpacked_words
 # TODO save the corrections when there are more than one suggestion and then work out which one to use, if any
 # TODO properly consider corrections for multi word responses
 def main(source=None):
-    # TODO make this multiprocess
+    start = time.perf_counter()
     cur = get_cue_response_pairs(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    logging.debug('dispatching jobs...')
+    jobs = job_pool(df, JOB_NUMBER, get_corrections_multiprocess)
+    end = time.perf_counter()
+    logging.debug('time taken {}'.format(end - start))
+    # take the individual results and sum them
+    totals = sum(jobs)
+    logging.info('{} corrections saved'.format(totals))
+    return
+
+
+def get_corrections_multiprocess(df):
     # will be adding these in this process
     df.drop(['cue_correction', 'response_correction'], inplace=True, axis=1)
     unpacked_words = get_unpacked_words(df)
@@ -30,7 +45,7 @@ def main(source=None):
     response_corrections = format_corrections_for_db(df, 'response')
     corrections = pd.concat([cue_corrections, response_corrections])
     save_corrections(corrections_values=corrections.values.tolist())
-    return
+    return len(corrections)
 
 
 def get_corrections(cue, response):
