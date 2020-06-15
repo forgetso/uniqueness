@@ -7,6 +7,7 @@ import pprint
 import sys
 import logging
 import numpy as np
+from psycopg2 import sql
 
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
@@ -17,26 +18,35 @@ def connect():
     return conn
 
 
-def execute_values_wrap(table, fieldnametuple, values):
+def execute_values_wrap(table, fieldnametuple, values, returning=None):
+    # TODO make this thread safe
+    # TODO make this SQL injection safe
     conn = connect()
-    ids = []
+    return_list = []
     page_size = 1000
+    returning_len = 0
     try:
 
-        cur = conn.cursor()
         if not isinstance(values[0], list) and not isinstance(values[0], tuple):
             raise TypeError(
                 'values must be a list of tuples or lists, not {} [{}]'.format(type(values), type(values[0])))
         fieldnames = '(%s)' % ','.join(fieldnametuple).lower()
         query = "INSERT INTO %(table)s %(fieldnames)s VALUES" % {'table': table, 'fieldnames': fieldnames}
         query = ' '.join([query, "%s RETURNING id"])
+        if returning:
+            returning_len = len(returning)
+            for return_var in returning:
+                query = ' '.join([query, ", {}".format(return_var)])
+        logging.debug(query)
 
         # execute_values batches the queries into page size page_size so we need to do the same to catch all of the ids
         value_chunks = chunks(values, page_size)
-
+        number_of_variables = 1 + returning_len
         for value_chunk in value_chunks:
-            result = execute_values(cur, query, value_chunk, page_size=page_size)
-            ids.extend([row[0] for row in cur.fetchall()])
+            cur = conn.cursor()
+            execute_values(cur, query, value_chunk, page_size=page_size)
+            return_values = [[row[i] for i in range(0, number_of_variables)] for row in cur.fetchall()]
+            return_list.extend(return_values)
 
         conn.commit()
     except (Exception, pg.DatabaseError) as error:
@@ -51,7 +61,7 @@ def execute_values_wrap(table, fieldnametuple, values):
     finally:
         if conn is not None:
             conn.close()
-        return ids
+        return return_list
 
 
 def chunks(lst, n):
@@ -162,190 +172,162 @@ def get_cue_response_pairs(limit=None, source=None):
     return cur
 
 
-def get_cue_response_pairs_coded(limit=None, source=None):
-    # TODO update this with the new query
+def get_cue_response_pairs_coded(limit=None, source=None, extrajoin=None, extracols=None):
     sourcestr = ""
     if source and source in SOURCES:
         sourcestr = """AND r.source = '{}'\n""".format(source)
+    extrajoinstr = ''
+    extracolsstr = ''
+    cuejoinstr = ''
+    if extrajoin:
+        # TODO make this safer
+        extrajoinstr = 'LEFT JOIN {} extra ON CAST(r.{} AS INT) = CAST(extra.{} AS INT)'.format(extrajoin[0],
+                                                                                                extrajoin[1],
+                                                                                                extrajoin[2])
+        extracolsstr = ''.join([",extra.", ",\nextra.".join(extracols)])
+        cuejoinstr = extracolsstr.replace('extra.', 'cues.')
+    print(extrajoinstr)
+    print(extracolsstr)
+
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    query = """ SELECT * FROM (
-                    SELECT  r.user_id AS user_id, 
-                            r.cue AS cue,
-                            r.response AS response_raw,
-                            r.cue_clean,
-                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response_clean END AS response_clean,
-                            CASE WHEN c.correction IS NOT NULL THEN c.correction ELSE r.response END AS response,
-                            CASE WHEN c.correction IS NOT NULL THEN TRUE ELSE FALSE END AS incorrect_spelling,
-                            COUNT(r.response) AS count,
-                            source AS source,
-                            cod.right_hemi_distance,
-                            cod.r_hemi_area_differs,
-                            cod.l_hemi_area_differs,
-                            cod.left_hemi_distance,
-                            cod.length,
-                            cod.syllables,
-                            cod.capitalised,
-                            cod.punctuation,
-                            cod.number_of_words,
-                            cod.derivationally_related_forms,
-                            cod.pertainyms,
-                            cod.instance_hypernyms,
-                            cod.hyponyms,
-                            cod.instance_hyponyms,
-                            cod.member_holonyms,
-                            cod.substance_holonyms,
-                            cod.part_holonyms,
-                            cod.member_meronyms,
-                            cod.substance_meronyms,
-                            cod.part_meronyms,
-                            cod.topic_domains,
-                            cod.region_domains,
-                            cod.usage_domains,
-                            cod.attributes,
-                            cod.entailments,
-                            cod.causes,
-                            cod.also_sees,
-                            cod.verb_groups,
-                            cod.similar_tos,
-                            cod.hypernyms,
-                            cod.root_hypernyms,
-                            cod.synonym,
-                            cod.antonyms,
-                            cod.exact,
-                            cod.affix,
-                            cod.prevalent,
-                            cod.concreteness_measure,
-                            cod.age,
-                            cod.valence,
-                            cod.arousal,
-                            cod.dominance,
-                            cod.unigram_freq,
-                            cod.unigram_count,
-                            cod.bigram_freq,
-                            cod.bigram_count,
-                            cod.trigram_freq,
-                            cod.trigram_count,
-                            cod.frequency,
-                            cod.ortho_frequency,
-                            cod.ortho_neighbours,
-                            cod.unconstrained_unigram_freq,
-                            cod.unconstrained_unigram_count,
-                            cod.unconstrained_bigram_freq,
-                            cod.unconstrained_bigram_count,
-                            cod.unconstrained_trigram_freq,
-                            cod.unconstrained_trigram_count,
-                            cod.ortho_neighbours_diff,
-                            cod.pknown,
-                            cod.prevalence,
-                            cod.nphon,
-                            cod.unsdens,
-                            cod.strdens,
-                            cod.unsbpav,
-                            cod.strbpav,
-                            cod.unstpav,
-                            cod.strtpav,
-                            cod.unspospav,
-                            cod.strpospav,
-                            cod.unslcpospav,
-                            cod.strlcpospav,
-                            cod.sfreq,
-                            cod.scdcnt,
-                            cod.syntagmatic,
-                            cod.phonology
-                            FROM responses r
-                            LEFT JOIN corrections c ON r.id = c.response_id
-                            RIGHT JOIN coding cod ON cod.response=r.response_clean AND cod.cue=r.cue_clean
-                            WHERE LENGTH(r.response) > 3
-                            AND LENGTH(r.cue) > 3
-                            AND r.response != 'Unknown word'
-                            {sourcestr}
-                            GROUP BY r.user_id,
-                            r.cue,
-                            r.cue_clean,
-                            r.response_clean,
-                            r.response,
-                            c.correction,
-                            r.source,
-                            cod.right_hemi_distance,
-                            cod.r_hemi_area_differs,
-                            cod.l_hemi_area_differs,
-                            cod.left_hemi_distance,
-                            cod.length,
-                            cod.syllables,
-                            cod.capitalised,
-                            cod.punctuation,
-                            cod.number_of_words,
-                            cod.derivationally_related_forms,
-                            cod.pertainyms,
-                            cod.instance_hypernyms,
-                            cod.hyponyms,
-                            cod.instance_hyponyms,
-                            cod.member_holonyms,
-                            cod.substance_holonyms,
-                            cod.part_holonyms,
-                            cod.member_meronyms,
-                            cod.substance_meronyms,
-                            cod.part_meronyms,
-                            cod.topic_domains,
-                            cod.region_domains,
-                            cod.usage_domains,
-                            cod.attributes,
-                            cod.entailments,
-                            cod.causes,
-                            cod.also_sees,
-                            cod.verb_groups,
-                            cod.similar_tos,
-                            cod.hypernyms,
-                            cod.root_hypernyms,
-                            cod.synonym,
-                            cod.antonyms,
-                            cod.exact,
-                            cod.affix,
-                            cod.prevalent,
-                            cod.concreteness_measure,
-                            cod.age,
-                            cod.valence,
-                            cod.arousal,
-                            cod.dominance,
-                            cod.unigram_freq,
-                            cod.unigram_count,
-                            cod.bigram_freq,
-                            cod.bigram_count,
-                            cod.trigram_freq,
-                            cod.trigram_count,
-                            cod.frequency,
-                            cod.ortho_frequency,
-                            cod.ortho_neighbours,
-                            cod.unconstrained_unigram_freq,
-                            cod.unconstrained_unigram_count,
-                            cod.unconstrained_bigram_freq,
-                            cod.unconstrained_bigram_count,
-                            cod.unconstrained_trigram_freq,
-                            cod.unconstrained_trigram_count,
-                            cod.ortho_neighbours_diff,
-                            cod.pknown,
-                            cod.prevalence,
-                            cod.nphon,
-                            cod.unsdens,
-                            cod.strdens,
-                            cod.unsbpav,
-                            cod.strbpav,
-                            cod.unstpav,
-                            cod.strtpav,
-                            cod.unspospav,
-                            cod.strpospav,
-                            cod.unslcpospav,
-                            cod.strlcpospav,
-                            cod.sfreq,
-                            cod.scdcnt,
-                            cod.syntagmatic,
-                            cod.phonology
-                            ORDER BY r.cue, r.response ASC
-                            ) responses_group""".format(sourcestr=sourcestr)
+    query = """SELECT DISTINCT
+                  cues.rowid, 
+                  cues.user_id, 
+                  cues.cue_raw, 
+                  cues.cue_clean, 
+                  cues.cue_correction, 
+                  LOWER(cues.cue_sense) as cue_sense, 
+                  responses.response_raw, 
+                  responses.response_clean, 
+                  responses.response_correction, 
+                  LOWER(responses.response_sense) as response_sense, 
+                  cues.source,
+                  cod.right_hemi_distance, 
+                  cod.r_hemi_area_differs, 
+                  cod.l_hemi_area_differs, 
+                  cod.left_hemi_distance, 
+                  cod.length, 
+                  cod.syllables, 
+                  cod.capitalised, 
+                  cod.punctuation, 
+                  cod.number_of_words, 
+                  cod.derivationally_related_forms, 
+                  cod.pertainyms, 
+                  cod.instance_hypernyms, 
+                  cod.hyponyms, 
+                  cod.instance_hyponyms, 
+                  cod.member_holonyms, 
+                  cod.substance_holonyms, 
+                  cod.part_holonyms, 
+                  cod.member_meronyms, 
+                  cod.substance_meronyms, 
+                  cod.part_meronyms, 
+                  cod.topic_domains, 
+                  cod.region_domains, 
+                  cod.usage_domains, 
+                  cod.attributes, 
+                  cod.entailments, 
+                  cod.causes, 
+                  cod.also_sees, 
+                  cod.verb_groups, 
+                  cod.similar_tos, 
+                  cod.hypernyms, 
+                  cod.root_hypernyms, 
+                  cod.synonym, 
+                  cod.antonyms, 
+                  cod.exact, 
+                  cod.affix, 
+                  cod.prevalent, 
+                  cod.concreteness_measure, 
+                  cod.age, 
+                  cod.valence, 
+                  cod.arousal, 
+                  cod.dominance, 
+                  cod.unigram_freq, 
+                  cod.unigram_count, 
+                  cod.bigram_freq, 
+                  cod.bigram_count, 
+                  cod.trigram_freq, 
+                  cod.trigram_count, 
+                  cod.frequency, 
+                  cod.ortho_frequency, 
+                  cod.ortho_neighbours, 
+                  cod.unconstrained_unigram_freq, 
+                  cod.unconstrained_unigram_count, 
+                  cod.unconstrained_bigram_freq, 
+                  cod.unconstrained_bigram_count, 
+                  cod.unconstrained_trigram_freq, 
+                  cod.unconstrained_trigram_count, 
+                  cod.ortho_neighbours_diff, 
+                  cod.pknown, 
+                  cod.prevalence, 
+                  cod.nphon, 
+                  cod.unsdens, 
+                  cod.strdens, 
+                  cod.unsbpav, 
+                  cod.strbpav, 
+                  cod.unstpav, 
+                  cod.strtpav, 
+                  cod.unspospav, 
+                  cod.strpospav, 
+                  cod.unslcpospav, 
+                  cod.strlcpospav, 
+                  cod.sfreq, 
+                  cod.scdcnt, 
+                  cod.syntagmatic, 
+                  cod.phonology,
+                  cod.pos_changes,
+                  cod.bad_spell
+                  {cuejoinstr}
+                FROM 
+                  (
+                    SELECT 
+                      r.id as rowid, 
+                      r.user_id AS user_id, 
+                      r.cue AS cue_raw, 
+                      c.correction AS cue_correction, 
+                      r.cue_clean, 
+                      s.sense AS cue_sense, 
+                      source AS source
+                      {extracolsstr}
+                    FROM 
+                      responses r 
+                      LEFT JOIN corrections c ON r.id = c.response_id 
+                      AND c.type = 'c' 
+                      LEFT JOIN s2vsenses s ON r.cue_sense_id = s.id
+                      {extrajoinstr} 
+                    WHERE 
+                      LENGTH(r.response) > 3 
+                      AND LENGTH(r.cue) > 3 
+                      AND r.response != 'Unknown word'
+                      {sourcestr}
+                  ) cues 
+                  LEFT JOIN (
+                    SELECT 
+                      r.id as rowid, 
+                      r.response AS response_raw, 
+                      c.correction AS response_correction, 
+                      r.response_clean, 
+                      s.sense AS response_sense
+                    FROM 
+                      responses r 
+                      LEFT JOIN corrections c ON r.id = c.response_id 
+                      AND c.type = 'r' 
+                      LEFT JOIN s2vsenses s ON r.cue_sense_id = s.id 
+                    WHERE 
+                      LENGTH(r.response) > 3 
+                      AND LENGTH(r.cue) > 3 
+                      AND r.response != 'Unknown word'
+                      {sourcestr}
+                  ) responses ON cues.rowid = responses.rowid 
+                  RIGHT JOIN coding cod ON cod.response = responses.response_clean 
+                  AND cod.cue = cues.cue_clean
+""".format(sourcestr=sourcestr, extrajoinstr=extrajoinstr, extracolsstr=extracolsstr, cuejoinstr=cuejoinstr)
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
+    logging.debug(query)
     cur.execute(query)
 
     return cur
@@ -597,7 +579,7 @@ def get_senses():
     cur = conn.cursor()
     query = """SELECT id as senseid, sense FROM s2vsenses ORDER BY sense ASC"""
     cur.execute(query)
-    result = {x[1]: x[0] for x in cur}
+    result = {x[1]: int(x[0]) for x in cur}
     conn.close()
     return result
 
@@ -662,8 +644,12 @@ def save_cue_response_pairs(cue_response_pairs):
     fieldnamelist = list(cue_response_pairs[0].keys())
     fieldnametuple = tuple(fieldnamelist)
     response_ids = execute_values_wrap('responses', fieldnametuple, response_values)
-    if len(response_ids) != len(response_values):
-        raise ValueError('Number of database rows inserted does not equal original number of records')
+    rid_len = len(response_ids)
+    rval_len = len(response_values)
+    if rid_len != rval_len:
+        raise ValueError(
+            'Number of database rows inserted does not equal original number of records {} != {}'.format(rid_len,
+                                                                                                         rval_len))
 
     # cleanup old corrections
     delete_corrections()
@@ -700,11 +686,13 @@ def update_senses(df):
     conn = connect()
     cur = conn.cursor()
     senses = get_senses()
-    df['cue_sense_id'] = df['cue_sense'].map(senses)
-    df['response_sense_id'] = df['response_sense'].map(senses)
+    df['cue_sense_id'] = df['cue_sense'].map(senses)  # replace({np.nan: -1}).astype(int)
+    df['response_sense_id'] = df['response_sense'].map(senses)  # .replace({np.nan: -1}).astype(int)
+    print(df)
     values = df[['cue_sense_id', 'response_sense_id', 'rowid']].replace({np.nan: None}).values.tolist()
     query = """UPDATE responses AS r 
-                  SET cue_sense_id = e.cue_sense_id, response_sense_id = e.response_sense_id
+                  SET cue_sense_id = CAST(e.cue_sense_id AS int),
+                  response_sense_id = CAST(e.response_sense_id AS int)
                   FROM (VALUES %s) AS e(cue_sense_id,response_sense_id, id) 
                   WHERE e.id = r.id;"""
     pg.extras.execute_values(cur, query, values, template=None, page_size=100)
@@ -737,13 +725,29 @@ def delete_coded_pairs():
 def delete_responses(source):
     conn = connect()
     cur = conn.cursor()
-    query = """DELETE FROM responses WHERE source = %s RETURNING id"""
-    cur.execute(query, (source,))
+    query = """DELETE FROM responses WHERE source = %(source)s RETURNING id"""
+    cur.execute(query, {'source': source})
     # nasty
     ids = [x[0] for x in cur.fetchall()]
     if ids:
         query = """DELETE FROM corrections WHERE response_id IN (SELECT * FROM UNNEST(%s))"""
         cur.execute(query, (ids,))
+    conn.commit()
+
+
+def delete_users(source):
+    conn = connect()
+    cur = conn.cursor()
+    query = """DELETE FROM users WHERE source = %(source)s"""
+    cur.execute(query, {'source': source})
+    conn.commit()
+
+
+def delete_wordassoc():
+    conn = connect()
+    cur = conn.cursor()
+    query = """DELETE FROM wordassoc"""
+    cur.execute(query)
     conn.commit()
 
 

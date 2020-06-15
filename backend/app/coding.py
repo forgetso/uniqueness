@@ -10,7 +10,7 @@ from backend.lib.multiprocessor import job_pool
 import time
 import argparse
 from backend.lib.semantic_atlas import BrainMap
-from backend.settings import SEMANTIC_SPACE_FOLDER, JOB_NUMBER
+from backend.settings import SEMANTIC_SPACE_FOLDER, JOB_NUMBER, LOG_LEVEL
 from backend.lib.helpers.pairs import format_cue_response_pairs
 import os
 import numpy as np
@@ -20,7 +20,7 @@ from backend.lib.helpers.dataframe import unpack_splits
 from backend.lib.sense2vec import NUM_TYPES, NAMED_ENTITITES
 
 UNKNOWN_AREA_LABEL = b'U'
-# logging.basicConfig(level=LOG_LEVEL)
+logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
@@ -31,7 +31,7 @@ ps = PorterStemmer()
 SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
-DROP_BEFORE_SAVING = ['{}_raw', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense']
+DROP_BEFORE_SAVING = ['{}_raw', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
 
 
 def main(save=None, source=None, filter=None):
@@ -390,7 +390,7 @@ def check_corrections(df):
         sensecol = '{}_sense'.format(x)
         decodedcol = '{}_decoded'.format(x)
         corr_col = '{}_correction'.format(x)
-        spellcol = '{}_bad_spell'.format(x[0])
+        spellcol = '{}_bad_spell'.format(x)
         indexcol = '{}_clean'.format(x)
         df[spellcol] = np.logical_and.reduce((~df[sensecol].isin(unfiltered_senses),
                                               df[corr_col].notnull(),
@@ -400,6 +400,10 @@ def check_corrections(df):
         rename_dict = dict(zip(df.index.get_level_values(indexcol)[rename_index].values,
                                df[corr_col].str.encode('utf8').values[rename_index]))
         df.rename(rename_dict, inplace=True, axis=0)
+    df['bad_spell'] = np.logical_or(
+        np.logical_and(df['cue_bad_spell'], df['response_bad_spell']),
+        np.logical_and(~df['cue_bad_spell'], ~df['response_bad_spell'])
+    )
     return df
 
 

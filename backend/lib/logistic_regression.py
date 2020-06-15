@@ -11,8 +11,8 @@ import logging
 from backend.settings import LOG_LEVEL
 
 SAMPLE_SIZE = 5
-TO_PREDICT = 'user_id'
-MIN_RESPONSES = 50 * SAMPLE_SIZE
+TO_PREDICT = 'age'
+MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 
 
@@ -44,22 +44,37 @@ def logisticRegression(data):
     logmodel.fit(X__train_scaled, y_train)
     # predictions
     predictions = logmodel.predict(X_test_scaled)
+    report = classification_report(y_test, predictions, output_dict=True)
     print(classification_report(y_test, predictions))
-    logging.info('Random chance would have been {}'.format(str(1/len(logmodel.classes_))))
+    chance = 1 / len(logmodel.classes_)
+    logging.info('Random chance would have been {}'.format(str(chance)))
+    logging.info('This is {} times chance'.format(str(float(report['macro avg']['precision']) / chance)))
     return logmodel.classes_, logmodel.coef_, data.columns
 
 
 def getData(source=None, min_responses=None):
     min_responses = min_responses or MIN_RESPONSES
-    cur = get_cue_response_pairs_coded(source=source)
+    extrajoin = None
+    extracols = None
+    if source == 'smallworldofwords':
+        extrajoin = ('users', 'user_id', 'id')
+        extracols = ['age', 'nativelanguage', 'gender', 'education', 'city', 'country']
+    cur = get_cue_response_pairs_coded(source=source, extrajoin=extrajoin, extracols=extracols, limit=100)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
-    user_id_group = df.groupby(by='user_id').agg(['count'])
-    min_responses_indices = user_id_group['response'].gt(min_responses)
-    users_with_min_responses = user_id_group.index[min_responses_indices['count']].values
-    if not len(users_with_min_responses):
-        exit('not enough responses from users')
-    df = df[df['user_id'].isin(users_with_min_responses)]
-    df = df.drop(columns=['cue', 'response', 'cue_clean', 'response_clean', 'response_raw', 'source', 'count'])
+    print('there are {} records'.format(len(df)))
+    print(df.columns)
+    print(df)
+    #TODO  make an extras table for wordassoc columns, age, etc. that contains distinct values instead of joining on the
+    # full wordssoc table
+    predict_group = df.groupby(by=TO_PREDICT).agg(['count'])
+    min_responses_indices = predict_group['response_clean'].gt(min_responses)
+    groups_with_min_responses = predict_group.index[min_responses_indices['count']].values
+    if not len(groups_with_min_responses):
+        exit('not enough responses')
+    df = df[df[TO_PREDICT].isin(groups_with_min_responses)]
+    df = df.drop(
+        columns=['cue_clean', 'response_clean', 'cue_raw', 'response_raw', 'cue_correction', 'response_correction',
+                 'cue_sense', 'response_sense', 'source'])
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
     #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
@@ -85,6 +100,7 @@ def getData(source=None, min_responses=None):
     df = pd.DataFrame(df).fillna(value=0)
     df = df.astype(float)
     df = df.sort_values(by=TO_PREDICT)
+    logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
     return df
 
 

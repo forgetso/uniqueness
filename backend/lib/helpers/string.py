@@ -1,6 +1,12 @@
 import re
 from backend.lib.cueresponsespelling import CueResponseSpelling
 import numpy as np
+from backend.lib.helpers.countries import countries
+import logging
+from backend.settings import LOG_LEVEL
+import pycountry
+
+logging.basicConfig(level=LOG_LEVEL)
 
 
 # Cleans a word by lowering, replacing spaces with underscores and removes all non alphanumeric characters
@@ -75,3 +81,27 @@ def encode_word_as_int(word):
         word_int = word_int + np.int(chars.index(c)) * (np.int(36) ** (word_len - np.int(idx)))
     # print(type(word_int))
     return word_int
+
+
+def get_country_code(country):
+    # do a basic check of a dict of countries and their 2 letter codes
+    # then check if the country name is the start of any of the dict keys
+    # finally use an external library to check for country name
+    country = country.lower()
+    country_code = None
+    if len(country) == 2:
+        if country.upper() in countries.values():
+            country_code = country.upper()
+    elif country in countries:
+        country_code = countries[country]
+    else:
+        for k in countries.keys():
+            if k.startswith(country):
+                country_code = countries[k]
+    if not country_code:
+        try:
+            country_code = pycountry.countries.search_fuzzy(country)[0].alpha_2
+        except LookupError:
+            country_code = 'XX'
+            logging.warning('Country was not found - {}'.format(country))
+    return country_code

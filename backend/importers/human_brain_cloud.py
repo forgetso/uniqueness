@@ -3,11 +3,13 @@ import subprocess
 import time
 import json
 import argparse
-from backend.db.db import delete_responses, save_cue_response_pairs
+from backend.db.db import delete_responses, save_cue_response_pairs, delete_users, execute_values_wrap
 from backend.lib.multiprocessor import job_pool
 import multiprocessing as mp
-from backend.lib.helpers.string import clean_word
+from backend.lib.helpers.string import clean_word, get_country_code
 from os import listdir
+from backend.importers.common import save_responses_and_users
+import logging
 
 SOURCE = 'humanbraincloud'
 
@@ -33,37 +35,43 @@ def multiprocess_human_brain_cloud_data(files_to_load, delete=None):
             json_data.extend(list(json.loads(f.read())))
     print('Processing {} responses...'.format(len(json_data)))
     delete_responses(SOURCE)
+    delete_users(SOURCE)
     start = time.perf_counter()
     job_number = mp.cpu_count() - 1
     jobs = job_pool(json_data, job_number, process_data)
+    total = []
+    users = []
+    for responses_saved, u in jobs:
+        total.append(responses_saved)
+        users.append(u)
+
     end = time.perf_counter()
-    print('time taken {}'.format(end - start))
+
+    logging.info('time taken {}'.format(end - start))
 
     # take the individual results and sum them
-    print('saved {} records'.format(sum(jobs)))
+    logging.info('saved {} records'.format(sum(total)))
+    logging.info('saved {} users'.format(sum(users)))
 
 
 def process_data(json_data):
     responses = []
     ids = set()
-    # distinct_responses = set()
     count = 0
+    users = set()
+    user_fields = ('external_user_id', 'source', 'country')
+    responses_saved = 0
+    users_saved = 0
     for record in json_data:
         count += 1
+
         if isinstance(record['_id'], str):
 
             if record['_id'] not in ids:
                 ids.add(record['_id'])
                 formatted_record = format_record(record)
                 responses.append(formatted_record)
-                # distinct_responses.add(formatted_record['response'])
-                # {'_id': '10537190',
-                #  'playerCc': 'al',
-                #  'playerId': '325299',
-                #  'playerName': '',
-                #  't': '2020-03-30T18:58:28Z',
-                #  'w1': 'degenerate',
-                #  'w2': 'mamus'}
+                users.add((int(record['playerId']), SOURCE, get_country_code(record['playerCc'])))
         else:
             # a few records at the start were mistakenly stored grouped
             for sub_record in record['data']:
@@ -71,20 +79,22 @@ def process_data(json_data):
                     ids.add(sub_record['id'])
                     formatted_sub_record = format_record(sub_record)
                     responses.append(formatted_sub_record)
-                    # distinct_responses.add(formatted_sub_record['response'])
+                    users.add((sub_record['playerId'], SOURCE, get_country_code(sub_record['playerCc'])))
+    user_list = list(users)
     if responses:
-        save_cue_response_pairs(responses)
-        return len(responses)
+        responses_saved, users_saved = save_responses_and_users(responses, user_list, user_fields)
+
+    return responses_saved, users_saved
 
 
 def format_record(record):
     response = {}
-    response['id'] = record.get('_id') or record.get('id')
+    response['externalid'] = record.get('_id') or record.get('id')
     response['cue'] = record['w1']
     response['response'] = record['w2']
     response['cue_clean'] = clean_word(record['w1'])
     response['response_clean'] = clean_word(record['w2'])
-    response['user_id'] = record['playerId']
+    response['user_id'] = int(record['playerId'])
     response['time_duration'] = 0
     response['created'] = record['t']
     response['source'] = SOURCE

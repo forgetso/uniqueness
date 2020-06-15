@@ -5,13 +5,17 @@ import numpy as np
 from backend.lib.helpers.string import check_spelling
 from backend.lib.helpers.dataframe import get_unpacked_words
 
+
 # gets the cue response pairs, pulls all cues and responses into a unique list and then spell checks them
 # saves the spell check suggestion when there is only one suggestion otherwise does not save anything
 # TODO save the corrections when there are more than one suggestion and then work out which one to use, if any
 # TODO properly consider corrections for multi word responses
 def main(source=None):
+    # TODO make this multiprocess
     cur = get_cue_response_pairs(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    # will be adding these in this process
+    df.drop(['cue_correction', 'response_correction'], inplace=True, axis=1)
     unpacked_words = get_unpacked_words(df)
 
     # get the corrections attached first of all and worry about how to apply them later
@@ -27,6 +31,7 @@ def main(source=None):
     corrections = pd.concat([cue_corrections, response_corrections])
     save_corrections(corrections_values=corrections.values.tolist())
     return
+
 
 def get_corrections(cue, response):
     correction = None
