@@ -11,9 +11,10 @@ import logging
 from backend.settings import LOG_LEVEL
 
 SAMPLE_SIZE = 5
-TO_PREDICT = 'age'
+TO_PREDICT = 'city'
 MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
+USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
 
 
 def main(sample_size=None, source=None):
@@ -26,6 +27,7 @@ def main(sample_size=None, source=None):
     batched_data = data
     if sample_size > 1:
         batched_data = batch_data(data, sample_size)
+    logging.info('Predicting for {}'.format(TO_PREDICT))
     classes, coefs, columns = logisticRegression(batched_data)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
@@ -53,18 +55,15 @@ def logisticRegression(data):
 
 
 def getData(source=None, min_responses=None):
+    # TODO make this multiprocess the formatting
     min_responses = min_responses or MIN_RESPONSES
-    extrajoin = None
-    extracols = None
-    if source == 'smallworldofwords':
-        extrajoin = ('users', 'user_id', 'id')
-        extracols = ['age', 'nativelanguage', 'gender', 'education', 'city', 'country']
-    cur = get_cue_response_pairs_coded(source=source, extrajoin=extrajoin, extracols=extracols, limit=100)
+
+    cur = get_cue_response_pairs_coded(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
-    print('there are {} records'.format(len(df)))
-    print(df.columns)
-    print(df)
-    #TODO  make an extras table for wordassoc columns, age, etc. that contains distinct values instead of joining on the
+    df.drop(columns=['rowid'], inplace=True)
+    logging.info('there are {} records'.format(len(df)))
+    logging.debug(df.columns)
+    logging.debug(df)
     # full wordssoc table
     predict_group = df.groupby(by=TO_PREDICT).agg(['count'])
     min_responses_indices = predict_group['response_clean'].gt(min_responses)
@@ -73,8 +72,13 @@ def getData(source=None, min_responses=None):
         exit('not enough responses')
     df = df[df[TO_PREDICT].isin(groups_with_min_responses)]
     df = df.drop(
-        columns=['cue_clean', 'response_clean', 'cue_raw', 'response_raw', 'cue_correction', 'response_correction',
+        columns=['cue_clean', 'response_clean',
+                 'cue_raw', 'response_raw',
+                 'cue_correction', 'response_correction',
                  'cue_sense', 'response_sense', 'source'])
+    user_columns = USER_COLUMNS
+    user_columns.remove(TO_PREDICT)
+    df = df.drop(columns=user_columns)
     # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
     #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
     #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
@@ -96,7 +100,7 @@ def getData(source=None, min_responses=None):
     label_encoder = preprocessing.LabelEncoder()
     df['phonology'] = label_encoder.fit_transform(df['phonology'])
     df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
-
+    df[TO_PREDICT] = label_encoder.fit_transform(df[TO_PREDICT])
     df = pd.DataFrame(df).fillna(value=0)
     df = df.astype(float)
     df = df.sort_values(by=TO_PREDICT)

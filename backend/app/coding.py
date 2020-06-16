@@ -9,17 +9,15 @@ from backend.lib.wordnet_relations import WordnetRelations
 from backend.lib.multiprocessor import job_pool
 import time
 import argparse
-from backend.lib.semantic_atlas import BrainMap
 from backend.settings import SEMANTIC_SPACE_FOLDER, JOB_NUMBER, LOG_LEVEL
 from backend.lib.helpers.pairs import format_cue_response_pairs
 import os
 import numpy as np
 import pandas as pd
 import logging
-from backend.lib.helpers.dataframe import unpack_splits
 from backend.lib.sense2vec import NUM_TYPES, NAMED_ENTITITES
+from backend.app.semantic_atlas import check_semantic_atlas
 
-UNKNOWN_AREA_LABEL = b'U'
 logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
 # set of affixes
@@ -31,7 +29,11 @@ ps = PorterStemmer()
 SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
-DROP_BEFORE_SAVING = ['{}_raw', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
+DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
+
+
+# TODO get rid of the slice that's causing this error
+# pd.options.mode.chained_assignment = 'raise'
 
 
 def main(save=None, source=None, filter=None):
@@ -52,15 +54,13 @@ def main(save=None, source=None, filter=None):
         try:
             db_setup()
         except Exception as e:
-            print('Database setup error {}'.format(e))
+            logging.error('Database setup error {}'.format(e))
             exit(0)
     distinct_cue_response_pairs = format_cue_response_pairs(all_pairs, word_filter=word_filter)
     logging.debug('there are {} distinct cue response pairs'.format(len(distinct_cue_response_pairs)))
     if not len(all_pairs):
         raise ValueError('No responses to code...')
     start = time.perf_counter()
-
-    # jobs = dispatch_jobs(list(distinct_cue_response_pairs), job_number, get_coding)
     logging.debug('dispatching jobs...')
     jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding, save=save)
     end = time.perf_counter()
@@ -83,6 +83,9 @@ def get_coding(df, save):
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
     # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
     # phonographic neighbourhoods, active brain region.
+
+    # store the len for checks
+    df_len = len(df)
 
     # First, work out which spelling corrections should be used
     df = check_corrections(df)
@@ -108,32 +111,35 @@ def get_coding(df, save):
     wordnet_categories = pd.json_normalize(relations_array)
     wordnet_categories.index = df.index
 
-    assert (len(wordnet_categories) == len(df))
+    assert (len(wordnet_categories) == df_len)
 
     # why is phonology lumped in here?
     wordnet_categories['phonology'] = np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded'])
     wordnet_categories['phonology'] = wordnet_categories['phonology'].astype('category')
 
-    assert (len(wordnet_categories) == len(df))
-
+    assert (len(wordnet_categories) == df_len)
     df = pd.concat([df, wordnet_categories], axis=1, sort=False)
 
     # check for syntagmatic and add to dataframe
     df = check_syntagmatic(df)
+    assert (len(df) == df_len)
 
     # check for affix and add to dataframe
     df = check_affix(df)
+    assert (len(df) == df_len)
 
     # add the semantic brain area data
     df = check_semantic_atlas(df)
+    assert (len(df) == df_len)
 
     # various word measures related to the response and cue that have been subtracted from each other to give distances
-    df = df.join(measures_diff)
+    df = pd.concat([df.reset_index(), measures_diff], axis=1)
+    df = df.loc[:, ~df.columns.duplicated()]
+    assert (len(df) == df_len)
 
     # check if the part of speech changes from cue to response, based on pos column and s2vsense
     df = check_senses_and_pos(df)
-
-    df.reset_index(inplace=True)
+    assert (len(df) == df_len)
 
     # get rid of unnecessary columns
     drop_before_saving = []
@@ -146,11 +152,10 @@ def get_coding(df, save):
     # print(df[df.columns[-6:]])
 
     # save data to the db
-    df = df.rename({'cue_clean': 'cue', 'response_clean': 'response'}, axis=1)
-    df['cue'] = df['cue'].str.decode('utf8')
-    df['response'] = df['response'].str.decode('utf8')
-    df = df.replace({np.nan: None})
+    df = df.rename({'cue_raw': 'cue', 'response_raw': 'response'}, axis=1)
 
+    df = df.replace({np.nan: None})
+    #df = df.drop_duplicates()
     if save:
         save_coded_pairs(df, df.columns)
 
@@ -190,7 +195,7 @@ def get_measures_diff(df):
     measures_diff['cue_pos'] = cue_measures_full['part_of_speech']
     measures_diff['response_pos'] = response_measures_full['part_of_speech']
 
-    measures_diff.set_index(['cue_clean', 'response_clean'], inplace=True)
+    # measures_diff.set_index(['cue_clean', 'response_clean'], inplace=True)
     return measures_diff
 
 
@@ -399,7 +404,8 @@ def check_corrections(df):
         rename_index = np.where(df[spellcol] == True)
         rename_dict = dict(zip(df.index.get_level_values(indexcol)[rename_index].values,
                                df[corr_col].str.encode('utf8').values[rename_index]))
-        df.rename(rename_dict, inplace=True, axis=0)
+        if rename_dict:
+            df.rename(rename_dict, inplace=True, axis=0)
     df['bad_spell'] = np.logical_or(
         np.logical_and(df['cue_bad_spell'], df['response_bad_spell']),
         np.logical_and(~df['cue_bad_spell'], ~df['response_bad_spell'])
@@ -408,10 +414,10 @@ def check_corrections(df):
 
 
 def check_senses_and_pos(df):
-    cue_pos = df['cue_pos'].copy(deep=True)
-    cue_sense = df['cue_sense'].copy(deep=True)
-    response_pos = df['response_pos'].copy(deep=True)
-    response_sense = df['response_sense'].copy(deep=True)
+    cue_pos = df['cue_pos'].copy()
+    cue_sense = df['cue_sense'].copy()
+    response_pos = df['response_pos'].copy()
+    response_sense = df['response_sense'].copy()
     # part of speech is the same for cue and response if... (NaNs are not equal so don't need to worry about these)
     pos_equal = np.logical_or.reduce((
         np.equal(cue_pos, response_pos),
@@ -420,12 +426,12 @@ def check_senses_and_pos(df):
         np.equal(cue_sense, response_sense)
     ))
     # the remaining records to be checked
-    remaining = df[~pos_equal]
+    remaining = df[~pos_equal].copy(deep=True)
     # not nans
-    cue_pos_not_null = ~remaining['cue_pos'].isnull()
-    cue_sense_not_null = ~remaining['cue_sense'].isnull()
-    response_pos_not_null = ~remaining['response_pos'].isnull()
-    response_sense_not_null = ~remaining['response_sense'].isnull()
+    cue_pos_not_null = ~remaining['cue_pos'].copy().isnull()
+    cue_sense_not_null = ~remaining['cue_sense'].copy().isnull()
+    response_pos_not_null = ~remaining['response_pos'].copy().isnull()
+    response_sense_not_null = ~remaining['response_sense'].copy().isnull()
     # we need at least one of the cue pos/sense and one of the res pos/sense to not be NaN and also not equal
     pos_diff = np.logical_or.reduce((
         np.logical_and(cue_pos_not_null, cue_sense_not_null),
@@ -435,278 +441,14 @@ def check_senses_and_pos(df):
     ))
     # everything else we cannot tell as the pos/senses are NaN for both cue and/or response cols
 
-    pos_diff_indexes = remaining.index[pos_diff]
-    pos_equal_indexes = df.index[pos_equal]
-    pos_unknown_indexes = remaining[~pos_diff]
+    pos_diff_indexes = remaining.index[pos_diff].copy()
+    pos_equal_indexes = df.index[pos_equal].copy()
+    # pos_unknown_indexes = remaining[~pos_diff]
     df['pos_changes'] = np.nan
     df['pos_changes'].loc[pos_diff_indexes] = True
     df['pos_changes'].loc[pos_equal_indexes] = False
 
     return df
-
-
-def check_semantic_atlas(df):
-    # ### semantic atlas from [Huth et al., 2016](https://www.nature.com/articles/nature17637)
-    # initialise brain data
-    brain_map = BrainMap()
-    col1 = 'cue_clean'
-    col2 = 'response_clean'
-    stem1 = 'cue_stem'
-    stem2 = 'response_stem'
-    col1_l, col1_r = create_hemi_labels(col1)
-    col2_l, col2_r = create_hemi_labels(col2)
-    stem1_l, stem1_r = create_hemi_labels(stem1)
-    stem2_l, stem2_r = create_hemi_labels(stem2)
-
-    # cue semantic areas are only used to determine if the area changes between cue and response
-    cues = df.index.get_level_values(col1).unique()
-    responses = df.index.get_level_values(col2).unique()
-    df = merge_semantic_columns(brain_map, {col1: cues, col2: responses}, df)
-
-    # gets 2% more of the responses coded with hemi labels
-    # filter the nans in cue and response data and then look for the stem instead
-    cue_stems = get_unlabelled(df, [col1_l, col1_r], stem1, encode=True)
-    response_stems = get_unlabelled(df, [col2_l, col2_r], stem2, encode=True)
-    df = merge_semantic_columns(brain_map, {stem1: cue_stems, stem2: response_stems}, df, decode=True)
-
-    # take the stem label if the original hemi label is NaN
-    df[col2_l].fillna(df[stem2_l], inplace=True)
-    df[col2_r].fillna(df[stem2_r], inplace=True)
-    df[col1_l].fillna(df[stem1_l], inplace=True)
-    df[col1_r].fillna(df[stem1_r], inplace=True)
-
-    # then drop the stem labels
-    df.drop([stem1_l, stem1_r, stem2_l, stem2_r], axis=1, inplace=True)
-
-    # Fill with U (Unknown) to avoid intersecting with labels that are not statistically significant
-    df[col2_l] = df[col2_l].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
-    df[col2_r] = df[col2_r].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
-    df[col1_l] = df[col1_l].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
-    df[col1_r] = df[col1_r].fillna(b'').replace(to_replace=b'', value=UNKNOWN_AREA_LABEL)
-    df['r_hemi_area_differs'] = np.logical_and.reduce((df[col2_r] != df[col1_r],
-                                                       df[col2_r] != UNKNOWN_AREA_LABEL,
-                                                       df[col1_r] != UNKNOWN_AREA_LABEL))
-    df['l_hemi_area_differs'] = np.logical_and.reduce((df[col2_l] !=
-                                                       df[col1_l],
-                                                       df[col2_l] != UNKNOWN_AREA_LABEL,
-                                                       df[col1_l] != UNKNOWN_AREA_LABEL))
-    right_unknown_areas = np.logical_or(df[col2_r] == UNKNOWN_AREA_LABEL, df[col1_r] == UNKNOWN_AREA_LABEL)
-    right_hemi_differs = df['r_hemi_area_differs'].copy(deep=True)
-    right_hemi_differs[right_unknown_areas] = np.nan
-    df['r_hemi_area_differs'] = right_hemi_differs
-    left_unknown_areas = np.logical_or(df[col2_l] == UNKNOWN_AREA_LABEL, df[col1_l] == UNKNOWN_AREA_LABEL)
-    left_hemi_differs = df['l_hemi_area_differs'].copy(deep=True)
-    left_hemi_differs[left_unknown_areas] = np.nan
-    df['l_hemi_area_differs'] = left_hemi_differs
-
-    # distances between hemi labels
-    left_hemi_distance = brain_map.get_distances_between_semantic_areas('left', df[col1_l], df[col2_l])
-    right_hemi_distance = brain_map.get_distances_between_semantic_areas('right', df[col1_r], df[col2_r])
-    df = df.merge(left_hemi_distance['left_hemi_distance'], how='left', left_index=True, right_index=True)
-    df = df.merge(right_hemi_distance['right_hemi_distance'], how='left', left_index=True, right_index=True)
-
-    # get the averaged area for multi word cues and responses
-    df = semantic_atlas_multi_word(df, brain_map, col1_l, col1_r, col2_l, col2_r)
-
-    # these are indicative of the actual words, which we do not want to model. We want to model attributes of the words.
-    df = df.drop([col2_l, col2_r, col1_l, col1_l, col1_r, stem1, stem2], axis=1)
-    return df
-
-
-def create_hemi_labels(col):
-    col_l = '{}_l_hemi_label'.format(col)
-    col_r = '{}_r_hemi_label'.format(col)
-    return col_l, col_r
-
-
-def merge_semantic_columns(brain_map, cols, df, decode=None):
-    areas = []
-    for col_prefix, col in cols.items():
-        semantic_areas = brain_map.get_semantic_area(col)
-        areas.append(semantic_areas)
-
-    # semantic areas
-    both_semantic_areas = pd.concat(areas).drop_duplicates()
-
-    if decode:
-        col_name = both_semantic_areas.columns[0]
-        both_semantic_areas[col_name] = both_semantic_areas[col_name].str.decode('utf8')
-
-    both_semantic_areas.set_index('word', inplace=True)
-
-    for col_prefix in cols:
-        df = df.join(both_semantic_areas, on=col_prefix)
-        df.rename(columns={'left_hemi_label': '{}_l_hemi_label'.format(col_prefix),
-                           'right_hemi_label': '{}_r_hemi_label'.format(col_prefix)}, inplace=True)
-
-    return df
-
-
-def semantic_atlas_multi_word(df, brain_map, cue_hemi_l, cue_hemi_r, res_hemi_l, res_hemi_r):
-    # TODO huge big mess, refactor to unpack all words by default and then apply semantic data back using row indexes?
-    # get the individual words from multi word (len > 2) cue/responses
-    cue_splits = unpack_splits(df['cue_split'])
-    response_splits = unpack_splits(df['response_split'])
-    # unpack the splits into one or two big columns?
-    if cue_splits is not None and response_splits is None:
-        unpacked_words = pd.DataFrame(np.unique(np.sort(cue_splits[:, 0], columns=['word'])))
-    elif cue_splits is None and response_splits is not None:
-        unpacked_words = pd.DataFrame(np.unique(np.sort(response_splits[:, 0], columns=['word'])))
-    elif cue_splits is not None and response_splits is not None:
-        unpacked_words = pd.DataFrame(np.unique(np.sort(np.append(cue_splits[:, 0], response_splits[:, 0].T, axis=0))),
-                                      columns=['word'])
-    else:
-        # what are we even doing here
-        return df
-    unpacked_words_encode = pd.DataFrame(unpacked_words['word'].str.encode('utf8'), columns=['word'])
-
-    # words from split columns are unencoded so we need to decode the labels returned from semantic atlas
-    cols = {'word': unpacked_words_encode}
-    unpacked_labelled = merge_semantic_columns(brain_map, cols=cols, df=unpacked_words, decode=True)
-    # we now have a df of words against their original indices in the overall cue/response df, plus hemi labels
-    # we need to attach coordinates to each of the labels
-    unpacked_labelled['word_l_hemi_label'] = unpacked_labelled['word_l_hemi_label'].fillna(b'').replace(to_replace=b'',
-                                                                                                        value=UNKNOWN_AREA_LABEL)
-    unpacked_labelled['word_r_hemi_label'] = unpacked_labelled['word_r_hemi_label'].fillna(b'').replace(to_replace=b'',
-                                                                                                        value=UNKNOWN_AREA_LABEL)
-    # get the coordinates of each word in the multi word cue/response
-    left = brain_map.get_semantic_coordinates(hemi='left', labels=unpacked_labelled['word_l_hemi_label'])
-    right = brain_map.get_semantic_coordinates(hemi='right', labels=unpacked_labelled['word_r_hemi_label'])
-    unpacked_labelled = unpacked_labelled.merge(left, left_on='word_l_hemi_label', right_index=True)
-    unpacked_labelled.rename({'coord_x': 'l_coord_x', 'coord_y': 'l_coord_y', 'coord_z': 'l_coord_z'}, inplace=True,
-                             axis=1)
-    unpacked_labelled = unpacked_labelled.merge(right, left_on='word_r_hemi_label', right_index=True)
-    unpacked_labelled.rename({'coord_x': 'r_coord_x', 'coord_y': 'r_coord_y', 'coord_z': 'r_coord_z'}, inplace=True,
-                             axis=1)
-    unpacked_words = unpacked_words.merge(unpacked_labelled, left_on='word', right_on='word')
-    # take the mean of the multi word coordinates and attach them back to the original cue/responses
-    cue_splits = merge_coordinates_with_splits(unpacked_words, cue_splits)
-    response_splits = merge_coordinates_with_splits(unpacked_words, response_splits)
-    df.reset_index(inplace=True)
-    cue_splits.index = cue_splits.index.astype(int)
-    response_splits.index = response_splits.index.astype(int)
-    # put the averaged coordinates in the main df
-    df = df.merge(cue_splits, left_index=True, right_index=True, how='left')
-    df = df.rename({'l_coord_x': 'cue_l_coord_x', 'l_coord_y': 'cue_l_coord_y', 'l_coord_z': 'cue_l_coord_z'}, axis=1)
-    df = df.rename({'r_coord_x': 'cue_r_coord_x', 'r_coord_y': 'cue_r_coord_y', 'r_coord_z': 'cue_r_coord_z'}, axis=1)
-    df = df.merge(response_splits, left_index=True, right_index=True, how='left')
-    df = df.rename(
-        {'l_coord_x': 'response_l_coord_x', 'l_coord_y': 'response_l_coord_y', 'l_coord_z': 'response_l_coord_z'},
-        axis=1)
-    df = df.rename(
-        {'r_coord_x': 'response_r_coord_x', 'r_coord_y': 'response_r_coord_y', 'r_coord_z': 'response_r_coord_z'},
-        axis=1)
-    # cue may be single word and response may be multi word and vice versa so we need to identify rows where
-    # cue is single word and response is multi word or vice versa
-    # cue is multi word and response is multi word
-    # and coordinates exist for l or r hemi
-    # Create filters to find rows fitting the above criteria
-    # vars are cue_l, cue_r, response_l, response_r and their coordinates
-    cue_l_multi = np.logical_and(df[res_hemi_l] != UNKNOWN_AREA_LABEL, ~np.isnan(df['cue_l_coord_x']))
-    cue_r_multi = np.logical_and(df[res_hemi_r] != UNKNOWN_AREA_LABEL, ~np.isnan(df['cue_r_coord_x']))
-    res_l_multi = np.logical_and(df[cue_hemi_l] != UNKNOWN_AREA_LABEL, ~np.isnan(df['response_l_coord_x']))
-    res_r_multi = np.logical_and(df[cue_hemi_r] != UNKNOWN_AREA_LABEL, ~np.isnan(df['response_r_coord_x']))
-    cueres_l_multi = np.logical_and(
-        np.logical_not(df['cue_l_coord_x'].isna()), np.logical_not(df['response_l_coord_x'].isna()))
-    cueres_r_multi = np.logical_and(
-        np.logical_not(df['cue_r_coord_x'].isna()), np.logical_not(df['response_r_coord_x'].isna()))
-    distances = []
-    distances.append(get_distance_between_coords(brain_map, df, res_hemi_l, cue_hemi_l, row_filter=cue_l_multi,
-                                                 hemi='left'))
-    distances.append(get_distance_between_coords(brain_map, df, res_hemi_r, cue_hemi_r, row_filter=cue_r_multi,
-                                                 hemi='right'))
-    distances.append(get_distance_between_coords(brain_map, df, cue_hemi_l, res_hemi_l, row_filter=res_l_multi,
-                                                 hemi='left'))
-    distances.append(get_distance_between_coords(brain_map, df, cue_hemi_r, res_hemi_r, row_filter=res_r_multi,
-                                                 hemi='right'))
-    distances.append(get_distance_between_coords(brain_map, df, cue_hemi_l, res_hemi_l, row_filter=cueres_l_multi,
-                                                 hemi='left'))
-    distances.append(get_distance_between_coords(brain_map, df, cue_hemi_r, res_hemi_r, row_filter=cueres_r_multi,
-                                                 hemi='right'))
-
-    for distance_col in distances:
-        df.update(distance_col, overwrite=False)
-
-    for side in ['l', 'r']:
-        df.drop(['cue_{}_coord_x'.format(side),
-                 'cue_{}_coord_y'.format(side),
-                 'cue_{}_coord_z'.format(side),
-                 'response_{}_coord_x'.format(side),
-                 'response_{}_coord_y'.format(side),
-                 'response_{}_coord_z'.format(side)], inplace=True, axis=1)
-    # set the index back to what it was
-    df.set_index(['cue_clean', 'response_clean'], inplace=True)
-    return df
-
-
-def merge_coordinates_with_splits(unpacked_words, split_col):
-    split_col = pd.DataFrame(split_col, columns=['word', 'rowid']).merge(unpacked_words, left_on='word',
-                                                                         right_on='word').sort_values('rowid')
-    split_col.drop(['word', 'word_l_hemi_label', 'word_r_hemi_label'], inplace=True, axis=1)
-    split_col = split_col.astype('float')
-    split_col_centre = split_col.groupby('rowid').mean()
-
-    return split_col_centre
-
-
-def get_unlabelled(df, should_be_labelled, other_col, encode=None):
-    # takes a list of columns and checks if there are any nans present
-    # returns values from other_col where nans are present in should_be_labelled
-    nancheck = []
-    for col in should_be_labelled:
-        nancheck.append(df[col].isna())
-    if len(nancheck) > 2:
-        # These would need to be unpacked into wrapping logical_ors or(a, or(b, or...)
-        raise NotImplemented('Checks for more than 2 columns have not yet been implmented')
-    filter = np.logical_or(nancheck[0], nancheck[1])
-    missing_hemi_label = df[other_col][filter]
-    if encode:
-        other_col = df[other_col][df[other_col].isin(missing_hemi_label)].str.encode('utf8').unique()
-    else:
-        other_col = df[other_col][df[other_col].isin(missing_hemi_label)].str.unique()
-    return other_col
-
-
-def get_distance_between_coords(brain_map, df, label_col_left, label_col_right, row_filter, hemi, both_multi=None):
-    # the left column is the one with the individual words
-    # the right column contains multi word cues/responses
-    # UNLESS both_multi is set, which implies both cue and response are multi word
-    distances = np.empty(0)
-    prefix_left = label_col_left.split('_')[0]
-    prefix_right = label_col_right.split('_')[0]
-    distance_label = '{}_hemi_distance'.format(hemi)
-    if not df[row_filter][label_col_left].empty:
-        # if one of the columns contains single word responses
-        if both_multi is None:
-            # label is set as index when returned from get_semantic_coordinates so have we reset it
-            left_labels = brain_map.get_semantic_coordinates('left', df[row_filter][label_col_left])
-            if not left_labels.empty:
-                left_coords = pd.merge(df, left_labels, left_on=label_col_left, right_index=True, how='left')
-                distances = pd.DataFrame(brain_map.get_distance(
-                    (left_coords[row_filter]['coord_x'.format(hemi)],
-                     left_coords[row_filter]['coord_y'.format(hemi)],
-                     left_coords[row_filter]['coord_z'.format(hemi)]),
-                    # format for
-                    (df[row_filter]['{}_{}_coord_x'.format(prefix_right, hemi[0])],
-                     df[row_filter]['{}_{}_coord_y'.format(prefix_right, hemi[0])],
-                     df[row_filter]['{}_{}_coord_z'.format(prefix_right, hemi[0])])), columns=[distance_label])
-
-                # need the indexes of the original filter to attach back to the df
-                distances.index = row_filter.index[row_filter == True]
-        # both columns contain hemiword responses
-        # we're doing distance between hemi word cue coords (l|r) and response coords (l|r)
-        else:
-            distances = pd.DataFrame(brain_map.get_distance(
-                (df[row_filter]['{}_{}_coord_x'.format(prefix_left, hemi[0])],
-                 df[row_filter]['{}_{}_coord_y'.format(prefix_left, hemi[0])],
-                 df[row_filter]['{}_{}_coord_z'.format(prefix_left, hemi[0])]),
-                (df[row_filter]['{}_{}_coord_x'.format(prefix_right, hemi[0])],
-                 df[row_filter]['{}_{}_coord_y'.format(prefix_right, hemi[0])],
-                 df[row_filter]['{}_{}_coord_z'.format(prefix_right, hemi[0])])), columns=[distance_label])
-
-            # need the indexes of the original filter to attach back to the df
-            distances.index = row_filter.index[row_filter == True]
-    return distances
 
 
 def setup():

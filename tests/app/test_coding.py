@@ -1,4 +1,4 @@
-from backend.app.coding import check_syntagmatic, check_phonology, check_affix, relation_coding, basic_coding
+from backend.app.coding import check_syntagmatic, check_phonology, check_affix
 import pandas as pd
 import numpy as np
 from nltk import PorterStemmer

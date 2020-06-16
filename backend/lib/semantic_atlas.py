@@ -94,16 +94,16 @@ class BrainMap():
         return coordinates
 
     def get_distances_between_semantic_areas(self, hemi, area_x, area_y):
-        #TODO send coords back with df for later use? This would make things much easier for multi words
+        # TODO send coords back with df for later use? This would make things much easier for multi words
         x_coords = self.get_semantic_coordinates(hemi, area_x.values)
         y_coords = self.get_semantic_coordinates(hemi, area_y.values)
         area_x_df = pd.DataFrame(area_x).merge(x_coords, left_on=area_x.name, right_index=True)
         area_y_df = pd.DataFrame(area_y).merge(y_coords, left_on=area_y.name, right_index=True)
         df = area_x_df.join(area_y_df, lsuffix='_left', rsuffix='_right').dropna()
-        coord_x = [df['coord_x_left'], df['coord_y_left'], df['coord_z_left']]
-        coord_y = [df['coord_x_right'], df['coord_y_right'], df['coord_z_right']]
+        coord_x = np.array([df['coord_x_left'], df['coord_y_left'], df['coord_z_left']])
+        coord_y = np.array([df['coord_x_right'], df['coord_y_right'], df['coord_z_right']])
         df['{}_hemi_distance'.format(hemi)] = self.get_distance(coord_x, coord_y)
-        return df
+        return df.drop_duplicates()
 
     def get_distance(self, coord_a, coord_b):
         return np.sqrt(np.sum((np.subtract(coord_a, coord_b)) ** 2, axis=0).astype(float))
@@ -111,4 +111,3 @@ class BrainMap():
     # given various different hemi labels, calculate the centroid
     def get_centroid_of_labels(self, areas):
         return
-
