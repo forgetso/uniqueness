@@ -10,6 +10,7 @@ from backend.settings import AWS_USERNAME, AWS_SERVER
 from backend.scrapers.merriam_webster import DATABASE as MERRIAM_WEBSTER_DB
 from backend.scrapers.human_brain_cloud import DATABASE as HUMAN_BRAIN_DB
 import subprocess
+from backend.settings import PIHOLE_SERVER
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -101,4 +102,4 @@ def removeObjectId(doc):
 api.add_resource(Stats, '/stats')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False, host=PIHOLE_SERVER)
