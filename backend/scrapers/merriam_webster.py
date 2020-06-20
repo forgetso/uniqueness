@@ -1,13 +1,11 @@
 import requests
 import pymongo
-from backend.db.db import get_acquisition_ages
 from bs4 import BeautifulSoup
 import re
 import argparse
 import random
 from backend.scrapers.user_agents import user_agent_list
 
-ACQUISITION_AGES = get_acquisition_ages()
 SOURCE = 'merriam_webster'
 REF_REGEX = re.compile(r'^cxl')
 DATABASE = 'words_to_scrape'
