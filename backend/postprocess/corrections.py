@@ -1,5 +1,5 @@
 import argparse
-from backend.db.db import get_cue_response_pairs, save_corrections
+from backend.db.db import get_cue_response_pairs, save_corrections, delete_corrections
 import pandas as pd
 import numpy as np
 from backend.lib.helpers.string import check_spelling
@@ -18,6 +18,7 @@ def main(source=None):
     start = time.perf_counter()
     cur = get_cue_response_pairs(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    delete_corrections(df['rowid'].values.tolist())
     logging.debug('dispatching jobs...')
     jobs = job_pool(df, JOB_NUMBER, get_corrections_multiprocess)
     end = time.perf_counter()
@@ -44,8 +45,12 @@ def get_corrections_multiprocess(df):
     cue_corrections = format_corrections_for_db(df, 'cue')
     response_corrections = format_corrections_for_db(df, 'response')
     corrections = pd.concat([cue_corrections, response_corrections])
-    save_corrections(corrections_values=corrections.values.tolist())
-    return len(corrections)
+    # belt and braces
+    corrections.drop_duplicates(inplace=True, ignore_index=True)
+    corrections_list = corrections.values.tolist()
+    if len(corrections_list):
+        save_corrections(corrections_values=corrections_list)
+    return len(corrections_list)
 
 
 def get_corrections(cue, response):

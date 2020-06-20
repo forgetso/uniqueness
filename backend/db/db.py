@@ -87,7 +87,7 @@ def get_cues(min_length=None, limit=None):
 def get_cue_response_pairs(limit=None, source=None):
     sourcestr = ""
     if source and source in SOURCES:
-        sourcestr = """AND r.source = '{}'\n""".format(source)
+        sourcestr = """WHERE r.source = '{}'\n""".format(source)
 
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
@@ -113,10 +113,7 @@ def get_cue_response_pairs(limit=None, source=None):
           AND c_corrections.type = 'c' 
           LEFT JOIN corrections AS r_corrections ON r.id = r_corrections.response_id 
           AND c_corrections.type = 'r' 
-        WHERE 
-          LENGTH(r.response) > 3 
-          AND LENGTH(r.cue) > 3 
-          {sourcestr}
+        {sourcestr}
           ORDER BY cue_clean, response_clean ASC
         """.format(sourcestr=sourcestr)
 
@@ -131,7 +128,7 @@ def get_cue_response_pairs(limit=None, source=None):
 def get_cue_response_pairs_coded(limit=None, source=None):
     sourcestr = ""
     if source and source in SOURCES:
-        sourcestr = """AND r.source = '{}'\n""".format(source)
+        sourcestr = """WHERE r.source = '{}'\n""".format(source)
 
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
@@ -240,11 +237,8 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           AND c_corrections.type = 'r' 
           LEFT JOIN users u ON u.id = r.user_id 
           LEFT JOIN coding cod ON cod.response = r.response 
-          AND cod.cue = r.cue 
-        WHERE 
-          LENGTH(r.response) > 3 
-          AND LENGTH(r.cue) > 3 
-          {sourcestr}
+          AND cod.cue = r.cue
+        {sourcestr}
         ORDER BY 
           cue_clean, 
           response_clean ASC
@@ -577,14 +571,14 @@ def save_cue_response_pairs(cue_response_pairs):
                                                                                                          rval_len))
 
     # cleanup old corrections
-    delete_corrections()
+    delete_orphaned_corrections()
     return response_ids
 
 
 def save_corrections(corrections_values):
     # TODO better checks.
     # TODO maybe pass in dict instead
-    delete_corrections()
+    delete_orphaned_corrections()
     try:
         # original word
         assert (type(corrections_values[0][0]) is str)
@@ -613,7 +607,6 @@ def update_senses(df):
     senses = get_senses()
     df['cue_sense_id'] = df['cue_sense'].map(senses)  # replace({np.nan: -1}).astype(int)
     df['response_sense_id'] = df['response_sense'].map(senses)  # .replace({np.nan: -1}).astype(int)
-    print(df)
     values = df[['cue_sense_id', 'response_sense_id', 'rowid']].replace({np.nan: None}).values.tolist()
     query = """UPDATE responses AS r 
                   SET cue_sense_id = CAST(e.cue_sense_id AS int),
@@ -676,7 +669,17 @@ def delete_wordassoc():
     conn.commit()
 
 
-def delete_corrections():
+def delete_corrections(ids):
+    conn = connect()
+    cur = conn.cursor()
+    query = """DELETE
+                FROM  corrections c 
+                WHERE response_id IN (SELECT * FROM UNNEST(%s))"""
+    cur.execute(query, (ids,))
+    conn.commit()
+
+
+def delete_orphaned_corrections():
     conn = connect()
     cur = conn.cursor()
     query = """DELETE

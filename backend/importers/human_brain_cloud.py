@@ -1,34 +1,31 @@
 from pathlib import Path
-import subprocess
 import time
 import json
 import argparse
-from backend.db.db import delete_responses, save_cue_response_pairs, delete_users, execute_values_wrap
+from backend.db.db import delete_responses, delete_users
 from backend.lib.multiprocessor import job_pool
 import multiprocessing as mp
 from backend.lib.helpers.string import clean_word, get_country_code
 from os import listdir
-from backend.importers.common import save_responses_and_users
+from backend.importers.common import save_responses_and_users, get_external_backup
 import logging
+from backend.settings import AWS_USERNAME, AWS_SERVER
 
 SOURCE = 'humanbraincloud'
+DATABASE = 'humanbrain'
 
 
 def main(download=False):
     home = str(Path.home())
     target = '{}/dev/uniqueness/data/'.format(home)
+    id_rsa = '{}/.ssh/id_rsa'.format(home)
     if download:
-        id_rsa = '{}/.ssh/id_rsa'.format(home)
-        p = subprocess.Popen(
-            ["scp", id_rsa, "ubuntu@ec2-52-14-41-217.us-east-2.compute.amazonaws.com:/tmp/humanbrain.json", target])
-        while p.poll() is None:
-            print('\nWaiting for data...\n')
-            time.sleep(5)
-    files_to_load = ['{}{}'.format(target, x) for x in listdir(target) if 'humanbrain' in x]
+        get_external_backup(id_rsa, AWS_USERNAME, AWS_SERVER, "/tmp/{}.json".format(DATABASE), target)
+    files_to_load = ['{}{}'.format(target, x) for x in listdir(target) if DATABASE in x]
     multiprocess_human_brain_cloud_data(files_to_load)
 
 
-def multiprocess_human_brain_cloud_data(files_to_load, delete=None):
+def multiprocess_human_brain_cloud_data(files_to_load):
     json_data = []
     for target_file in files_to_load:
         with open(target_file, 'r') as f:

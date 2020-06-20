@@ -25,6 +25,7 @@ URLS_TO_VISIT = [
 ]
 
 GET_UID_SCRIPT = '{}/backend/lib/helpers/get_uid.js'.format(PROJECT_ROOT)
+DATABASE = 'humanbrain'
 
 
 def process():
@@ -45,7 +46,7 @@ def process():
         raise ConnectionError('Error in data from humanbraincloud')
 
     if result['status'] == 'ok':
-        db = pymongo.MongoClient(host='localhost')['humanbrain']
+        db = pymongo.MongoClient(host='localhost')[DATABASE]
         for record in result['data']:
             record['_id'] = record['id']
             record.pop('id')

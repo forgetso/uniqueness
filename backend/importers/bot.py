@@ -1,19 +1,25 @@
-from backend.db.db import get_part_of_speech, get_cue_response_pairs, execute_values_wrap, delete_responses
+from backend.db.db import get_part_of_speech, get_cue_response_pairs, delete_responses, delete_users
+from backend.importers.common import save_responses_and_users
 import random
 import argparse
 from datetime import datetime as dt
-from backend.lib.helpers import clean_word
+from backend.lib.helpers.string import clean_word
 import numpy as np
 from backend.settings import SEMANTIC_SPACE_FOLDER
+
 PARTS_OF_SPEECH = get_part_of_speech()
 semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = [x.decode('utf8') for x in semantic_space_data['english1000_vocab']]
+SOURCE ='bot_rand'
 
 def main():
     all_pairs = [x for x in get_cue_response_pairs()]
-    bot_data = create_bot_data(min(len(all_pairs), 20000))
-    delete_responses(source='bot_rand')
-    execute_values_wrap('responses', tuple(bot_data[0].keys()), [tuple(x.values()) for x in bot_data])
+    bot_data = create_bot_data(min(len(all_pairs), 30000))
+    delete_responses(source=SOURCE)
+    delete_users(SOURCE)
+    user_list = [[9999999]]
+    if bot_data:
+        responses_saved, users_saved = save_responses_and_users(bot_data, user_list, user_fields=('external_user_id',))
 
 
 def create_bot_data(length):
@@ -24,7 +30,7 @@ def create_bot_data(length):
         template = {'cue': None,
                     'response': None,
                     'source': 'bot_rand',
-                    'user_id': 'bot_rand',
+                    'user_id': 9999999,
                     'created': dt.utcnow(),
                     'time_duration': 0
                     }

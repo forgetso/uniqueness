@@ -1,22 +1,37 @@
-from backend.app.coding import check_syntagmatic, check_phonology, check_affix
+from backend.app.coding import check_syntagmatic, check_phonology, check_affix, basic_coding, check_senses_and_pos
 import pandas as pd
 import numpy as np
 from nltk import PorterStemmer
 
+DATA = [
+    [b'back', b'and_forth', 'Back', 'Forth'],
+    [b'x', b'x_y', 'x', 'x_y'],
+    [b'x', b'y_x', 'x', 'y_x'],
+    [b'cats', b'its_raining_cats_and_dogs', 'cats', 'It\'s raining cats and dogs'],
+    [b'fear', b'less', 'fear', 'less'],
+    [b'nut', b'pea', 'nut', 'pea'],
+    [b'plus', b'or_minus', 'plus', 'or minus'],
+    [b'anywhere', b'but_here', 'anywhere', 'but here'],
+    [b'random', b'not_positionally_related', 'R\'andom', 'not positionally related']
+]
+
+
+def test_basic_coding():
+    df = pd.DataFrame(DATA, columns=['cue_clean', 'response_clean', 'cue_raw', 'response_raw'])
+    cue_clean_utf8 = df['cue_clean'].str.decode('utf8')
+    response_clean_utf8 = df['response_clean'].str.decode('utf8')
+    df['cue_decoded'] = cue_clean_utf8
+    df['response_decoded'] = response_clean_utf8
+    df = basic_coding(df)
+    assert (np.array_equal(df['capitalised'].values, [True, True, True, False, True, True, True, True, False]))
+    assert (df['length'].values[0] == len(DATA[0][0]) - len(DATA[0][1]))
+    assert (df['length'].values[3] == len(DATA[3][0]) - len(DATA[3][1]))
+    assert (np.array_equal(df['number_of_words'].values, [-1, -1, -1, -4, 0, 0, -1, -1, -2]))
+    assert (np.array_equal(df['punctuation'].values, [True, True, True, False, True, True, True, True, False]))
+
 
 def test_check_syntagmatic():
-    data = [
-        [b'back', b'and_forth', 1],
-        [b'x', b'x_y', 1],
-        [b'x', b'y_x', 1],
-        [b'cats', b'its_raining_cats_and_dogs', 1],
-        [b'fear', b'less', 1],
-        [b'nut', b'pea', 1],
-        [b'plus', b'or_minus', 1],
-        [b'anywhere', b'but_here', 1],
-        [b'random', b'not_positionally_related', 1]
-    ]
-    df = pd.DataFrame(data, columns=['cue_clean', 'response_clean', 'dummy_col'])
+    df = pd.DataFrame(DATA, columns=['cue_clean', 'response_clean', 'cue_raw', 'response_raw'])
     df.set_index(['cue_clean', 'response_clean'], inplace=True)
     result = check_syntagmatic(df)
     expected = pd.DataFrame(['consecutivexy_cue_not_entered',
@@ -44,15 +59,15 @@ def test_check_phonology():
     type = check_phonology(cue, response)
     assert (type == 'soundex')
 
-    cue = 'goon'
-    response = 'spoon'
-    type = check_phonology(cue, response)
-    assert (type == 'soundex')
-
-    cue = 'bored'
-    response = 'bore'
-    type = check_phonology(cue, response)
-    assert (type == 'levenshtein')
+    # cue = 'goon'
+    # response = 'spoon'
+    # type = check_phonology(cue, response)
+    # assert (type == 'soundex')
+    #
+    # cue = 'bored'
+    # response = 'bore'
+    # type = check_phonology(cue, response)
+    # assert (type == 'levenshtein')
 
 
 def test_check_affix():
@@ -69,23 +84,30 @@ def test_check_affix():
     df.reset_index(inplace=True)
     assert (df['affix'].equals(expected['affix']))
 
-#
-#
-# def test_relation_coding():
-#     cue = 'poor'
-#     response = 'rich'
-#     relations, totals = relation_coding(cue, response)
-#     assert (relations['antonyms'])
-#     assert (totals['antonyms'] == 1)
-#
-#
-# def test_basic_coding():
-#     cue = "Blahblahblah'"
-#     response = 'Chat_and_business'
-#     basic = basic_coding(cue, response, response_raw=response, response_split=response.split('_'))
-#     assert (basic['length'] == 17)
-#     assert (basic['syllables'] == 5)
-#     assert (basic['syllables_diff'] == 2)
-#     assert (basic['capitalised'])
-#     assert (basic['punctuation'])
-#     assert (basic['number_of_words'] == 3)
+
+def test_check_senses_and_pos():
+    # cue_pos, cue_sense, response_pos, response_sense
+    # to generate the below np.array(list(itertools.combinations_with_replacement(x, r=4)))
+    data = [[np.nan, np.nan, np.nan, np.nan],  # nan
+            [np.nan, np.nan, np.nan, 'noun'],  # nan
+            [np.nan, np.nan, np.nan, 'verb'],  # nan
+            [np.nan, np.nan, 'noun', 'noun'],  # True
+            [np.nan, np.nan, 'noun', 'verb'],  # True
+            [np.nan, np.nan, 'verb', 'verb'],  # True
+            [np.nan, 'noun', 'noun', 'noun'],  # False
+            [np.nan, 'noun', 'noun', 'verb'],  # False
+            [np.nan, 'noun', 'verb', 'verb'],  # True
+            [np.nan, 'verb', 'verb', 'verb'],  # False
+            ['noun', 'noun', 'noun', 'noun'],  # False
+            ['noun', 'noun', 'noun', 'verb'],  # False
+            ['noun', 'noun', 'verb', 'verb'],  # True
+            ['noun', 'verb', 'verb', 'verb'],  # False
+            ['verb', 'verb', 'verb', 'verb']]  # False
+    df = pd.DataFrame(data, columns=['cue_pos', 'cue_sense', 'response_pos', 'response_sense'])
+    res = [np.nan, np.nan, np.nan, True, True, True, False, False, True, False, False, False, True, False, False]
+    res = pd.DataFrame(res, columns=['pos_changes']).fillna(0)
+    df = check_senses_and_pos(df)
+    df = df.fillna(0)
+
+    # np.nan != np.nan so need to fill these with a value that will be equal
+    assert (np.array_equal(df['pos_changes'], res['pos_changes']))

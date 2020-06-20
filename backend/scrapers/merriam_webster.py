@@ -10,11 +10,12 @@ from backend.scrapers.user_agents import user_agent_list
 ACQUISITION_AGES = get_acquisition_ages()
 SOURCE = 'merriam_webster'
 REF_REGEX = re.compile(r'^cxl')
+DATABASE = 'words_to_scrape'
 
 
 def process(word=None):
     uri = 'https://www.merriam-webster.com/dictionary/{word}'
-    db = pymongo.MongoClient(host='localhost')['words_to_scrape']
+    db = pymongo.MongoClient(host='localhost')[DATABASE]
     word_doc = db.words.find_one({"sources.{}".format(SOURCE): {'$exists': False}})
     if not word:
         word = word_doc['word']
@@ -132,7 +133,7 @@ def storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spe
 
 def setup():
     parser = argparse.ArgumentParser(description='Import dictionary data')
-    parser.add_argument('--word', help='Download the data from AWS')
+    parser.add_argument('--word', help='Run for specific word')
     args = parser.parse_args()
     process(args.word)
 

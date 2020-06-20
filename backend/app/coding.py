@@ -98,12 +98,7 @@ def get_coding(df, save):
     measures_diff = get_measures_diff(df)
 
     # should exact match be considered?
-    df['length'] = df['cue_decoded'].str.len() - df['response_decoded'].str.len()
-    df['syllables'] = np.vectorize(syllables)(df['cue_raw']) - np.vectorize(syllables)(df['response_raw'])
-    df['capitalised'] = np.equal(df['cue_raw'].str.isupper(), df['response_raw'].str.isupper())
-    df['punctuation'] = np.equal(df['cue_raw'].str.contains(PUNCTUATION_REGEX), df['response_raw'].str.contains(
-        PUNCTUATION_REGEX))
-    df['number_of_words'] = df['cue_decoded'].str.split('_').str.len() - df['response_decoded'].str.split('_').str.len()
+    df = basic_coding(df)
 
     relations_array = np.vectorize(relation_coding)(df.index.get_level_values('cue_clean'),
                                                     df.index.get_level_values('response_clean'))
@@ -155,13 +150,24 @@ def get_coding(df, save):
     df = df.rename({'cue_raw': 'cue', 'response_raw': 'response'}, axis=1)
 
     df = df.replace({np.nan: None})
-    #df = df.drop_duplicates()
+    # df = df.drop_duplicates()
     if save:
         save_coded_pairs(df, df.columns)
 
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
     totals = df.count()
     return totals
+
+
+def basic_coding(df):
+    print(df)
+    df['length'] = df['cue_decoded'].str.len() - df['response_decoded'].str.len()
+    df['syllables'] = np.vectorize(syllables)(df['cue_raw']) - np.vectorize(syllables)(df['response_raw'])
+    df['capitalised'] = np.equal(df['cue_raw'].str[0].str.isupper(), df['response_raw'].str[0].str.isupper())
+    df['punctuation'] = np.equal(df['cue_raw'].str.contains(PUNCTUATION_REGEX), df['response_raw'].str.contains(
+        PUNCTUATION_REGEX))
+    df['number_of_words'] = df['cue_decoded'].str.split('_').str.len() - df['response_decoded'].str.split('_').str.len()
+    return df
 
 
 def get_measures_diff(df):
@@ -307,10 +313,14 @@ def check_affix(df):
     stems_equal = pd.DataFrame(
         np.logical_and(cue_clean != response_clean, np.equal(df['cue_stem'], df['response_stem'])),
         columns=['affix'])
-    # make sure they are not identical and not already classed as affixes
-    not_identical_not_affixed = np.logical_and(response_clean != cue_clean, stems_equal['affix'] == False)
+    # make sure they are not identical and not already classed as affixes and also long enough to add an affix to
+    not_identical_not_affixed = np.logical_and.reduce((response_clean != cue_clean,
+                                                       stems_equal['affix'] == False,
+                                                       np.greater(response_clean.str.len(), 1),
+                                                       np.greater(cue_clean.str.len(), 1)))
     response_subset = response_clean[not_identical_not_affixed]
     cue_subset = cue_clean[not_identical_not_affixed]
+
     cue_index = pd.DataFrame([[nanindex(x, cue_subset[int(idx)])] for idx, x in enumerate(response_subset)])
     # get rid of any cue-response pairs where the cue is not in the response
     cue_present_index = [cue_index[0] >= 0]
@@ -320,6 +330,7 @@ def check_affix(df):
         # the cue is present in some of the responses
         # shouldn't need to strip x here as spaces should already be replaced by underscores
         # split on first occurrence of cue only
+
         remainder = pd.DataFrame([[x.split(cue_subset[int(idx)], 1)] for idx, x in enumerate(response_subset)])
         # assign the resulting list to two separate columns (s1, s2)
 

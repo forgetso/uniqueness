@@ -2,6 +2,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import f_classif
 from backend.db.db import get_cue_response_pairs_coded
 import pandas as pd
 import argparse
@@ -10,8 +12,8 @@ import time
 import logging
 from backend.settings import LOG_LEVEL
 
-SAMPLE_SIZE = 5
-TO_PREDICT = 'city'
+SAMPLE_SIZE = 10
+TO_PREDICT = 'cue_clean'
 MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
@@ -35,9 +37,15 @@ def main(sample_size=None, source=None):
 
 
 def logisticRegression(data):
-    X_train, X_test, y_train, y_test = train_test_split(data.drop(TO_PREDICT, axis=1),
-                                                        data[TO_PREDICT], test_size=0.30,
+    # define feature selection
+    fs = SelectKBest(score_func=f_classif, k=45)
+    # apply feature selection
+    X_selected = fs.fit_transform(data.drop(TO_PREDICT, axis=1), data[TO_PREDICT])
+
+    X_train, X_test, y_train, y_test = train_test_split(X_selected, data[TO_PREDICT],
+                                                        test_size=0.30,
                                                         random_state=101)
+
     X__train_scaled = preprocessing.scale(X_train)
     X_test_scaled = preprocessing.scale(X_test)
     # TODO maybe fill nans with the mean?
@@ -62,31 +70,24 @@ def getData(source=None, min_responses=None):
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
     df.drop(columns=['rowid'], inplace=True)
     logging.info('there are {} records'.format(len(df)))
-    logging.debug(df.columns)
-    logging.debug(df)
     # full wordssoc table
     predict_group = df.groupby(by=TO_PREDICT).agg(['count'])
+    logging.debug('min responses set to {}'.format(min_responses))
     min_responses_indices = predict_group['response_clean'].gt(min_responses)
     groups_with_min_responses = predict_group.index[min_responses_indices['count']].values
     if not len(groups_with_min_responses):
         exit('not enough responses')
     df = df[df[TO_PREDICT].isin(groups_with_min_responses)]
     df = df.drop(
-        columns=['cue_clean', 'response_clean',
+        columns=['response_clean',
                  'cue_raw', 'response_raw',
                  'cue_correction', 'response_correction',
                  'cue_sense', 'response_sense', 'source'])
     user_columns = USER_COLUMNS
-    user_columns.remove(TO_PREDICT)
+    if TO_PREDICT in USER_COLUMNS:
+        user_columns.remove(TO_PREDICT)
     df = df.drop(columns=user_columns)
-    # df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
-    #                  'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
-    #                  'member_holonyms', 'substance_holonyms', 'part_holonyms',
-    #                  'member_meronyms', 'substance_meronyms', 'part_meronyms',
-    #                  'topic_domains', 'region_domains', 'usage_domains', 'attributes',
-    #                  'entailments', 'causes', 'also_sees', 'verb_groups', 'similar_tos',
-    #                  'hypernyms', 'root_hypernyms', 'synonym', 'antonyms', 'phonology',
-    #                  'exact', 'syntagmatic'])
+
     # converts True/False to 1/0
     df = df * 1
     # drop any columns with only zeroes
@@ -100,6 +101,7 @@ def getData(source=None, min_responses=None):
     label_encoder = preprocessing.LabelEncoder()
     df['phonology'] = label_encoder.fit_transform(df['phonology'])
     df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
+
     df[TO_PREDICT] = label_encoder.fit_transform(df[TO_PREDICT])
     df = pd.DataFrame(df).fillna(value=0)
     df = df.astype(float)
@@ -126,6 +128,17 @@ def batch_data(df, size):
         batched = pd.concat([batched, group])
     batched = batched.loc[:, ~df.columns.duplicated()]
     return batched
+
+
+def drop_wordnet_features(df):
+    df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
+                          'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
+                          'member_holonyms', 'substance_holonyms', 'part_holonyms',
+                          'member_meronyms', 'substance_meronyms', 'part_meronyms',
+                          'topic_domains', 'region_domains', 'usage_domains', 'attributes',
+                          'entailments', 'causes', 'also_sees', 'verb_groups', 'similar_tos',
+                          'hypernyms', 'root_hypernyms'])
+    return df
 
 
 def setup():

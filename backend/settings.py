@@ -1,6 +1,7 @@
 import os
 from multiprocessing import cpu_count
 import logging
+
 CWD = os.getcwd()
 PROJECT_ROOT = '/home/chris/dev/uniqueness'
 PG_USER = 'backend'
@@ -21,4 +22,8 @@ ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])
 DATA_FOLDER = ''.join([CWD, '/data'])
 JOB_NUMBER = int(cpu_count() / 2)
 LOG_LEVEL = logging.DEBUG
-IP='77.102.139.244'
+IP = '77.102.139.244'
+AWS_SERVER = 'ec2-52-14-41-217.us-east-2.compute.amazonaws.com'
+AWS_USERNAME = 'ubuntu'
+PIHOLE_SERVER = '192.168.1.3'
+PIHOLE_USERNAME = 'chris'
