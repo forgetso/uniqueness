@@ -42,7 +42,9 @@ def main(server, username):
 
 def update_config(server, username, port):
     db = connect('uniqueness')
-    db['config'].insert({'sshtunnel': {'server': server, 'username': username, 'local_port': port, 'pid': os.getpid()}})
+    id = db['config'].insert(
+        {'sshtunnel': {'server': server, 'username': username, 'local_port': port, 'pid': os.getpid()}})
+    return id
 
 
 def remove_config(_id):
