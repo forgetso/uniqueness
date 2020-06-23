@@ -9,6 +9,7 @@ from backend.scrapers.user_agents import user_agent_list
 SOURCE = 'merriam_webster'
 REF_REGEX = re.compile(r'^cxl')
 DATABASE = 'words_to_scrape'
+SUB_CATEGORIES = ['legal', 'medical']
 
 
 def process(word=None):
@@ -29,9 +30,11 @@ def process(word=None):
     definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
     # todo find out what all these different entries are
     if not definitions_container:
-        definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('medical-entry-'))
-        if definitions_container:
-            sub_category = 'medical'
+        for sub_category in SUB_CATEGORIES:
+            definitions_container = definition_wrapper.findAll('div',
+                                                               id=lambda x: x and x.startswith(sub_category + '-'))
+            if definitions_container:
+                break
 
     if not definitions_container and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
         alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next(
