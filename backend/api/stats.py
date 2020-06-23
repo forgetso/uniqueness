@@ -102,4 +102,4 @@ def removeObjectId(doc):
 api.add_resource(Stats, '/stats')
 
 if __name__ == '__main__':
-    app.run(debug=False, host=PIHOLE_SERVER)
+    app.run(debug=False, host='127.0.0.1')
