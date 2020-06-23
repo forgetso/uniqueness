@@ -81,7 +81,7 @@ def get_ssh_server():
     doc = [x for x in db['config'].find(query)]
 
     if not len(doc):
-        cmd = ['python', '-m', 'backend.db.sshtunnel', AWS_SERVER, AWS_USERNAME]
+        cmd = ['python', '-m', 'backend.db.ssh', AWS_SERVER, AWS_USERNAME]
         sshtunnel = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         query = {'sshtunnel': {'server': AWS_SERVER, 'username': AWS_USERNAME, 'pid': sshtunnel.pid}}
         doc = [x for x in db['config'].find(query)]
