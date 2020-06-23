@@ -5,11 +5,12 @@ import logging
 import time
 from backend.db.mongo import connect
 import os
+import getpass
 
 
 class SSHTunnel:
     def __init__(self, server, username):
-        home = str(Path.home())
+        home = str(''.join(['/home/', getpass.getuser()]))
         pkey = '{}/.ssh/id_rsa'.format(home)
         self.server = SSHTunnelForwarder(
             server,
