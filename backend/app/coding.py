@@ -384,6 +384,7 @@ def check_measures(all_measures, distinct_words):
     split_words = multi_words[col_name].str.split('_')
     # split is  a list of words [first, second, third] which we want to return [True, True, True] as being in all_measures
     # then we want to get all these measures and take the mean
+    print([all_measures[all_measures.index.isin(split)] for split in split_words.values])
     # this is done for each split list
     split_words_measures = pd.DataFrame(
         [all_measures[all_measures.index.isin(split)].mean().T for split in split_words.values],
@@ -397,10 +398,11 @@ def check_measures(all_measures, distinct_words):
 
 def check_corrections(df):
     # rules for handling spelling corrections
-    # 1. check if there are spelling corrections for cue/response
-    # 2. check if the sense, as defined by sense2vec, is numeric or a named_entity
-    # TODO check if the senses are the same, e.g. both ORGS or both PERSONs, as it is likelier that the response is an
-    #   ORG or PERSON
+    # - check if there are spelling corrections for cue/response
+    # - check if the sense, as defined by sense2vec, is numeric or a named_entity
+    # - only use the spelling correction if the sense is not a numeric or named_entity
+    # - if both cue and response are incorrect/correct, return False
+    # - if one of cue/response is incorrect and one is correct, return True
     unfiltered_senses = np.array([x.lower() for x in NUM_TYPES + NAMED_ENTITITES])
     for x in ['cue', 'response']:
         sensecol = '{}_sense'.format(x)
@@ -417,7 +419,7 @@ def check_corrections(df):
                                df[corr_col].str.encode('utf8').values[rename_index]))
         if rename_dict:
             df.rename(rename_dict, inplace=True, axis=0)
-    df['bad_spell'] = np.logical_or(
+    df['bad_spell'] = ~np.logical_or(
         np.logical_and(df['cue_bad_spell'], df['response_bad_spell']),
         np.logical_and(~df['cue_bad_spell'], ~df['response_bad_spell'])
     )

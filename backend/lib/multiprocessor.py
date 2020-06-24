@@ -4,6 +4,8 @@ from itertools import repeat
 
 # split a list into evenly sized chunks
 def chunks(l, n):
+    if n < 1:
+        return [l]
     return [l[i:i + n] for i in range(0, len(l), n)]
 
 

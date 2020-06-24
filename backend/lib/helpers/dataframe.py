@@ -16,29 +16,36 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     logging.debug('concatenating dataframes...')
     result = pd.concat(jobs)
     column_names = list(result.columns.values)
-    result['word'] = result['word'].str.decode('utf8')
-    result['word'] = result['word'].str.lower()
-    # TODO use columns_types
+    result['word'] = lower_and_decode(result['word'])
+    # TODO use columns_types to figure out which columns are not numeric
     non_numeric = ['word', 'part_of_speech']
     for column in result.columns:
         if column not in non_numeric:
             result[column] = result[column].astype(np.float)
-    result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean'])
-    # drop the part of speech index
+    result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean']).dropna(axis=0)
     result = result.reset_index()
     # Order getting messed up with part_of_speech and ages being mixed because of group by
     for idn, nn in enumerate(non_numeric):
         if column_names[idn] != nn:
             column_names[column_names.index(nn)], column_names[idn] = column_names[idn], nn
+
     # re-index on word (or whatever is passed in)
     if index:
         logging.debug('setting index to {}'.format(index))
         result = result.set_index([index])
-
     result.columns = [x for x in column_names if x not in result.index.names]
     # an example of a word that should always be present
     # assert (len(result.loc[result.index.get_level_values(level='word') == b'enemy']) == 1)
     return result
+
+
+def lower_and_decode(col):
+    if isinstance(col[0], (bytes, bytearray)):
+        col = col.str.decode('utf8')
+        col = col.str.lower()
+    else:
+        col = col.astype(str).str.lower()
+    return col
 
 
 def create_dataframe(item_list, columns_types=None):

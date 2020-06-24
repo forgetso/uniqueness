@@ -394,7 +394,7 @@ def get_all_words():
     return result
 
 
-def get_all_measures():
+def get_all_measures_sql():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     # TODO words with multiple parts are smushed together. perhaps these should be stored differently on import
@@ -447,7 +447,11 @@ def get_all_measures():
                 GROUP BY LOWER(a.lemma_highest_pos)
                 ORDER BY LOWER(a.lemma_highest_pos) ASC;"""
     cur.execute(query)
+    return cur
 
+
+def get_all_measures():
+    cur = get_all_measures_sql()
     item_dtype = [
         ('word', '|S'),
         ('age', 'f'),
