@@ -5,7 +5,7 @@ import numpy as np
 DATA = [
     {'word_lemma': 'made', 'age': 1, 'part_of_speech': 'verb', 'word': 'made', 'arousal': 0, 'dominance': 0,
      'valence': 0,
-     'concreteness_measure': 2.52},
+     'concreteness_measure': 2.51},
     {'word_lemma': 'up', 'age': 2, 'part_of_speech': 'adv', 'word': 'up', 'arousal': 0, 'dominance': 0,
      'valence': 0,
      'concreteness_measure': 3.83},
@@ -16,6 +16,16 @@ DATA = [
 
 
 def test_create_dataframe_in_parallel():
+    result = create_dataframe_in_parallel(item_list=explode_word_stems(DATA))
+    to_test = ['age', 'arousal', 'concreteness_measure']
+    for word_dict in DATA:
+        for test_col in to_test:
+            print('testing {} {}'.format(word_dict['word'], test_col))
+            np.testing.assert_allclose(result.loc[result['word'] == word_dict['word']][test_col].values,
+                                       [word_dict[test_col]])
+
+
+def test_create_dataframe_in_parallel_column_types():
     item_dtype = [
         ('word', '|S'),
         ('age', 'f'),
@@ -25,13 +35,11 @@ def test_create_dataframe_in_parallel():
         ('valence', 'f'),
         ('concreteness_measure', 'f')
     ]
-    result = create_dataframe_in_parallel(item_list=explode_word_stems(DATA))
-
-    for word_dict in DATA:
-        np.testing.assert_array_equal(result.loc[result['word'] == word_dict['word']]['age'].values,
-                                      [float(word_dict['age'])])
 
     result = create_dataframe_in_parallel(item_list=explode_word_stems(DATA), columns_types=item_dtype)
+    to_test = ['age', 'arousal', 'concreteness_measure']
     for word_dict in DATA:
-        np.testing.assert_array_equal(result.loc[result['word'] == word_dict['word']]['age'].values,
-                                      [float(word_dict['age'])])
+        for test_col in to_test:
+            print('testing {} {}'.format(word_dict['word'], test_col))
+            np.testing.assert_allclose(result.loc[result['word'] == word_dict['word']][test_col].values,
+                                       [word_dict[test_col]])

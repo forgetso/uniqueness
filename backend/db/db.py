@@ -398,46 +398,47 @@ def get_all_measures_sql():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     # TODO words with multiple parts are smushed together. perhaps these should be stored differently on import
+    #   or perhaps the processing should be done in python
     query = """SELECT
                     
                     LOWER(a.lemma_highest_pos) as word_lemma,
                     AVG(a.aoa_kup_lemma) as age,
                     string_agg(a.dom_pos_subtlex, ',') as part_of_speech,
                     string_agg(o.word, ',') as word,
-                    AVG(COALESCE(e.arousal, 0)) AS arousal,
-                    AVG(COALESCE(e.dominance, 0)) AS dominance,
-                    AVG(COALESCE(e.valence, 0)) AS valence,
-                    AVG(COALESCE(o.bigram_count, 0)) AS bigram_count,
-                    AVG(COALESCE(o.bigram_freq, 0)) AS bigram_freq,
-                    AVG(COALESCE(o.frequency, 0)) AS frequency,
-                    AVG(COALESCE(o.ortho_frequency, 0)) AS ortho_frequency,
-                    AVG(COALESCE(o.ortho_neighbours, 0)) AS ortho_neighbours,
-                    AVG(COALESCE(o.trigram_count, 0)) AS trigram_count,
-                    AVG(COALESCE(o.trigram_freq, 0)) AS trigram_freq,
-                    AVG(COALESCE(o.unconstrained_bigram_count, 0)) AS unconstrained_bigram_count,
-                    AVG(COALESCE(o.unconstrained_bigram_freq, 0)) AS unconstrained_bigram_freq,
-                    AVG(COALESCE(o.unconstrained_trigram_count, 0)) AS unconstrained_trigram_count,
-                    AVG(COALESCE(o.unconstrained_trigram_freq, 0)) AS unconstrained_trigram_freq,
-                    AVG(COALESCE(o.unconstrained_unigram_count, 0)) AS unconstrained_unigram_count,
-                    AVG(COALESCE(o.unconstrained_unigram_freq, 0)) AS unconstrained_unigram_freq,
-                    AVG(COALESCE(o.unigram_count, 0)) AS unigram_count,
-                    AVG(COALESCE(o.unigram_freq, 0)) AS unigram_freq,
-                    AVG(COALESCE(p.pknown, 0)) AS pknown,
-                    AVG(COALESCE(p.prevalence, 0)) AS prevalence,
-                    AVG(COALESCE(phon.nphon, 0)) AS nphon,
-                    AVG(COALESCE(phon.scdcnt, 0)) AS scdcnt,
-                    AVG(COALESCE(phon.sfreq, 0)) AS sfreq,
-                    AVG(COALESCE(phon.strbpav, 0)) AS strbpav,
-                    AVG(COALESCE(phon.strdens, 0)) AS strdens,
-                    AVG(COALESCE(phon.strlcpospav, 0)) AS strlcpospav,
-                    AVG(COALESCE(phon.strpospav, 0)) AS strpospav,
-                    AVG(COALESCE(phon.strtpav, 0)) AS strtpav,
-                    AVG(COALESCE(phon.unsbpav, 0)) AS unsbpav,
-                    AVG(COALESCE(phon.unsdens, 0)) AS unsdens,
-                    AVG(COALESCE(phon.unslcpospav, 0)) AS unslcpospav,
-                    AVG(COALESCE(phon.unspospav, 0)) AS unspospav,
-                    AVG(COALESCE(phon.unstpav, 0)) AS unstpav,
-                    AVG(COALESCE(c.concreteness_measure, 0)) AS concreteness_measure
+                    AVG(e.arousal) AS arousal,
+                    AVG(e.dominance) AS dominance,
+                    AVG(e.valence) AS valence,
+                    AVG(o.bigram_count) AS bigram_count,
+                    AVG(o.bigram_freq) AS bigram_freq,
+                    AVG(o.frequency) AS frequency,
+                    AVG(o.ortho_frequency) AS ortho_frequency,
+                    AVG(o.ortho_neighbours) AS ortho_neighbours,
+                    AVG(o.trigram_count) AS trigram_count,
+                    AVG(o.trigram_freq) AS trigram_freq,
+                    AVG(o.unconstrained_bigram_count) AS unconstrained_bigram_count,
+                    AVG(o.unconstrained_bigram_freq) AS unconstrained_bigram_freq,
+                    AVG(o.unconstrained_trigram_count) AS unconstrained_trigram_count,
+                    AVG(o.unconstrained_trigram_freq) AS unconstrained_trigram_freq,
+                    AVG(o.unconstrained_unigram_count) AS unconstrained_unigram_count,
+                    AVG(o.unconstrained_unigram_freq) AS unconstrained_unigram_freq,
+                    AVG(o.unigram_count) AS unigram_count,
+                    AVG(o.unigram_freq) AS unigram_freq,
+                    AVG(p.pknown) AS pknown,
+                    AVG(p.prevalence) AS prevalence,
+                    AVG(phon.nphon) AS nphon,
+                    AVG(phon.scdcnt) AS scdcnt,
+                    AVG(phon.sfreq) AS sfreq,
+                    AVG(phon.strbpav) AS strbpav,
+                    AVG(phon.strdens) AS strdens,
+                    AVG(phon.strlcpospav) AS strlcpospav,
+                    AVG(phon.strpospav) AS strpospav,
+                    AVG(phon.strtpav) AS strtpav,
+                    AVG(phon.unsbpav) AS unsbpav,
+                    AVG(phon.unsdens) AS unsdens,
+                    AVG(phon.unslcpospav) AS unslcpospav,
+                    AVG(phon.unspospav) AS unspospav,
+                    AVG(phon.unstpav) AS unstpav,
+                    AVG(c.concreteness_measure) AS concreteness_measure
                 FROM orthographic o
                 LEFT JOIN concreteness c ON o.word=c.word
                 LEFT JOIN prevalences p ON o.word=p.word
@@ -493,7 +494,6 @@ def get_all_measures():
     ]
     item_list = explode_word_stems(cur)
     df = create_dataframe_in_parallel(item_list, index='word', columns_types=item_dtype)
-
     return df
 
 
