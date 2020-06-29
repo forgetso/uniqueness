@@ -6,6 +6,7 @@ import numpy as np
 import logging
 
 logging.basicConfig(level=LOG_LEVEL)
+UNKNOWN_CATEGORY = 'unknown'
 
 
 def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
@@ -17,13 +18,18 @@ def create_dataframe_in_parallel(item_list, index=None, columns_types=None):
     result = pd.concat(jobs)
 
     column_names = list(result.columns.values)
+
     result['word'] = lower_and_decode(result['word'])
     # TODO use columns_types to figure out which columns are not numeric
     non_numeric = ['word', 'part_of_speech']
     for column in result.columns:
         if column not in non_numeric:
             result[column] = result[column].astype(np.float)
-    result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean']).dropna(axis=0, how='all')
+    if result['part_of_speech'].dtype == 'category':
+        result['part_of_speech'].cat.add_categories(UNKNOWN_CATEGORY, inplace=True)
+    result['part_of_speech'].fillna(value=UNKNOWN_CATEGORY, inplace=True)
+    result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean']).sort_index(level='word')
+    result = result.dropna(axis=0, how='all')
     result = result.reset_index()
     # Order getting messed up with part_of_speech and ages being mixed because of group by
     for idn, nn in enumerate(non_numeric):
@@ -61,6 +67,8 @@ def create_dataframe(item_list, columns_types=None):
         logging.debug('setting types of columns...')
         for c, d in columns_types:
             df[c] = df[c].astype(d)
+    # booleanDictionary = {True: 'true', False: 'false'}
+    # df['word'] = df['word'].replace(booleanDictionary)
     return df
 
 

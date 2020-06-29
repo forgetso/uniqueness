@@ -3,6 +3,7 @@ from backend.db.db import connect, execute_values_wrap
 from backend.lib.setup import db_setup
 from backend.settings import ORTHOGRAPHIC_FILE
 
+
 def main():
     target_file = ORTHOGRAPHIC_FILE
     process_data(target_file)
@@ -52,7 +53,7 @@ def process_data(target_file):
         records = []
         for row in reader:
             record = {}
-            record['word'] = replace_NA(row['STRING'])
+            record['word'] = replace_NA(row['STRING']).lower()
             record['frequency'] = replace_NA(row['FREQ'])
             record['ortho_neighbours'] = replace_NA(row['Orth'])
             record['ortho_frequency'] = replace_NA(row['Orth_F'])
@@ -80,12 +81,8 @@ def replace_NA(item):
 
 
 def save_orthographic_records(records):
-    conn = connect()
-    cur = conn.cursor()
     fieldnametuple = tuple(records[0].keys())
-    execute_values_wrap(cur, 'orthographic', fieldnametuple, [list(x.values()) for x in records])
-    conn.commit()
-    conn.close()
+    execute_values_wrap('orthographic', fieldnametuple, [list(x.values()) for x in records])
 
 
 def setup():

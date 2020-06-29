@@ -397,14 +397,13 @@ def get_all_words():
 def get_all_measures_sql():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    # TODO words with multiple parts are smushed together. perhaps these should be stored differently on import
-    #   or perhaps the processing should be done in python
+    # TODO move away from having any logic stored in the DB!!!!! This is only going to cause issues later.
     query = """SELECT
                     
                     LOWER(a.lemma_highest_pos) as word_lemma,
                     AVG(a.aoa_kup_lemma) as age,
                     string_agg(a.dom_pos_subtlex, ',') as part_of_speech,
-                    string_agg(o.word, ',') as word,
+                    string_agg(LOWER(o.word), ',') as word,
                     AVG(e.arousal) AS arousal,
                     AVG(e.dominance) AS dominance,
                     AVG(e.valence) AS valence,
@@ -514,7 +513,10 @@ def explode_word_stems(cur):
         # row_dict.pop('word_alternative',None)
         row_dict.pop('word_lemma')
         word_set = set(item['word'].split(','))
-        word_set.add(item['word_lemma'])
+        # some words do not have lemmas in the acquisition_age table which means they were getting dropped
+        first_lemma = item['word_lemma'] or item['word']
+        if first_lemma is not None:
+            word_set.add(str(first_lemma).lower())
         word_set.discard(None)
         pos_set = None
         try:

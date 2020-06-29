@@ -38,9 +38,8 @@ def test_check_measures():
     all_measures = get_all_measures()
     words = pd.DataFrame(['abacus', 'monkey', 'madeupword', 'made_up_word'])
     result = check_measures(all_measures, distinct_words=words)
-    print(result)
-    print(result[result[0] == 'made_up_word']['concreteness_measure'])
-    assert (False)
+    np.testing.assert_allclose(result[result[0] == 'made_up_word']['concreteness_measure'].values, [3.3])
+    # TODO more tests at this stage
 
 
 def test_check_syntagmatic():
@@ -60,7 +59,7 @@ def test_check_syntagmatic():
 
     # None is not equal to None so we use False here instead of None
     # also np.nan is not equal to np.nan which is why we didn't use it
-    result.fillna(value=False, inplace=True)
+    result['syntagmatic'].fillna(value=False, inplace=True)
     result.reset_index(inplace=True)
     comparison = np.equal(result['syntagmatic'], expected['syntagmatic'])
     assert (np.all(comparison))

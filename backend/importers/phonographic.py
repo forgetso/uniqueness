@@ -17,7 +17,7 @@ def process_data(target_file):
         # Indx	Word	UnTrn	StTrn	NSyll	NPhon	unsDENS	unsFDEN	unsLDEN	unsCDEN	strDENS	strFDEN	strLDEN	strCDEN	unsBPAV	unsFBPAV	unsLBPAV	unsCBPAV	strBPAV	strFBPAV	strLBPAV	strCBPAV	unsTPAV	unsFTPAV	unsLTPAV	unsCTPAV	strTPAV	strFTPAV	strLTPAV	strCTPAV	unsPOSPAV	unsFPOSPAV	unsLPOSPAV	unsCPOSPAV	strPOSPAV	strFPOSPAV	strLPOSPAV	strCPOSPAV	unsLCPOSPAV	unsFLCPOSPAV	unsLLCPOSPAV	unsCLCPOSPAV	strLCPOSPAV	strFLCPOSPAV	strLLCPOSPAV	strCLCPOSPAV	SFreq	SCDcnt
         records = []
         for row in reader:
-            record = {'word': row['Word']}
+            record = {'word': row['Word'].lower()}
             other = {k: v for k, v in row.items() if k not in ('Word', 'Indx', '')}
             record.update(other)
             records.append(record)
@@ -26,12 +26,8 @@ def process_data(target_file):
 
 
 def save_phonographic_records(records):
-    conn = connect()
-    cur = conn.cursor()
     fieldnametuple = tuple(records[0].keys())
-    execute_values_wrap(cur, 'phonographic', fieldnametuple, [list(x.values()) for x in records])
-    conn.commit()
-    conn.close()
+    execute_values_wrap('phonographic', fieldnametuple, [list(x.values()) for x in records])
 
 
 def setup():
