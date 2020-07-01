@@ -17,6 +17,7 @@ import pandas as pd
 import logging
 from backend.lib.sense2vec import NUM_TYPES, NAMED_ENTITITES
 from backend.app.semantic_atlas import check_semantic_atlas
+from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY
 
 logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
@@ -62,7 +63,7 @@ def main(save=None, source=None, filter=None):
         raise ValueError('No responses to code...')
     start = time.perf_counter()
     logging.debug('dispatching jobs...')
-    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER, get_coding, save=save)
+    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER * 2, get_coding, save=save)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
 
@@ -160,7 +161,6 @@ def get_coding(df, save):
 
 
 def basic_coding(df):
-    print(df)
     df['length'] = df['cue_decoded'].str.len() - df['response_decoded'].str.len()
     df['syllables'] = np.vectorize(syllables)(df['cue_raw']) - np.vectorize(syllables)(df['response_raw'])
     df['capitalised'] = np.equal(df['cue_raw'].str[0].str.isupper(), df['response_raw'].str[0].str.isupper())
@@ -384,7 +384,6 @@ def check_measures(all_measures, distinct_words):
     split_words = multi_words[col_name].str.split('_')
     # split is  a list of words [first, second, third] which we want to return [True, True, True] as being in all_measures
     # then we want to get all these measures and take the mean
-    print([all_measures[all_measures.index.isin(split)] for split in split_words.values])
     # this is done for each split list
     split_words_measures = pd.DataFrame(
         [all_measures[all_measures.index.isin(split)].mean().T for split in split_words.values],
@@ -440,11 +439,12 @@ def check_senses_and_pos(df):
     ))
     # the remaining records to be checked
     remaining = df[~pos_equal].copy(deep=True)
-    # not nans
-    cue_pos_not_null = ~remaining['cue_pos'].copy().isnull()
+    # not nans or not "unknown" str
+    cue_pos_not_null = remaining['cue_pos'].copy() != UNKNOWN_CATEGORY
     cue_sense_not_null = ~remaining['cue_sense'].copy().isnull()
-    response_pos_not_null = ~remaining['response_pos'].copy().isnull()
+    response_pos_not_null = remaining['response_pos'].copy() != UNKNOWN_CATEGORY
     response_sense_not_null = ~remaining['response_sense'].copy().isnull()
+
     # we need at least one of the cue pos/sense and one of the res pos/sense to not be NaN and also not equal
     pos_diff = np.logical_or.reduce((
         np.logical_and(cue_pos_not_null, cue_sense_not_null),
@@ -453,7 +453,6 @@ def check_senses_and_pos(df):
         np.logical_and(response_pos_not_null, response_sense_not_null)
     ))
     # everything else we cannot tell as the pos/senses are NaN for both cue and/or response cols
-
     pos_diff_indexes = remaining.index[pos_diff].copy()
     pos_equal_indexes = df.index[pos_equal].copy()
     # pos_unknown_indexes = remaining[~pos_diff]

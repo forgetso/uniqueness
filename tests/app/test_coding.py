@@ -1,5 +1,6 @@
 from backend.app.coding import check_syntagmatic, check_phonology, check_affix, basic_coding, check_senses_and_pos, \
     check_corrections, get_all_measures, check_measures
+from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY
 
 import pandas as pd
 import numpy as np
@@ -38,8 +39,8 @@ def test_check_measures():
     all_measures = get_all_measures()
     words = pd.DataFrame(['abacus', 'monkey', 'madeupword', 'made_up_word'])
     result = check_measures(all_measures, distinct_words=words)
-    np.testing.assert_allclose(result[result[0] == 'made_up_word']['concreteness_measure'].values, [3.3])
-    # TODO more tests at this stage
+    print(result)
+    np.testing.assert_allclose(result[result[0] == 'made_up_word']['concreteness_measure'].values, [3.303333])
 
 
 def test_check_syntagmatic():
@@ -130,6 +131,7 @@ def test_check_corrections():
 def test_check_senses_and_pos():
     # cue_pos, cue_sense, response_pos, response_sense
     # to generate the below np.array(list(itertools.combinations_with_replacement(x, r=4)))
+
     data = [[np.nan, np.nan, np.nan, np.nan],  # nan
             [np.nan, np.nan, np.nan, 'noun'],  # nan
             [np.nan, np.nan, np.nan, 'verb'],  # nan
@@ -146,10 +148,14 @@ def test_check_senses_and_pos():
             ['noun', 'verb', 'verb', 'verb'],  # False
             ['verb', 'verb', 'verb', 'verb']]  # False
     df = pd.DataFrame(data, columns=['cue_pos', 'cue_sense', 'response_pos', 'response_sense'])
+    # these were originally nas but have since changed to the string, 'unknown'
+    df['cue_pos'].fillna(UNKNOWN_CATEGORY, inplace=True)
+    df['response_pos'].fillna(UNKNOWN_CATEGORY, inplace=True)
     res = [np.nan, np.nan, np.nan, True, True, True, False, False, True, False, False, False, True, False, False]
     res = pd.DataFrame(res, columns=['pos_changes']).fillna(0)
     df = check_senses_and_pos(df)
     df = df.fillna(0)
-
+    print(res['pos_changes'])
+    print(df['pos_changes'])
     # np.nan != np.nan so need to fill these with a value that will be equal
     assert (np.array_equal(df['pos_changes'], res['pos_changes']))

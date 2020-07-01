@@ -2,16 +2,53 @@ import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
-from backend.lib.helpers.dataframe import create_dataframe_in_parallel
+from backend.lib.helpers.dataframe import create_all_measures_dataframe, format_word_data
 import pprint
 import sys
 import logging
 import numpy as np
-from psycopg2 import sql
-
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
-
+WORD_MEASURES_DTYPES = [
+        ('word', '|S'),
+        ('word_lemma', 'string'),
+        ('age', 'f'),
+        ('part_of_speech', 'category'),
+        ('arousal', 'f'),
+        ('dominance', 'f'),
+        ('valence', 'f'),
+        ('bigram_count', 'f'),
+        ('bigram_freq', 'f'),
+        ('frequency', 'f'),
+        ('ortho_frequency', 'f'),
+        ('ortho_neighbours', 'f'),
+        ('trigram_count', 'f'),
+        ('trigram_freq', 'f'),
+        ('unconstrained_bigram_count', 'f'),
+        ('unconstrained_bigram_freq', 'f'),
+        ('unconstrained_trigram_count', 'f'),
+        ('unconstrained_trigram_freq', 'f'),
+        ('unconstrained_unigram_count', 'f'),
+        ('unconstrained_unigram_freq', 'f'),
+        ('unigram_count', 'f'),
+        ('unigram_freq', 'f'),
+        ('pknown', 'f'),
+        ('prevalence', 'f'),
+        ('nphon', 'f'),
+        ('scdcnt', 'f'),
+        ('sfreq', 'f'),
+        ('strbpav', 'f'),
+        ('strdens', 'f'),
+        ('strlcpospav', 'f'),
+        ('strpospav', 'f'),
+        ('strtpav', 'f'),
+        ('unsbpav', 'f'),
+        ('unsdens', 'f'),
+        ('unslcpospav', 'f'),
+        ('unspospav', 'f'),
+        ('unstpav', 'f'),
+        ('concreteness_measure', 'f')
+    ]
 
 def connect():
     conn = pg.connect(host='localhost', user=PG_USER, password=PG_PASSWORD, database="backend")
@@ -397,102 +434,67 @@ def get_all_words():
 def get_all_measures_sql():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
-    # TODO move away from having any logic stored in the DB!!!!! This is only going to cause issues later.
     query = """SELECT
                     
                     LOWER(a.lemma_highest_pos) as word_lemma,
-                    AVG(a.aoa_kup_lemma) as age,
-                    string_agg(a.dom_pos_subtlex, ',') as part_of_speech,
-                    string_agg(LOWER(o.word), ',') as word,
-                    AVG(e.arousal) AS arousal,
-                    AVG(e.dominance) AS dominance,
-                    AVG(e.valence) AS valence,
-                    AVG(o.bigram_count) AS bigram_count,
-                    AVG(o.bigram_freq) AS bigram_freq,
-                    AVG(o.frequency) AS frequency,
-                    AVG(o.ortho_frequency) AS ortho_frequency,
-                    AVG(o.ortho_neighbours) AS ortho_neighbours,
-                    AVG(o.trigram_count) AS trigram_count,
-                    AVG(o.trigram_freq) AS trigram_freq,
-                    AVG(o.unconstrained_bigram_count) AS unconstrained_bigram_count,
-                    AVG(o.unconstrained_bigram_freq) AS unconstrained_bigram_freq,
-                    AVG(o.unconstrained_trigram_count) AS unconstrained_trigram_count,
-                    AVG(o.unconstrained_trigram_freq) AS unconstrained_trigram_freq,
-                    AVG(o.unconstrained_unigram_count) AS unconstrained_unigram_count,
-                    AVG(o.unconstrained_unigram_freq) AS unconstrained_unigram_freq,
-                    AVG(o.unigram_count) AS unigram_count,
-                    AVG(o.unigram_freq) AS unigram_freq,
-                    AVG(p.pknown) AS pknown,
-                    AVG(p.prevalence) AS prevalence,
-                    AVG(phon.nphon) AS nphon,
-                    AVG(phon.scdcnt) AS scdcnt,
-                    AVG(phon.sfreq) AS sfreq,
-                    AVG(phon.strbpav) AS strbpav,
-                    AVG(phon.strdens) AS strdens,
-                    AVG(phon.strlcpospav) AS strlcpospav,
-                    AVG(phon.strpospav) AS strpospav,
-                    AVG(phon.strtpav) AS strtpav,
-                    AVG(phon.unsbpav) AS unsbpav,
-                    AVG(phon.unsdens) AS unsdens,
-                    AVG(phon.unslcpospav) AS unslcpospav,
-                    AVG(phon.unspospav) AS unspospav,
-                    AVG(phon.unstpav) AS unstpav,
-                    AVG(c.concreteness_measure) AS concreteness_measure
+                    a.dom_pos_subtlex as part_of_speech,
+                    LOWER(c.word) AS c_word,
+                    LOWER(a.word) AS a_word,
+                    LOWER(o.word) AS o_word,
+                    LOWER(e.word) AS e_word,
+                    LOWER(phon.word) as phon_word,
+                    a.aoa_kup_lemma as age,
+                    e.arousal AS arousal,
+                    e.dominance AS dominance,
+                    e.valence AS valence,
+                    o.bigram_count AS bigram_count,
+                    o.bigram_freq AS bigram_freq,
+                    o.frequency AS frequency,
+                    o.ortho_frequency AS ortho_frequency,
+                    o.ortho_neighbours AS ortho_neighbours,
+                    o.trigram_count AS trigram_count,
+                    o.trigram_freq AS trigram_freq,
+                    o.unconstrained_bigram_count AS unconstrained_bigram_count,
+                    o.unconstrained_bigram_freq AS unconstrained_bigram_freq,
+                    o.unconstrained_trigram_count AS unconstrained_trigram_count,
+                    o.unconstrained_trigram_freq AS unconstrained_trigram_freq,
+                    o.unconstrained_unigram_count AS unconstrained_unigram_count,
+                    o.unconstrained_unigram_freq AS unconstrained_unigram_freq,
+                    o.unigram_count AS unigram_count,
+                    o.unigram_freq AS unigram_freq,
+                    p.pknown AS pknown,
+                    p.prevalence AS prevalence,
+                    phon.nphon AS nphon,
+                    phon.scdcnt AS scdcnt,
+                    phon.sfreq AS sfreq,
+                    phon.strbpav AS strbpav,
+                    phon.strdens AS strdens,
+                    phon.strlcpospav AS strlcpospav,
+                    phon.strpospav AS strpospav,
+                    phon.strtpav AS strtpav,
+                    phon.unsbpav AS unsbpav,
+                    phon.unsdens AS unsdens,
+                    phon.unslcpospav AS unslcpospav,
+                    phon.unspospav AS unspospav,
+                    phon.unstpav AS unstpav,
+                    c.concreteness_measure AS concreteness_measure
                 FROM orthographic o
-                LEFT JOIN concreteness c ON o.word=c.word
-                LEFT JOIN prevalences p ON o.word=p.word
-                LEFT JOIN emotions e ON o.word=e.word
-                LEFT JOIN acquisition_age a ON o.word=a.word
-                LEFT JOIN phonographic phon ON o.word=phon.word
-                GROUP BY LOWER(a.lemma_highest_pos)
-                ORDER BY LOWER(a.lemma_highest_pos) ASC;"""
+                FULL OUTER JOIN concreteness c ON o.word=c.word
+                FULL OUTER JOIN prevalences p ON o.word=p.word
+                FULL OUTER JOIN emotions e ON o.word=e.word
+                FULL OUTER JOIN acquisition_age a ON o.word=a.word
+                FULL OUTER JOIN phonographic phon ON o.word=phon.word
+                ORDER BY c_word, a_word, o_word, e_word, phon_word  ASC;"""
+
     cur.execute(query)
     return cur
 
 
 def get_all_measures():
     cur = get_all_measures_sql()
-    item_dtype = [
-        ('word', '|S'),
-        ('age', 'f'),
-        ('part_of_speech', 'category'),
-        ('arousal', 'f'),
-        ('dominance', 'f'),
-        ('valence', 'f'),
-        ('bigram_count', 'f'),
-        ('bigram_freq', 'f'),
-        ('frequency', 'f'),
-        ('ortho_frequency', 'f'),
-        ('ortho_neighbours', 'f'),
-        ('trigram_count', 'f'),
-        ('trigram_freq', 'f'),
-        ('unconstrained_bigram_count', 'f'),
-        ('unconstrained_bigram_freq', 'f'),
-        ('unconstrained_trigram_count', 'f'),
-        ('unconstrained_trigram_freq', 'f'),
-        ('unconstrained_unigram_count', 'f'),
-        ('unconstrained_unigram_freq', 'f'),
-        ('unigram_count', 'f'),
-        ('unigram_freq', 'f'),
-        ('pknown', 'f'),
-        ('prevalence', 'f'),
-        ('nphon', 'f'),
-        ('scdcnt', 'f'),
-        ('sfreq', 'f'),
-        ('strbpav', 'f'),
-        ('strdens', 'f'),
-        ('strlcpospav', 'f'),
-        ('strpospav', 'f'),
-        ('strtpav', 'f'),
-        ('unsbpav', 'f'),
-        ('unsdens', 'f'),
-        ('unslcpospav', 'f'),
-        ('unspospav', 'f'),
-        ('unstpav', 'f'),
-        ('concreteness_measure', 'f')
-    ]
-    item_list = explode_word_stems(cur)
-    df = create_dataframe_in_parallel(item_list, index='word', columns_types=item_dtype)
+    item_dtype = WORD_MEASURES_DTYPES
+    item_list = format_word_data(cur, item_dtype)
+    df = create_all_measures_dataframe(item_list, index='word')
     return df
 
 
@@ -506,31 +508,7 @@ def get_senses():
     return result
 
 
-def explode_word_stems(cur):
-    item_list = []
-    for item in cur:
-        row_dict = dict(item)
-        # row_dict.pop('word_alternative',None)
-        row_dict.pop('word_lemma')
-        word_set = set(item['word'].split(','))
-        # some words do not have lemmas in the acquisition_age table which means they were getting dropped
-        first_lemma = item['word_lemma'] or item['word']
-        if first_lemma is not None:
-            word_set.add(str(first_lemma).lower())
-        word_set.discard(None)
-        pos_set = None
-        try:
-            pos_set = set(item['part_of_speech'].split(','))
-            pos_set.discard(None)
-            pos_set = ','.join(sorted(list(pos_set)))
-        except AttributeError:
-            pass
-        for w in list(word_set):
-            row = row_dict.copy()
-            row['word'] = w
-            row['part_of_speech'] = pos_set
-            item_list.append(row)
-    return item_list
+
 
 
 def save_cue_response_pair(cue_response_pair):
