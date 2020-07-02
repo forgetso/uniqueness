@@ -5,6 +5,8 @@ import numpy as np
 
 # split a list into evenly sized chunks
 def chunks(lst, n):
+    if n < 1:
+        n = 1
     return [x.tolist() for x in np.array_split(lst, n) if len(x)]
 
 
@@ -64,13 +66,6 @@ def job_pool(data, job_number, job_to_do, groupby=None, **kwargs):
     if groupby:
         logging.debug('ensuring slices adhere to grouping rules....')
         slices = amend_groups(slices, groupby)
-    for s in slices:
-        assert (len(s) > 0)
-        for w in s:
-            if 'i' == w['word']:
-                found = True
-                break
-    assert(found)
     if len(slices) < job_number:
         job_number = len(slices)
     pool = multiprocessing.Pool(processes=job_number)

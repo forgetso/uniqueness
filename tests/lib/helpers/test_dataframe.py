@@ -49,9 +49,11 @@ def test_create_all_measures_dataframe():
     ]
     result = create_all_measures_dataframe(df=format_word_data(DATA, item_dtype=item_dtype))
     to_test = ['age', 'arousal', 'concreteness_measure']
+    print(result)
     for word_dict in DATA:
         for test_col in to_test:
             print('testing {} {}'.format(word_dict['word'], test_col))
+            print(result.loc[result['word'] == word_dict['word']])
             np.testing.assert_allclose(result.loc[result['word'] == word_dict['word']][test_col].values,
                                        [word_dict[test_col]])
 

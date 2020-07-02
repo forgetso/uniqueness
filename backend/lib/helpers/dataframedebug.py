@@ -17,7 +17,7 @@ def dfdebug(df, column, search_term, line_no):
             location = df.index.get_loc(search_term)
             logging.debug(
                 'process ID {} line number {} contains search term {} in the index'.format(os.getpid(), line_no, search_term))
-            logging.debug('present on row {}'.format(location.values))
+            logging.debug('present on row {}'.format(str(location)))
         except KeyError:
             logging.debug('process ID {} line number {} MISSING search term {}'.format(os.getpid(), line_no, search_term))
             pass

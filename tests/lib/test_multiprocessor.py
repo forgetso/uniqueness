@@ -1,8 +1,14 @@
 from backend.lib.multiprocessor import chunks, amend_groups
 from tests.lib.helpers.test_dataframe import DATA
 from backend.settings import JOB_NUMBER
-import pytest
 import numpy as np
+
+
+def test_chunks_with_dummy_data():
+    total = len(DATA)
+    chunk_size = total / (JOB_NUMBER * 2)
+    result = chunks(DATA, chunk_size)
+    assert (len(result) == 1)
 
 
 def test_chunks():

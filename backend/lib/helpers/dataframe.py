@@ -1,10 +1,8 @@
 from backend.lib.multiprocessor import job_pool
-import time
 import pandas as pd
 from backend.settings import JOB_NUMBER, LOG_LEVEL
 import numpy as np
 import logging
-from backend.lib.helpers.dfdebug import dfdebug, get_linenumber
 
 logging.basicConfig(level=LOG_LEVEL)
 UNKNOWN_CATEGORY = 'unknown'
@@ -31,7 +29,6 @@ def format_word_data(cur, item_dtype):
     logging.debug('jobs returned {} lines'.format(total_lines))
     result = pd.concat(jobs)
     logging.debug('concat returned {} lines'.format(len(result)))
-    dfdebug(result, 'word', b'i', get_linenumber())
     return result
 
 
@@ -56,7 +53,6 @@ def format_word_data_multiprocess(data, item_dtype):
     wordsdf = create_dataframe_from_dict(words, item_dtype)
     wordsdf = replace_nulls_with_nearest_non_nulls_by_lemma(wordsdf)
     wordsdf = replace_nulls_with_nearest_non_nulls_by_similarity(wordsdf)
-    dfdebug(wordsdf, 'word', b'i', get_linenumber())
     return wordsdf
 
 
@@ -182,10 +178,8 @@ def create_all_measures_dataframe(df, index=None):
     result['part_of_speech'].fillna(value=UNKNOWN_CATEGORY, inplace=True)
 
     result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean']).sort_index(level='word')
-    #result = result.dropna(axis=0, how='all')
+    result = result.dropna(axis=0, how='all')
     result = result.reset_index()
-    dfdebug(result, 'word', 'i', get_linenumber())
-    dfdebug(result, 'word', b'i', get_linenumber())
     # Order getting messed up with part_of_speech and ages being mixed because of group by
     for idn, nn in enumerate(non_numeric):
         if column_names[idn] != nn:
@@ -198,8 +192,6 @@ def create_all_measures_dataframe(df, index=None):
         result.index.rename(index)
     logging.debug('index names {}'.format(result.index.names))
     result.columns = [x for x in column_names if x not in result.index.names]
-    dfdebug(result, 'word', 'i', get_linenumber())
-    dfdebug(result, 'word', b'i', get_linenumber())
     return result
 
 
