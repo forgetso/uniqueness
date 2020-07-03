@@ -9,46 +9,6 @@ import logging
 import numpy as np
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
-WORD_MEASURES_DTYPES = [
-        ('word', '|S'),
-        ('word_lemma', 'string'),
-        ('age', 'f'),
-        ('part_of_speech', 'category'),
-        ('arousal', 'f'),
-        ('dominance', 'f'),
-        ('valence', 'f'),
-        ('bigram_count', 'f'),
-        ('bigram_freq', 'f'),
-        ('frequency', 'f'),
-        ('ortho_frequency', 'f'),
-        ('ortho_neighbours', 'f'),
-        ('trigram_count', 'f'),
-        ('trigram_freq', 'f'),
-        ('unconstrained_bigram_count', 'f'),
-        ('unconstrained_bigram_freq', 'f'),
-        ('unconstrained_trigram_count', 'f'),
-        ('unconstrained_trigram_freq', 'f'),
-        ('unconstrained_unigram_count', 'f'),
-        ('unconstrained_unigram_freq', 'f'),
-        ('unigram_count', 'f'),
-        ('unigram_freq', 'f'),
-        ('pknown', 'f'),
-        ('prevalence', 'f'),
-        ('nphon', 'f'),
-        ('scdcnt', 'f'),
-        ('sfreq', 'f'),
-        ('strbpav', 'f'),
-        ('strdens', 'f'),
-        ('strlcpospav', 'f'),
-        ('strpospav', 'f'),
-        ('strtpav', 'f'),
-        ('unsbpav', 'f'),
-        ('unsdens', 'f'),
-        ('unslcpospav', 'f'),
-        ('unspospav', 'f'),
-        ('unstpav', 'f'),
-        ('concreteness_measure', 'f')
-    ]
 
 def connect():
     conn = pg.connect(host='localhost', user=PG_USER, password=PG_PASSWORD, database="backend")
@@ -490,10 +450,11 @@ def get_all_measures_sql():
     return cur
 
 
-def get_all_measures():
-    cur = get_all_measures_sql()
-    item_dtype = WORD_MEASURES_DTYPES
-    item_list = format_word_data(cur, item_dtype)
+def get_all_measures(cur=None):
+    if not cur:
+        cur = get_all_measures_sql()
+
+    item_list = format_word_data(cur)
     df = create_all_measures_dataframe(item_list, index='word')
     return df
 

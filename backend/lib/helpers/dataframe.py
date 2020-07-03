@@ -3,12 +3,55 @@ import pandas as pd
 from backend.settings import JOB_NUMBER, LOG_LEVEL
 import numpy as np
 import logging
+import time
+from backend.lib.helpers.dataframedebug import time_taken
 
 logging.basicConfig(level=LOG_LEVEL)
-UNKNOWN_CATEGORY = 'unknown'
+UNKNOWN_CATEGORY = '<unknown>'
+WORD_MEASURES_DTYPES = [
+    ('word', '|S'),
+    ('word_lemma', 'string'),
+    ('age', 'f'),
+    ('part_of_speech', 'category'),
+    ('arousal', 'f'),
+    ('dominance', 'f'),
+    ('valence', 'f'),
+    ('bigram_count', 'f'),
+    ('bigram_freq', 'f'),
+    ('frequency', 'f'),
+    ('ortho_frequency', 'f'),
+    ('ortho_neighbours', 'f'),
+    ('trigram_count', 'f'),
+    ('trigram_freq', 'f'),
+    ('unconstrained_bigram_count', 'f'),
+    ('unconstrained_bigram_freq', 'f'),
+    ('unconstrained_trigram_count', 'f'),
+    ('unconstrained_trigram_freq', 'f'),
+    ('unconstrained_unigram_count', 'f'),
+    ('unconstrained_unigram_freq', 'f'),
+    ('unigram_count', 'f'),
+    ('unigram_freq', 'f'),
+    ('pknown', 'f'),
+    ('prevalence', 'f'),
+    ('nphon', 'f'),
+    ('scdcnt', 'f'),
+    ('sfreq', 'f'),
+    ('strbpav', 'f'),
+    ('strdens', 'f'),
+    ('strlcpospav', 'f'),
+    ('strpospav', 'f'),
+    ('strtpav', 'f'),
+    ('unsbpav', 'f'),
+    ('unsdens', 'f'),
+    ('unslcpospav', 'f'),
+    ('unspospav', 'f'),
+    ('unstpav', 'f'),
+    ('concreteness_measure', 'f')
+]
 
 
-def format_word_data(cur, item_dtype):
+def format_word_data(cur):
+    item_dtype = WORD_MEASURES_DTYPES
     words = []
     for item in cur:
         row_dict = dict(item)
@@ -21,10 +64,15 @@ def format_word_data(cur, item_dtype):
             break
         assert (word is not None)
         row_dict['word'] = word
+        row_dict['startswith'] = ord(word[0]) - 64
         words.append(row_dict)
     words = sorted(words, key=lambda k: k['word'])
+    words = pd.DataFrame(words)
+    words['changes'] = words['startswith'] - words['startswith'].shift(1) != 0
+    words.drop('startswith', inplace=True, axis=1)
     # split the job into multiprocesses, making sure that words starting with the same letter remain in the same group
-    jobs = job_pool(words, JOB_NUMBER * 2, format_word_data_multiprocess, groupby=['word', 0], item_dtype=item_dtype)
+    jobs = job_pool(words, JOB_NUMBER * 2, format_word_data_multiprocess, item_dtype=item_dtype, split_col='changes')
+    # jobs = job_pool(words, JOB_NUMBER * 2, format_word_data_multiprocess, groupby=['startswith'], item_dtype=item_dtype)
     total_lines = sum([len(x) for x in jobs])
     logging.debug('jobs returned {} lines'.format(total_lines))
     result = pd.concat(jobs)
@@ -32,100 +80,75 @@ def format_word_data(cur, item_dtype):
     return result
 
 
-def format_word_data_multiprocess(data, item_dtype):
-    words = {}
-    to_merge = {}
-    # get a giant dict from the cursor
-    for row_dict in data:
-        word = row_dict['word']
-        if word not in words:
-            row_dict['word'] = word
-            words[word] = row_dict
-        else:
-            to_merge.setdefault(word, [])
-            to_merge[word].extend([row_dict, words[word]])
-            words.pop(word)
-
+def format_word_data_multiprocess(df, item_dtype):
     item_dtype_dict = {k: v for k, v in item_dtype}
-    for word in to_merge:
-        words[word] = merge_word_records(to_merge[word], item_dtype_dict)
-
-    wordsdf = create_dataframe_from_dict(words, item_dtype)
-    wordsdf = replace_nulls_with_nearest_non_nulls_by_lemma(wordsdf)
-    wordsdf = replace_nulls_with_nearest_non_nulls_by_similarity(wordsdf)
-    return wordsdf
-
-
-def merge_word_records(word_dicts, item_dtype_dict):
-    # TODO should be using pandas for this
-    new_dict = {}
-    count_dict = {}
-
-    for w in word_dicts:
-        for k, v in w.items():
-            count_dict.setdefault(k, 0)
-
-            # if floats
-            if item_dtype_dict[k] == 'f':
-                if isinstance(v, (int, float)):
-                    new_dict.setdefault(k, 0)
-                    count_dict[k] += 1
-                    new_dict[k] += v
-            # otherwise strings
-            else:
-                new_dict.setdefault(k, [])
-                if v is not None:
-                    new_dict[k].append(v)
-
-    # take the averages of the summed values if they were not None
-    for k, v in new_dict.items():
-
-        if item_dtype_dict[k] == 'f':
-            if count_dict[k] > 0:
-                new_dict[k] = new_dict[k] / count_dict[k]
-        else:
-            new_dict[k] = set(new_dict[k])
-            new_dict[k] = ','.join(new_dict[k])
-
-    for k in item_dtype_dict:
-        if k not in new_dict:
-            new_dict[k] = None
-
-    return new_dict
+    start = time.time()
+    df = set_data_types(df, item_dtype)
+    time_taken(start, set_data_types)
+    start = time.time()
+    df = merge_word_records(df, item_dtype_dict)
+    time_taken(start, merge_word_records)
+    start = time.time()
+    df = replace_nulls_with_nearest_non_nulls_by_lemma(df)
+    time_taken(start, replace_nulls_with_nearest_non_nulls_by_lemma)
+    start = time.time()
+    df = replace_nulls_with_nearest_non_nulls_by_similarity(df)
+    time_taken(start, replace_nulls_with_nearest_non_nulls_by_similarity)
+    return df
 
 
-def create_dataframe_from_dict(words, columns_types):
-    df = pd.DataFrame.from_dict(words)
-    df = df.T
-    df = df.reset_index(drop=True)
-
+def set_data_types(df, columns_types):
     if columns_types:
         logging.debug('setting types of columns...')
         for c, d in columns_types:
             try:
+                # logging.debug('setting {} as {}'.format(c, d))
                 df[c] = df[c].astype(d)
+                df[c].replace({None: np.NaN}, inplace=True)
+
             except KeyError:
-                logging.debug('Column {} is not present in dataframe'.format(c))
+                # logging.debug('Column {} is not present in dataframe'.format(c))
                 pass
     logging.debug('processing {} rows'.format(len(df)))
-    df.set_index('word', inplace=True)
-    df.replace({None: np.NaN}, inplace=True)
-    df.replace({'<NA>': np.NaN}, inplace=True)
-    df.replace({b'None': None}, inplace=True)
     return df
 
 
-def replace_nulls_with_nearest_non_nulls_by_lemma(wordsdf):
+def merge_word_records(df, item_dtype_dict):
+    # join any str columns with commas and return the mean of all the numeric columns
+    # TODO consider passing back words with their parts of speech and try to infer which part of speech is intended in
+    #  the response
+    # TODO work out how to aggregate each column. taking the mean of age doesn't make sense - should it be the max? min?
+    for c, d in item_dtype_dict.items():
+        if d != 'f':
+            # this is for the join function, unique_chars
+            df[c].replace({None: UNKNOWN_CATEGORY}, inplace=True)
+            df[c].replace({'None': UNKNOWN_CATEGORY}, inplace=True)
+            df[c].replace({'<NA>': UNKNOWN_CATEGORY}, inplace=True)
+            df[c].replace({np.nan: UNKNOWN_CATEGORY}, inplace=True)
+    unique_chars = lambda x: ','.join([x for x in x.unique() if x != UNKNOWN_CATEGORY])
+    agg_dict = {x: (unique_chars if item_dtype_dict[x] != 'f' else 'mean') for x in df.columns if x in item_dtype_dict}
+    logging.debug(agg_dict)
+    agg_dict.pop('word', None)
+    df = df.replace(0, np.NaN)
+    df = df.groupby('word').agg(agg_dict)
+    df.replace(UNKNOWN_CATEGORY, np.nan)
+    return df
+
+
+def replace_nulls_with_nearest_non_nulls_by_lemma(df):
     # this copies the part of speech, is this necessary?
-    selected_columns = wordsdf.copy()[[x for x in wordsdf.columns if x != 'word']]
+    selected_columns = df.copy()[[x for x in df.columns if x != 'word']]
     wordsdfcopy = selected_columns.reset_index(drop=True)
     wordsdfcopy = wordsdfcopy.set_index('word_lemma').dropna(how='all')
-    wordsdf = wordsdf.reset_index()
-    wordsdf = wordsdf.set_index('word_lemma')
-    wordsdf.update(wordsdfcopy, overwrite=False)
-    wordsdf = wordsdf.reset_index()
-    wordsdf.set_index('word', inplace=True)
-    return wordsdf
+    wordsdfcopy.index = wordsdfcopy.index.dropna()
+    df = df.reset_index()
+    df = df.set_index('word_lemma')
+    df.update(wordsdfcopy, overwrite=False)
+    df = df.reset_index()
+    df.set_index('word', inplace=True)
+    if 'index' in df.columns:
+        df.rename({'index': 'word'}, inplace=True, axis=1)
+    return df
 
 
 def replace_nulls_with_nearest_non_nulls_by_similarity(df):

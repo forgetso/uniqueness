@@ -2,6 +2,7 @@ from backend.lib.multiprocessor import chunks, amend_groups
 from tests.lib.helpers.test_dataframe import DATA
 from backend.settings import JOB_NUMBER
 import numpy as np
+import pandas as pd
 
 
 def test_chunks_with_dummy_data():
@@ -13,80 +14,72 @@ def test_chunks_with_dummy_data():
 
 def test_chunks():
     result = chunks(['a'], 2)
-    assert (result == [['a']])
+    assert result == [['a']]
 
     result = chunks(['a', 'b', 'c'], 4)
-    assert (result == [['a'], ['b'], ['c']])
+    assert result == [['a'], ['b'], ['c']]
 
     result = chunks(['a', 'b', 'c'], 2)
-    assert (result == [['a', 'b'], ['c']])
+    assert np.array_equal([x.tolist() for x in result], [['a', 'b'], ['c']])
 
     result = chunks(['a', 'b', 'c'], 1)
-    assert (result == [['a', 'b', 'c']])
+    assert np.array_equal([x.tolist() for x in result], [['a', 'b', 'c']])
 
-    # with pytest.raises(TypeError):
-    #     chunks(DATA, 'blah')
-    #
-    # with pytest.raises(TypeError):
-    #     chunks(DATA, np.nan)
-    #
-    # with pytest.raises(TypeError):
-    #     chunks(DATA, {})
-    #
-    # with pytest.raises(TypeError):
-    #     chunks(DATA, None)
+    # TODO check for things that should cause errors
 
 
 def test_amend_groups():
     chunks = [
-        [
+        pd.DataFrame([
             {'word': 'aa'},
             {'word': 'ab'},
             {'word': 'ac'},
             {'word': 'ad'},
             {'word': 'ar'}
-        ],
-        [
+        ]),
+        pd.DataFrame([
             {'word': 'ag'},
             {'word': 'bg'},
             {'word': 'bv'}
-        ],
-        [
+        ]),
+        pd.DataFrame([
             {'word': 'bc'},
             {'word': 'qw'}
-        ],
+        ]),
     ]
     result = amend_groups(chunks, groupby=['word', 0])
-
     print(result)
-    assert (np.all([x['word'][0] == 'a' for x in result[0]]))
-    assert (np.all([x['word'][0] == 'b' for x in result[1]]))
-    assert (np.all([x['word'][0] == 'q' for x in result[2]]))
+    print([x for x in result[0]['word'].values])
+    print([x for x in result[1]['word'].values])
+    print([x for x in result[2]['word'].values])
+    assert (np.all([x[0] == 'a' for x in result[0]['word'].values]))
+    assert (np.all([x[0] == 'b' for x in result[1]['word'].values]))
+    assert (np.all([x[0] == 'q' for x in result[2]['word'].values]))
 
     chunks = [
-        [
+        pd.DataFrame([
             {'word': 'aa'},
             {'word': 'ab'},
-        ],
-        [
+        ]),
+        pd.DataFrame([
             {'word': 'ag'},
             {'word': 'bc'},
-        ],
-        [
+        ]),
+        pd.DataFrame([
             {'word': 'qw'},
             {'word': 'qx'},
             {'word': 'qq'},
-        ],
+        ]),
     ]
     result = amend_groups(chunks, groupby=['word', 0])
     assert (len(result) == 3)
-    assert (np.all([x['word'][0] == 'a' for x in result[0]]))
-    assert (np.all([x['word'][0] == 'b' for x in result[1]]))
-    assert (np.all([x['word'][0] == 'q' for x in result[2]]))
+    assert (np.all([x[0] == 'a' for x in result[0]['word'].values]))
+    assert (np.all([x[0] == 'b' for x in result[1]['word'].values]))
+    assert (np.all([x[0] == 'q' for x in result[2]['word'].values]))
 
 
 def test_chunks_with_amend_groups():
-    words = [
+    words = pd.DataFrame([
         {'word': 'czechoslovaks'},
         {'word': 'czechoslovakian'},
         {'word': 'czechoslovakians'},
@@ -98,18 +91,15 @@ def test_chunks_with_amend_groups():
         {'word': 'qw'},
         {'word': 'qx'},
         {'word': 'qq'},
-    ]
+    ])
     chnks = chunks(words, 8)
     assert (len(chnks) == 8)
     result = amend_groups(chnks, groupby=['word', 0])
     found = False
     print(result)
-    for res in result[0]:
-        if 'czechs' == res['word']:
-            found = True
-    assert (found)
+    assert ('czechs' == result[0]['word'][3])
 
-    words = [
+    words = pd.DataFrame([
         {'word': 'hypothesis'},
         {'word': 'hypothesized'},
         {'word': 'hypothesizes'},
@@ -139,14 +129,10 @@ def test_chunks_with_amend_groups():
         {'word': 'iambuses'},
         {'word': 'iatrogenic'},
         {'word': 'ib'},
-        {'word': 'iba'},
-    ]
+        {'word': 'iba', 'other_random_col': 1},
+    ])
     chnks = chunks(words, JOB_NUMBER * 2)
     assert (len(chnks) == JOB_NUMBER * 2)
     result = amend_groups(chnks, groupby=['word', 0])
-    found = False
     print(result)
-    for res in result[1]:
-        if 'i' == res['word']:
-            found = True
-    assert (found)
+    assert 'i' in result[1]['word'].values

@@ -23,12 +23,12 @@ logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
-ALL_MEASURES = get_all_measures()
-logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
+#ALL_MEASURES = get_all_measures()
+#logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
 ALL_WORDS = get_all_words()
-ps = PorterStemmer()
 SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
+ps = PorterStemmer()
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
 DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
 
@@ -409,6 +409,10 @@ def check_corrections(df):
         corr_col = '{}_correction'.format(x)
         spellcol = '{}_bad_spell'.format(x)
         indexcol = '{}_clean'.format(x)
+        print(unfiltered_senses)
+        print(df)
+        print(df[sensecol])
+        print(df[sensecol].isin(unfiltered_senses))
         df[spellcol] = np.logical_and.reduce((~df[sensecol].isin(unfiltered_senses),
                                               df[corr_col].notnull(),
                                               df[corr_col] != df[decodedcol]))

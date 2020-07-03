@@ -1,8 +1,8 @@
 from backend.lib.helpers.dataframe import create_all_measures_dataframe, merge_word_records, \
     replace_nulls_with_nearest_non_nulls_by_lemma, replace_nulls_with_nearest_non_nulls_by_similarity, \
-    create_dataframe_from_dict
-
-from backend.db.db import format_word_data, WORD_MEASURES_DTYPES
+    set_data_types
+import pandas as pd
+from backend.lib.helpers.dataframe import format_word_data, WORD_MEASURES_DTYPES
 import numpy as np
 from decimal import Decimal
 
@@ -47,13 +47,13 @@ def test_create_all_measures_dataframe():
         ('dominance', 'f'),
         ('valence', 'f')
     ]
-    result = create_all_measures_dataframe(df=format_word_data(DATA, item_dtype=item_dtype))
+    result = create_all_measures_dataframe(df=format_word_data(DATA))
     to_test = ['age', 'arousal', 'concreteness_measure']
+    result = result.replace(np.nan, 0)
     print(result)
     for word_dict in DATA:
         for test_col in to_test:
             print('testing {} {}'.format(word_dict['word'], test_col))
-            print(result.loc[result['word'] == word_dict['word']])
             np.testing.assert_allclose(result.loc[result['word'] == word_dict['word']][test_col].values,
                                        [word_dict[test_col]])
 
@@ -68,19 +68,22 @@ def test_merge_word_records():
         ('valence', 'f')
     ]
     item_dtype_dict = {k: v for k, v in item_dtype}
-    w1 = {'age': 0, 'part_of_speech': 'noun', 'arousal': 2, 'dominance': 6, 'valence': None}
-    w2 = {'age': 0, 'part_of_speech': 'verb', 'arousal': 2, 'dominance': 6, 'valence': None}
-    w3 = {'age': 3, 'part_of_speech': None, 'arousal': 5, 'dominance': None, 'valence': None}
-    merged = merge_word_records([w1, w2, w3], item_dtype_dict=item_dtype_dict)
-    assert isinstance(merged, dict)
-    assert merged['age'] == 1
-    assert merged['arousal'] == 3
-    assert merged['dominance'] == 6
-    assert set(merged['part_of_speech'].split(',')) == {'noun', 'verb'}
-    assert merged['valence'] == None
+    w1 = {'age': 0, 'part_of_speech': 'noun', 'arousal': 2, 'dominance': 6, 'valence': None, 'word': b'blah'}
+    w2 = {'age': 0, 'part_of_speech': 'verb', 'arousal': 2, 'dominance': 6, 'valence': None, 'word': b'blah'}
+    w3 = {'age': 3, 'part_of_speech': None, 'arousal': 5, 'dominance': None, 'valence': None, 'word': b'blah'}
+    df = pd.DataFrame([w1, w2, w3])
+    df = set_data_types(df, item_dtype)
+    merged = merge_word_records(df, item_dtype_dict=item_dtype_dict)
+    assert isinstance(merged, pd.DataFrame)
+    print(merged)
+    assert merged.loc[b'blah']['age'] == 3
+    assert merged.loc[b'blah']['arousal'] == 3
+    assert merged.loc[b'blah']['dominance'] == 6
+    assert set(merged.loc[b'blah']['part_of_speech'].split(',')) == {'noun', 'verb'}
+    assert np.isnan(merged.loc[b'blah']['valence'])
 
 
-def test_replace_nulls_with_nearest_non_nulls():
+def test_replace_nulls_with_nearest_non_nulls_by_lemma():
     words = {
         'abandon': {'age': 1, 'part_of_speech': 'noun', 'word_lemma': 'abandon', 'word': 'abandon'},
         'abandonee': {'age': None, 'part_of_speech': None, 'word_lemma': 'abandon', 'word': 'abandonee'},
@@ -88,11 +91,11 @@ def test_replace_nulls_with_nearest_non_nulls():
         'earth': {'age': 1, 'part_of_speech': 'noun', 'word_lemma': 'earth', 'word': 'earth'},
         'earthy': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'earthy'}
     }
-    initialdf = create_dataframe_from_dict(words, WORD_MEASURES_DTYPES)
+    initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES)
+    print(initialdf)
     result = replace_nulls_with_nearest_non_nulls_by_lemma(initialdf)
     assert result.loc[b'abandonee']['age'] == 1
     assert result.loc[b'abandonee']['part_of_speech'] == 'noun'
-
 
 def test_replace_nulls_with_nearest_non_nulls_by_similarity():
     # having word in the dict as well as the outer key is a bit redundant but it makes life easier when we are
@@ -106,8 +109,9 @@ def test_replace_nulls_with_nearest_non_nulls_by_similarity():
         'car': {'age': 2, 'part_of_speech': 'noun', 'word_lemma': 'car', 'word': 'car'},
         'carpool': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'carpool'},
     }
-    initialdf = create_dataframe_from_dict(words, WORD_MEASURES_DTYPES)
+    initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES).set_index('word')
     df = replace_nulls_with_nearest_non_nulls_by_similarity(initialdf)
+    print(df)
     assert np.array_equal(df.loc[df['word'] == b'earthy']['age'].values, [1])
     assert np.array_equal(df.loc[df['word'] == b'earthy']['part_of_speech'].values, ['noun'])
     assert np.isnan(df.loc[df['word'] == b'earthy']['word_lemma'].values[0])
@@ -264,7 +268,7 @@ def test_format_word_data():
             'unspospav': Decimal('0.06528369'), 'unstpav': Decimal('0.00074690'),
             'concreteness_measure': Decimal('2.54')}]
 
-    unpacked_data = format_word_data(cur, WORD_MEASURES_DTYPES)
+    unpacked_data = format_word_data(cur)
     all_words = ['a', 'aardvark', 'aback', 'abacus', 'abandon', 'abandoned', 'abandonee', 'abandoner', 'abandonment']
     words_in_data = {x for x in unpacked_data['word'].str.decode('utf8').values}
     for word in all_words:
