@@ -90,7 +90,7 @@ def process(humanbrain=None):
             processes = findProcessIdByName('openvpn')
             logging.debug('had to kill the processes with the kernel')
             for p in processes:
-                os.kill(p['pid'], -9)
+                os.kill(p['pid'])
 
 
 def kill(process):

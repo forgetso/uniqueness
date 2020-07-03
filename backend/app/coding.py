@@ -23,8 +23,8 @@ logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
-#ALL_MEASURES = get_all_measures()
-#logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
+ALL_MEASURES = get_all_measures()
+logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
 ALL_WORDS = get_all_words()
 SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
 ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
@@ -483,7 +483,7 @@ if __name__ == "__main__":
     # TODO consider the categories found in the Gallant Research:
     #   (visual, tactile, outdoor, bodypart, number, place, violence, person, social, mental, time)
     # TODO what to do about words joined with hyphens?
-    # TODO use this throughout instead of splitting multiple times
+    # TODO use split col throughout instead of splitting multiple times
     # TODO add s2v check for syntagmatic
     # TODO add proverb check for syntagmatic
     # TODO check if the part of speech changes from cue to response
