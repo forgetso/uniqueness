@@ -32,9 +32,8 @@ ps = PorterStemmer()
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
 DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
 
-
 # TODO get rid of the slice that's causing this error
-# pd.options.mode.chained_assignment = 'raise'
+pd.options.mode.chained_assignment = 'raise'
 
 
 def main(save=None, source=None, filter=None, cur=None):
@@ -73,7 +72,6 @@ def main(save=None, source=None, filter=None, cur=None):
     totals = df.count()
 
     # check the percentages of each categorisation
-    # TODO why are some of these over 100%? float errors?
     percent_totals = totals.divide(len(distinct_cue_response_pairs)) * float(100)
     print(percent_totals.to_string())
 
@@ -81,7 +79,7 @@ def main(save=None, source=None, filter=None, cur=None):
 
 
 def get_coding(df, save):
-    logging.debug('in job...')
+    logging.debug('in job pid {}...'.format(os.getpid()))
     # var df: a dataframe of distinct cue - response pairs
     #
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
@@ -132,8 +130,19 @@ def get_coding(df, save):
     assert (len(df) == df_len)
 
     # various word measures related to the response and cue that have been subtracted from each other to give distances
-    df = pd.concat([df.reset_index(), measures_diff], axis=1)
+    assert (len(measures_diff) == len(df))
+    df.sort_index(inplace=True)
+    measures_diff.sort_index(inplace=True)
+    assert (df.index.equals(measures_diff.index))
+    df = pd.concat([df, measures_diff], axis=1)
     df = df.loc[:, ~df.columns.duplicated()]
+
+    key = (b'absent', b'empty')
+    if key in df.index:
+        pd.set_option('display.max_columns', df.shape[1] + 1)
+        print(df.loc[key])
+
+    df.reset_index(inplace=True)
     assert (len(df) == df_len)
 
     # check if the part of speech changes from cue to response, based on pos column and s2vsense
@@ -155,7 +164,7 @@ def get_coding(df, save):
 
     if save:
         df_with_nones = df.replace({np.nan: None})
-        save_coded_pairs(df_with_nones, df_with_nones.columns)
+    save_coded_pairs(df_with_nones, df_with_nones.columns)
 
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
 
@@ -202,7 +211,7 @@ def get_measures_diff(df):
     measures_diff['cue_pos'] = cue_measures_full['part_of_speech']
     measures_diff['response_pos'] = response_measures_full['part_of_speech']
 
-    # measures_diff.set_index(['cue_clean', 'response_clean'], inplace=True)
+    measures_diff.set_index(['cue_clean', 'response_clean'], inplace=True)
     return measures_diff
 
 
@@ -452,13 +461,12 @@ def check_senses_and_pos(df):
         np.logical_and(response_pos_not_null, response_sense_not_null)
     ))
     # everything else we cannot tell as the pos/senses are NaN for both cue and/or response cols
-    pos_diff_indexes = remaining.index[pos_diff].copy()
-    pos_equal_indexes = df.index[pos_equal].copy()
+    pos_diff_indexes = remaining.index[pos_diff == True].copy()
+    pos_equal_indexes = df.index[pos_equal == True].copy()
     # pos_unknown_indexes = remaining[~pos_diff]
     df['pos_changes'] = np.nan
-    df['pos_changes'].loc[pos_diff_indexes] = True
-    df['pos_changes'].loc[pos_equal_indexes] = False
-
+    df.loc[df.index.isin(pos_diff_indexes), 'pos_changes'] = True
+    df.loc[df.index.isin(pos_equal_indexes), 'pos_changes'] = False
     return df
 
 

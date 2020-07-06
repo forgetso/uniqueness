@@ -34,4 +34,4 @@ def get_linenumber():
 
 
 def time_taken(start, thing):
-    logging.debug('Time taken for {} {}'.format(thing.__name__, start - time.time()))
+    logging.debug('Time taken for {} {}'.format(thing.__name__, time.time() - start))

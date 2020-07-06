@@ -7,8 +7,10 @@ import pprint
 import sys
 import logging
 import numpy as np
+
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
+
 
 def connect():
     conn = pg.connect(host='localhost', user=PG_USER, password=PG_PASSWORD, database="backend")
@@ -467,9 +469,6 @@ def get_senses():
     result = {x[1]: int(x[0]) for x in cur}
     conn.close()
     return result
-
-
-
 
 
 def save_cue_response_pair(cue_response_pair):

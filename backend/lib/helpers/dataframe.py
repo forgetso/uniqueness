@@ -163,9 +163,9 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df):
     # if there are multiple versions of y (null_word) stored in longerwords_df, take the record where x (non_null_word)
     # is the longest word that fits in y that is not y itself
     value_counts = longer_words_df['null_word'].value_counts()
-    dupe_words = value_counts[value_counts > 1].index
-    dupes = longer_words_df[longer_words_df['null_word'].isin(dupe_words)]
-    non_dupes = longer_words_df[~longer_words_df['null_word'].isin(dupe_words)]
+    dupe_words = value_counts.loc[value_counts > 1].index
+    dupes = longer_words_df.loc[longer_words_df['null_word'].isin(dupe_words)].copy()
+    non_dupes = longer_words_df.loc[~longer_words_df['null_word'].isin(dupe_words)].copy()
     non_dupes.set_index('null_word', inplace=True)
     dupes['non_null_word_length'] = dupes['non_null_word'].str.len()
     dupes = dupes.sort_values(['null_word', 'non_null_word_length'], ascending=[True, False]).groupby(
