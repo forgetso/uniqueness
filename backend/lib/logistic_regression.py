@@ -12,7 +12,7 @@ import time
 import logging
 from backend.settings import LOG_LEVEL
 
-SAMPLE_SIZE = 10
+SAMPLE_SIZE = 5
 TO_PREDICT = 'user_id'
 MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
@@ -38,7 +38,7 @@ def main(sample_size=None, source=None):
 
 def logisticRegression(data):
     # define feature selection
-    fs = SelectKBest(score_func=f_classif, k=9)
+    fs = SelectKBest(score_func=f_classif, k=40)
     # apply feature selection
     X_selected = fs.fit_transform(data.drop(TO_PREDICT, axis=1), data[TO_PREDICT])
 

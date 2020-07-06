@@ -136,12 +136,6 @@ def get_coding(df, save):
     assert (df.index.equals(measures_diff.index))
     df = pd.concat([df, measures_diff], axis=1)
     df = df.loc[:, ~df.columns.duplicated()]
-
-    key = (b'absent', b'empty')
-    if key in df.index:
-        pd.set_option('display.max_columns', df.shape[1] + 1)
-        print(df.loc[key])
-
     df.reset_index(inplace=True)
     assert (len(df) == df_len)
 

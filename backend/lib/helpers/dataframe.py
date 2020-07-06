@@ -140,6 +140,8 @@ def replace_nulls_with_nearest_non_nulls_by_lemma(df):
     wordsdfcopy = selected_columns.reset_index(drop=True)
     wordsdfcopy = wordsdfcopy.set_index('word_lemma').dropna(how='all')
     wordsdfcopy.index = wordsdfcopy.index.dropna()
+    wordsdfcopy = wordsdfcopy.groupby(['word_lemma']).mean()
+    # wordsdfcopy.reset_index(level='part_of_speech', inplace=True)
     df = df.reset_index()
     df = df.set_index('word_lemma')
     df.update(wordsdfcopy, overwrite=False)
@@ -151,7 +153,11 @@ def replace_nulls_with_nearest_non_nulls_by_lemma(df):
 
 
 def replace_nulls_with_nearest_non_nulls_by_similarity(df):
-    null_filter = df.isnull().any(axis=1)
+    # TODO make this smarter. Maybe do it column by column? A word can have some null values in col X,Y and be missing Z.
+    #  another similar word might have a value for Z but be missing X and Y. Currently, the copying would only work in
+    #  one direction - from the word with the least nulls to the word with more nulls.
+    # 2 is a totally arbitrary number...
+    null_filter = df.isnull().sum(axis=1) >= 2
     wordsdf_nulls = df[null_filter]
     wordsdf_notnull = df[~null_filter]
     longer_words = wordsdf_notnull.index.get_level_values('word')[wordsdf_notnull.index.str.len() > 4]
@@ -159,6 +165,7 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df):
     # earthy can be updated with the values from earth
     longer_words_contained_in_nulls = [(y, x) for y in [y for y in wordsdf_nulls.index.get_level_values('word')]
                                        for x in longer_words if y.startswith(x) and len(y) > len(x)]
+
     longer_words_df = pd.DataFrame(longer_words_contained_in_nulls, columns=['null_word', 'non_null_word'])
     # if there are multiple versions of y (null_word) stored in longerwords_df, take the record where x (non_null_word)
     # is the longest word that fits in y that is not y itself

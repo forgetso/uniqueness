@@ -5,6 +5,7 @@ import pandas as pd
 from backend.lib.helpers.dataframe import format_word_data, WORD_MEASURES_DTYPES
 import numpy as np
 from decimal import Decimal
+from math import isclose
 
 DATA = [
     {'word_lemma': 'made', 'age': 1, 'part_of_speech': 'verb', 'word': 'made', 'arousal': 0, 'dominance': 0,
@@ -86,16 +87,23 @@ def test_merge_word_records():
 def test_replace_nulls_with_nearest_non_nulls_by_lemma():
     words = {
         'abandon': {'age': 1, 'part_of_speech': 'noun', 'word_lemma': 'abandon', 'word': 'abandon'},
+        'abandoning': {'age': 3, 'part_of_speech': 'verb', 'word_lemma': 'abandon', 'word': 'abandon'},
         'abandonee': {'age': None, 'part_of_speech': None, 'word_lemma': 'abandon', 'word': 'abandonee'},
         'abandoner': {'age': None, 'part_of_speech': None, 'word_lemma': 'abandon', 'word': 'abandoner'},
         'earth': {'age': 1, 'part_of_speech': 'noun', 'word_lemma': 'earth', 'word': 'earth'},
-        'earthy': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'earthy'}
+        'earthy': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'earthy'},
+        'obstacle': {'age': 7.84, 'arousal': 4.6, 'part_of_speech': 'noun', 'word_lemma': 'obstacle',
+                     'word': 'obstacle'},
+        'obstacles': {'age': 7.84, 'arousal': None, 'part_of_speech': 'noun', 'word_lemma': 'obstacle',
+                      'word': 'obstacles'},
     }
     initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES)
-    print(initialdf)
-    result = replace_nulls_with_nearest_non_nulls_by_lemma(initialdf)
-    assert result.loc[b'abandonee']['age'] == 1
-    assert result.loc[b'abandonee']['part_of_speech'] == 'noun'
+    df = replace_nulls_with_nearest_non_nulls_by_lemma(initialdf)
+    print(df)
+    assert df.loc[b'abandonee']['age'] == 2
+    assert np.isnan(df.loc[b'abandonee']['part_of_speech'])
+    assert df.loc[b'obstacles']['arousal'] == np.float32(4.6)
+
 
 def test_replace_nulls_with_nearest_non_nulls_by_similarity():
     # having word in the dict as well as the outer key is a bit redundant but it makes life easier when we are
@@ -108,11 +116,18 @@ def test_replace_nulls_with_nearest_non_nulls_by_similarity():
         'earthy': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'earthy'},
         'car': {'age': 2, 'part_of_speech': 'noun', 'word_lemma': 'car', 'word': 'car'},
         'carpool': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'carpool'},
+        'obstacle': {'age': 7.84, 'arousal': 4.6, 'part_of_speech': 'noun', 'word_lemma': 'obstacle',
+                     'word': 'obstacle'},
+        'obstacles': {'age': 7.84, 'arousal': None, 'part_of_speech': 'noun', 'word_lemma': 'obstacle',
+                      'word': 'obstacles'}
+
     }
     initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES).set_index('word')
+    print('initial')
+    print(initialdf)
     df = replace_nulls_with_nearest_non_nulls_by_similarity(initialdf)
     print(df)
-    assert np.array_equal(df.loc[df['word'] == b'earthy']['age'].values, [1])
+    assert df.loc[df['word'] == b'earthy']['age'].values[0] == np.float32(1)
     assert np.array_equal(df.loc[df['word'] == b'earthy']['part_of_speech'].values, ['noun'])
     assert np.isnan(df.loc[df['word'] == b'earthy']['word_lemma'].values[0])
     assert np.isnan(df.loc[df['word'] == b'carpool']['word_lemma'].values[0])
