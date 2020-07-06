@@ -13,7 +13,7 @@ import logging
 from backend.settings import LOG_LEVEL
 
 SAMPLE_SIZE = 10
-TO_PREDICT = 'cue_clean'
+TO_PREDICT = 'user_id'
 MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
@@ -38,7 +38,7 @@ def main(sample_size=None, source=None):
 
 def logisticRegression(data):
     # define feature selection
-    fs = SelectKBest(score_func=f_classif, k=45)
+    fs = SelectKBest(score_func=f_classif, k=9)
     # apply feature selection
     X_selected = fs.fit_transform(data.drop(TO_PREDICT, axis=1), data[TO_PREDICT])
 
@@ -79,7 +79,7 @@ def getData(source=None, min_responses=None):
         exit('not enough responses')
     df = df[df[TO_PREDICT].isin(groups_with_min_responses)]
     df = df.drop(
-        columns=['response_clean',
+        columns=['cue_clean', 'response_clean',
                  'cue_raw', 'response_raw',
                  'cue_correction', 'response_correction',
                  'cue_sense', 'response_sense', 'source'])

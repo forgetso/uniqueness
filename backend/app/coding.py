@@ -37,12 +37,14 @@ DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}
 # pd.options.mode.chained_assignment = 'raise'
 
 
-def main(save=None, source=None, filter=None):
+def main(save=None, source=None, filter=None, cur=None):
     word_filter = None
     if filter:
         word_filter = ENGLISH1000_VOCAB
     logging.debug('loading cue response pairs')
-    cur = get_cue_response_pairs(source=source)
+    if not cur:
+        cur = get_cue_response_pairs(source=source)
+
     all_pairs = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
     all_pairs['cue_clean'] = all_pairs['cue_clean'].str.encode('utf8')
     all_pairs['response_clean'] = all_pairs['response_clean'].str.encode('utf8')
@@ -66,15 +68,16 @@ def main(save=None, source=None, filter=None):
     jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER * 2, get_coding, save=save)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
-
+    df = pd.concat(jobs)
     # take the individual results and sum them
-    totals = sum(jobs)
+    totals = df.count()
 
     # check the percentages of each categorisation
     # TODO why are some of these over 100%? float errors?
     percent_totals = totals.divide(len(distinct_cue_response_pairs)) * float(100)
     print(percent_totals.to_string())
-    return percent_totals
+
+    return df
 
 
 def get_coding(df, save):
@@ -150,14 +153,13 @@ def get_coding(df, save):
     # save data to the db
     df = df.rename({'cue_raw': 'cue', 'response_raw': 'response'}, axis=1)
 
-    df = df.replace({np.nan: None})
-    # df = df.drop_duplicates()
     if save:
-        save_coded_pairs(df, df.columns)
+        df_with_nones = df.replace({np.nan: None})
+        save_coded_pairs(df_with_nones, df_with_nones.columns)
 
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
-    totals = df.count()
-    return totals
+
+    return df
 
 
 def basic_coding(df):
@@ -174,7 +176,6 @@ def get_measures_diff(df):
     # trim down the cues and responses so we're only running functions once per word
     distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8').drop_duplicates())
     distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').str.decode('utf8').drop_duplicates())
-
     response_measures = check_measures(ALL_MEASURES, distinct_responses)
     cue_measures = check_measures(ALL_MEASURES, distinct_cues)
     # attach the various measures back to the full lists of cues and responses
@@ -219,7 +220,6 @@ def nanindex(list_or_string, word):
 
 
 def check_syntagmatic(df):
-    logging.debug('Dataframe length {}'.format(len(df)))
     response_clean = df.index.get_level_values('response_clean').str.decode('utf8')
     cue_clean = df.index.get_level_values('cue_clean').str.decode('utf8')
     # having a nightmare with words as indexes so just dropping
@@ -369,7 +369,6 @@ def check_measures(all_measures, distinct_words):
     stems = pd.DataFrame(
         [[response, ps.stem(response)] for response in distinct_words[col_name]], columns=[col_name, 'stem'])
 
-    logging.debug('Stems length is {}'.format(len(stems)))
     all_measures_words = all_measures.index.get_level_values(level='word')
     words_intersect = np.intersect1d(distinct_words, all_measures_words)
     words_measures = all_measures[all_measures.index.isin(words_intersect)]
@@ -409,10 +408,6 @@ def check_corrections(df):
         corr_col = '{}_correction'.format(x)
         spellcol = '{}_bad_spell'.format(x)
         indexcol = '{}_clean'.format(x)
-        print(unfiltered_senses)
-        print(df)
-        print(df[sensecol])
-        print(df[sensecol].isin(unfiltered_senses))
         df[spellcol] = np.logical_and.reduce((~df[sensecol].isin(unfiltered_senses),
                                               df[corr_col].notnull(),
                                               df[corr_col] != df[decodedcol]))

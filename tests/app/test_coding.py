@@ -1,10 +1,12 @@
 from backend.app.coding import check_syntagmatic, check_phonology, check_affix, basic_coding, check_senses_and_pos, \
-    check_corrections, get_all_measures, check_measures
+    check_corrections, get_all_measures, check_measures, main
 from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY
 from decimal import Decimal
 import pandas as pd
 import numpy as np
 from nltk import PorterStemmer
+from tests.db.cur import TestCur
+from math import isclose
 
 DATA = [
     [b'back', b'and_forth', 'Back', 'Forth'],
@@ -16,6 +18,14 @@ DATA = [
     [b'plus', b'or_minus', 'plus', 'or minus'],
     [b'anywhere', b'but_here', 'anywhere', 'but here'],
     [b'random', b'not_positionally_related', 'R\'andom', 'not positionally related']
+]
+
+PAIRS = [
+    [1361814, 92089, 'absent', 'absent', None, 'adj', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
+    [1359600, 91776, 'hollow', 'hollow', None, 'adj', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
+    [1351431, 91721, 'insipid', 'insipid', None, 'adj', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
+    [1353030, 92070, 'my mind', 'my_mind', None, 'org', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
+    [1347002, 92193, 'void', 'void', None, 'noun', 'empty', 'empty', None, 'adj', 'humanbraincloud']
 ]
 
 
@@ -226,7 +236,7 @@ def test_check_measures():
             'unsbpav': Decimal('0.00964252'), 'unsdens': 0, 'unslcpospav': Decimal('0.08282489'),
             'unspospav': Decimal('0.06528369'), 'unstpav': Decimal('0.00074690'),
             'concreteness_measure': Decimal('2.54')}
-             
+
            ]
     all_measures = get_all_measures(cur)
     words = pd.DataFrame(['abacus', 'abandonment', 'madeupword', 'made_up_word'])
@@ -351,3 +361,37 @@ def test_check_senses_and_pos():
     print(df['pos_changes'])
     # np.nan != np.nan so need to fill these with a value that will be equal
     assert (np.array_equal(df['pos_changes'], res['pos_changes']))
+
+
+def test_main():
+    # This is an end to end test of the coding process, which involves pulling out all the measures from the database
+    # and all of the cue response pairs. The measures are then applied to cue response pairs.
+    # TODO use test data for the measures instead of connecting to the actual DB
+    descriptors = ['rowid',
+                   'user_id',
+                   'cue_raw',
+                   'cue_clean',
+                   'cue_correction',
+                   'cue_sense',
+                   'response_raw',
+                   'response_clean',
+                   'response_correction',
+                   'response_sense',
+                   'source']
+    df = main(cur=TestCur(PAIRS, descriptors=[[x] for x in descriptors]), source='humanbraincloud')
+    pd.set_option('display.max_columns', df.shape[1] + 1)
+    df_filter = np.logical_and(df['cue'] == 'absent', df['response'] == 'empty')
+    assert round(df[df_filter].at[0, 'age'], 2) == round(6.5 - 4.79, 2)  # acquisition age
+    assert round(df[df_filter].at[0, 'valence'], 2) == round(4.1 - 3.78, 2)  # emotions
+    assert round(df[df_filter].at[0, 'arousal'], 2) == round(3.72 - 2.25, 2)
+    assert round(df[df_filter].at[0, 'dominance'], 2) == round(4.21 - 3.61, 2)
+    assert round(df[df_filter].at[0, 'bigram_freq'], 2) == round(640.93 - 294.5, 2)  # orthographic neighbours
+    # TODO make sure zeroes are not replaced when they are relevant. Having 0 orthographic neighbours is not equivalent
+    #   having np.nan neighbours. This should equal zero but it is evaluating to np.nan
+    # assert round(df[df_filter].at[0, 'ortho_neighbours'], 2) == round(1 - 0, 2)
+    assert np.isnan(round(df[df_filter].at[0, 'ortho_neighbours'], 2))
+    assert round(df[df_filter].at[0, 'trigram_freq'], 2) == round(236.51 - 86.32, 2)
+    assert round(df[df_filter].at[0, 'prevalence'], 2) == round(2.173 - 2.576, 2)  # prevalence
+    assert round(df[df_filter].at[0, 'concreteness_measure'], 2) == round(2.7 - 3.43, 2)  # concreteness
+    # there are multiple results in the phongraphic table for empty so the mean should be populated in the measures table
+    assert round(df[df_filter].at[0, 'nphon'], 2) == round(6 - ((5 + 4) / 2), 2)

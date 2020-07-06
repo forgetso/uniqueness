@@ -127,7 +127,6 @@ def merge_word_records(df, item_dtype_dict):
             df[c].replace({np.nan: UNKNOWN_CATEGORY}, inplace=True)
     unique_chars = lambda x: ','.join([x for x in x.unique() if x != UNKNOWN_CATEGORY])
     agg_dict = {x: (unique_chars if item_dtype_dict[x] != 'f' else 'mean') for x in df.columns if x in item_dtype_dict}
-    logging.debug(agg_dict)
     agg_dict.pop('word', None)
     df = df.replace(0, np.NaN)
     df = df.groupby('word').agg(agg_dict)

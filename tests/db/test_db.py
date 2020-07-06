@@ -11,7 +11,8 @@ def test_get_all_measures():
     assert (round(am.loc['made']['concreteness_measure'], 2) == 2.52)
     assert (round(am.loc['up']['concreteness_measure'], 2) == 3.83)
     assert (round(am.loc['word']['concreteness_measure'], 2) == 3.56)
-
+    assert (round(am.loc['absent']['arousal'], 2) == 3.72)
+    assert (round(am.loc['empty']['arousal'], 2) == 2.25)
 
 def test_all_measures_contains_all_words():
     # all_words = pd.Series(get_orthographic(), name='word').astype(str)
