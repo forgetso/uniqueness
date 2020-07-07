@@ -386,10 +386,7 @@ def test_main():
     assert round(df[df_filter].at[0, 'arousal'], 2) == round(3.72 - 2.25, 2)
     assert round(df[df_filter].at[0, 'dominance'], 2) == round(4.21 - 3.61, 2)
     assert round(df[df_filter].at[0, 'bigram_freq'], 2) == round(640.93 - 294.5, 2)  # orthographic neighbours
-    # TODO make sure zeroes are not replaced when they are relevant. Having 0 orthographic neighbours is not equivalent
-    #   having np.nan neighbours. This should equal zero but it is evaluating to np.nan
-    # assert round(df[df_filter].at[0, 'ortho_neighbours'], 2) == round(1 - 0, 2)
-    assert np.isnan(round(df[df_filter].at[0, 'ortho_neighbours'], 2))
+    assert round(df[df_filter].at[0, 'ortho_neighbours'], 2) == round(1 - 0, 2)
     assert round(df[df_filter].at[0, 'trigram_freq'], 2) == round(236.51 - 86.32, 2)
     assert round(df[df_filter].at[0, 'prevalence'], 2) == round(2.173 - 2.576, 2)  # prevalence
     assert round(df[df_filter].at[0, 'concreteness_measure'], 2) == round(2.7 - 3.43, 2)  # concreteness

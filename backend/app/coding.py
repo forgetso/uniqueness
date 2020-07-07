@@ -17,17 +17,17 @@ import pandas as pd
 import logging
 from backend.lib.sense2vec import NUM_TYPES, NAMED_ENTITITES
 from backend.app.semantic_atlas import check_semantic_atlas
-from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY
+from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY, WORD_MEASURES_DTYPES
+from multiprocessing import shared_memory
+import psutil
 
 logging.basicConfig(level=LOG_LEVEL)
 MIN_CUE_LENGTH = 3
 # set of affixes
 AFFIXES = {x.get('affix') for x in get_affixes()}
-ALL_MEASURES = get_all_measures()
-logging.info('There are {} words in ALL MEASURES'.format(len(ALL_MEASURES)))
 ALL_WORDS = get_all_words()
-SEMANTIC_SPACE_DATA = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
-ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
+# ENGLISH1000_VOCAB = SEMANTIC_SPACE_DATA['english1000_vocab']
+ENGLISH1000_VOCAB = []
 ps = PorterStemmer()
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
 DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
@@ -36,7 +36,10 @@ DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}
 pd.options.mode.chained_assignment = 'raise'
 
 
+# all_measures = get_all_measures()
+
 def main(save=None, source=None, filter=None, cur=None):
+    all_measures = get_measures()
     word_filter = None
     if filter:
         word_filter = ENGLISH1000_VOCAB
@@ -64,7 +67,8 @@ def main(save=None, source=None, filter=None, cur=None):
         raise ValueError('No responses to code...')
     start = time.perf_counter()
     logging.debug('dispatching jobs...')
-    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER * 2, get_coding, save=save)
+    jobs = job_pool(distinct_cue_response_pairs, JOB_NUMBER * 2, get_coding,
+                    shared=[(all_measures, WORD_MEASURES_DTYPES)], save=save)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
     df = pd.concat(jobs)
@@ -78,14 +82,31 @@ def main(save=None, source=None, filter=None, cur=None):
     return df
 
 
-def get_coding(df, save):
-    logging.debug('in job pid {}...'.format(os.getpid()))
+def get_measures():
+    measures = get_all_measures()
+    return measures
+
+
+def get_coding(df, shared, save):
+    # TODO refactor this whole process to check individual words first and then map them to cue response pairs afterwards
     # var df: a dataframe of distinct cue - response pairs
-    #
+    # var shared: a list of shared memory objects for reading
+    # var save: whether to save the result to the database
     # This algorithm is for coding DISTINCT cue response pairs once they have had their spelling corrected. It considers
     # categories such as prevalence, concreteness, age of acquisition, emotions, orthographic neighbourhoods,
     # phonographic neighbourhoods, active brain region.
+    logging.debug('in job pid {}...'.format(os.getpid()))
 
+    # get the all measures dataframe from shared memory numpy array
+    all_measures_shared_memory = shared_memory.SharedMemory(name=shared[0][0])
+    np_array = np.ndarray(shared[0][1], dtype=shared[0][2], buffer=all_measures_shared_memory.buf)
+    columns = [x for x, y in shared[0][2]]
+    process = psutil.Process(os.getpid())
+    before_m = process.memory_info().rss
+    all_measures = pd.DataFrame(np_array, columns=columns)
+    all_measures['part_of_speech'] = all_measures['part_of_speech'].str.decode('utf8')
+    all_measures['word'] = all_measures['word'].str.decode('utf8')
+    all_measures.set_index('word', inplace=True)
     # store the len for checks
     df_len = len(df)
 
@@ -97,7 +118,7 @@ def get_coding(df, save):
     df['cue_split'] = df.index.get_level_values('cue_clean').str.decode('utf8').str.split('_')
 
     # attach the measures from all measures to the cues/responses and then subtract one from the other to get the diff
-    measures_diff = get_measures_diff(df)
+    measures_diff = get_measures_diff(df, all_measures)
 
     # should exact match be considered?
     df = basic_coding(df)
@@ -158,10 +179,10 @@ def get_coding(df, save):
 
     if save:
         df_with_nones = df.replace({np.nan: None})
-    save_coded_pairs(df_with_nones, df_with_nones.columns)
+        save_coded_pairs(df_with_nones, df_with_nones.columns)
 
     logging.debug('Job with PID {} reached end'.format(os.getpid()))
-
+    all_measures_shared_memory.close()
     return df
 
 
@@ -175,12 +196,12 @@ def basic_coding(df):
     return df
 
 
-def get_measures_diff(df):
+def get_measures_diff(df, all_measures):
     # trim down the cues and responses so we're only running functions once per word
     distinct_responses = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8').drop_duplicates())
     distinct_cues = pd.DataFrame(df.index.get_level_values('cue_clean').str.decode('utf8').drop_duplicates())
-    response_measures = check_measures(ALL_MEASURES, distinct_responses)
-    cue_measures = check_measures(ALL_MEASURES, distinct_cues)
+    response_measures = check_measures(all_measures, distinct_responses)
+    cue_measures = check_measures(all_measures, distinct_cues)
     # attach the various measures back to the full lists of cues and responses
     response_measures_full = pd.DataFrame(df.index.get_level_values('response_clean').str.decode('utf8')).merge(
         response_measures,

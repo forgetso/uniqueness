@@ -10,7 +10,7 @@ logging.basicConfig(level=LOG_LEVEL)
 UNKNOWN_CATEGORY = '<unknown>'
 WORD_MEASURES_DTYPES = [
     ('word', '|S'),
-    ('word_lemma', 'string'),
+    ('word_lemma', 'str'),
     ('age', 'f'),
     ('part_of_speech', 'category'),
     ('arousal', 'f'),

@@ -2,9 +2,8 @@ import multiprocessing
 import logging
 import numpy as np
 import pandas as pd
-from itertools import chain
 from math import ceil
-from decimal import Decimal, ROUND_HALF_UP
+from multiprocessing import shared_memory
 
 
 # split a list into evenly sized chunks
@@ -86,6 +85,7 @@ def get_indices_for_combining_list_of_lists(lst, num, addon=0):
 
 
 def job_pool(data, job_number, job_to_do, groupby=None, split_col=None, **kwargs):
+    cleanup = None
     if split_col:
         slices = split_on(data, split_col, job_number)
     else:
@@ -96,9 +96,23 @@ def job_pool(data, job_number, job_to_do, groupby=None, split_col=None, **kwargs
         slices = amend_groups(slices, groupby)
     if len(slices) < job_number:
         job_number = len(slices)
+    shares = []
+    memories = []
+    if 'shared' in kwargs is not None and isinstance(kwargs['shared'], list):
+        for df, dtypes in kwargs['shared']:
+            shm, arr, dtypes_sorted = create_shared_block(df, dtypes)
+            # pass the name of the shared memory, the shape of the array, the columns and the dtypes to the child processes
+            shares.append([shm.name, arr.shape, dtypes_sorted])
+            memories.append(shm)
+        kwargs['shared'] = shares
+
     pool = multiprocessing.Pool(processes=job_number)
     arg = [(job_to_do, slice, kwargs) for slice in slices]
     jobs = pool.map(worker_wrapper, arg)
+
+    for share in memories:
+        share.close()
+        share.unlink()
     return jobs
 
 
@@ -107,11 +121,30 @@ def worker_wrapper(arg):
     return job_to_do(slice, **kwargs)
 
 
-def jobs_running(jobs):
-    running = False
-    for job in jobs:
-        # job.join(timeout=0)
-        if job.is_alive():
-            running = True
-            break
-    return running
+def create_shared_block(to_share, dtypes):
+    # float64 can't be pickled
+    for col, dtype in to_share.dtypes.items():
+        if dtype == 'float64':
+            to_share[col] = pd.to_numeric(to_share[col], downcast='float')
+    # make the dataframe a numpy array
+    to_share.reset_index(inplace=True)
+    dtypes_sorted = sort_dtypes(to_share, dtypes)
+    values = [tuple(x) for x in to_share.values.tolist()]
+    to_share = np.array(values, dtype=(dtypes_sorted))
+    shm = shared_memory.SharedMemory(create=True, size=to_share.nbytes)
+    # Now create a NumPy array backed by shared memory
+    np_array = np.ndarray(to_share.shape, dtype=dtypes_sorted, buffer=shm.buf)
+    np_array[:] = to_share[:]  # Copy the original data into shared memory
+    return shm, np_array, dtypes_sorted
+
+
+def sort_dtypes(df, dtypes):
+    # category is a pandas dtype, not numpy
+    string_types = ('category', 'object', '|S')
+    dtypes = [(x, '|S{}'.format(df[x].str.len().max())) if y in string_types else (x, y) for x, y in dtypes if
+              x in df.columns]
+    # build a lookup
+    dtypes_dict = {x: y for x, y in dtypes}
+    # fix the order
+    dtypes_sorted = [(x, dtypes_dict[x]) for x in df.columns]
+    return dtypes_sorted
