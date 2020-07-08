@@ -2,7 +2,6 @@ import psycopg2 as pg
 from backend.settings import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
-from backend.lib.helpers.dataframe import create_all_measures_dataframe, format_word_data
 import pprint
 import sys
 import logging
@@ -393,7 +392,7 @@ def get_all_words():
     return result
 
 
-def get_all_measures_sql():
+def get_all_measures_raw():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
     query = """SELECT
@@ -404,6 +403,7 @@ def get_all_measures_sql():
                     LOWER(a.word) AS a_word,
                     LOWER(o.word) AS o_word,
                     LOWER(e.word) AS e_word,
+                    LOWER(p.word) AS p_word,
                     LOWER(phon.word) as phon_word,
                     a.aoa_kup_lemma as age,
                     e.arousal AS arousal,
@@ -446,19 +446,18 @@ def get_all_measures_sql():
                 FULL OUTER JOIN emotions e ON o.word=e.word
                 FULL OUTER JOIN acquisition_age a ON o.word=a.word
                 FULL OUTER JOIN phonographic phon ON o.word=phon.word
-                ORDER BY c_word, a_word, o_word, e_word, phon_word  ASC;"""
+                ORDER BY c_word, a_word, o_word, e_word, p_word, phon_word  ASC;"""
 
     cur.execute(query)
     return cur
 
 
-def get_all_measures(cur=None):
-    if not cur:
-        cur = get_all_measures_sql()
-
-    item_list = format_word_data(cur)
-    df = create_all_measures_dataframe(item_list, index='word')
-    return df
+def get_all_measures_processed():
+    conn = connect()
+    cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    query = """SELECT * FROM measures ORDER BY word ASC"""
+    cur.execute(query)
+    return cur
 
 
 def get_senses():
@@ -469,6 +468,11 @@ def get_senses():
     result = {x[1]: int(x[0]) for x in cur}
     conn.close()
     return result
+
+
+def save_all_measures(df):
+    delete_measures()
+    execute_values_wrap('measures', (x for x in df.columns), df.values.tolist())
 
 
 def save_cue_response_pair(cue_response_pair):
@@ -633,5 +637,13 @@ def delete_orphaned_corrections():
                     FROM   responses
                     WHERE  id = c.response_id
                 );"""
+    cur.execute(query)
+    conn.commit()
+
+
+def delete_measures():
+    conn = connect()
+    cur = conn.cursor()
+    query = """DELETE FROM  measures"""
     cur.execute(query)
     conn.commit()

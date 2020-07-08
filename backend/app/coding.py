@@ -1,6 +1,6 @@
 from backend.lib.helpers.string import syllables
 from backend.db.db import get_cue_response_pairs, get_affixes, save_coded_pairs, delete_coded_pairs, \
-    get_all_words, get_all_measures
+    get_all_words
 from backend.lib.setup import db_setup
 from nltk.stem import PorterStemmer
 import re
@@ -9,7 +9,7 @@ from backend.lib.wordnet_relations import WordnetRelations
 from backend.lib.multiprocessor import job_pool
 import time
 import argparse
-from backend.settings import SEMANTIC_SPACE_FOLDER, JOB_NUMBER, LOG_LEVEL
+from backend.settings import JOB_NUMBER, LOG_LEVEL
 from backend.lib.helpers.pairs import format_cue_response_pairs
 import os
 import numpy as np
@@ -17,7 +17,7 @@ import pandas as pd
 import logging
 from backend.lib.sense2vec import NUM_TYPES, NAMED_ENTITITES
 from backend.app.semantic_atlas import check_semantic_atlas
-from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY, WORD_MEASURES_DTYPES
+from backend.lib.measures import UNKNOWN_CATEGORY, WORD_MEASURES_DTYPES, get_all_measures
 from multiprocessing import shared_memory
 import psutil
 
@@ -31,17 +31,13 @@ ENGLISH1000_VOCAB = []
 ps = PorterStemmer()
 PUNCTUATION_REGEX = re.compile(r'[\.\-\',]')
 DROP_BEFORE_SAVING = ['{}_clean', '{}_decoded', '{}_split', '{}_correction', '{}_pos', '{}_sense', '{}_bad_spell']
-
-# TODO get rid of the slice that's causing this error
 pd.options.mode.chained_assignment = 'raise'
 
 
-# all_measures = get_all_measures()
-
-def main(save=None, source=None, filter=None, cur=None):
-    all_measures = get_measures()
+def main(save=None, source=None, word_filter=None, cur=None, rebuild=None):
+    all_measures = get_measures(rebuild=rebuild)
     word_filter = None
-    if filter:
+    if word_filter:
         word_filter = ENGLISH1000_VOCAB
     logging.debug('loading cue response pairs')
     if not cur:
@@ -82,8 +78,8 @@ def main(save=None, source=None, filter=None, cur=None):
     return df
 
 
-def get_measures():
-    measures = get_all_measures()
+def get_measures(rebuild):
+    measures = get_all_measures(rebuild=rebuild)
     return measures
 
 
@@ -216,10 +212,11 @@ def get_measures_diff(df, all_measures):
 
     assert (len(cue_measures_full) == len(response_measures_full))
 
-    measures_diff = cue_measures_full.drop(['cue_clean', 'part_of_speech'], axis=1).subtract(
+    measures_diff = cue_measures_full.drop(['cue_clean', 'part_of_speech', 'lstem', 'sstem'], axis=1).subtract(
         response_measures_full.drop(
-            ['response_clean', 'part_of_speech'], axis=1))
+            ['response_clean', 'part_of_speech', 'lstem', 'sstem'], axis=1))
 
+    #TODO something with lstem and sstem
     measures_diff['cue_clean'] = cue_measures_full['cue_clean'].str.encode('utf8')
     measures_diff['response_clean'] = response_measures_full['response_clean'].str.encode('utf8')
     # add the parts of speech back into the measures
@@ -488,11 +485,14 @@ def check_senses_and_pos(df):
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
     parser.add_argument('--source', default=None, help="code responses from a particular source only")
-    parser.add_argument('--filter', default=None, help="restrict responses to those that appear in a word filter list")
+    parser.add_argument('--word_filter', default=None,
+                        help="restrict responses to those that appear in a word filter list")
     parser.add_argument('--save', action="store_true", default=False,
                         help="whether to save the coding, default is False")
+    parser.add_argument('--rebuild', action="store_true", default=False,
+                        help="whether to rebuild the word measures before coding")
     args = parser.parse_args()
-    main(save=args.save, source=args.source, filter=args.filter)
+    main(save=args.save, source=args.source, word_filter=args.word_filter, rebuild=args.rebuild)
 
 
 if __name__ == "__main__":

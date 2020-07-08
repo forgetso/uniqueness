@@ -4,7 +4,7 @@ import pandas as pd
 from sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER, LOG_LEVEL, JOB_NUMBER
 import numpy as np
-from backend.lib.helpers.dataframe import get_unpacked_words
+from backend.lib.dataframe import get_unpacked_words
 from backend.lib.multiprocessor import job_pool
 import logging
 

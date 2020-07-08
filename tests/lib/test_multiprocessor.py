@@ -1,5 +1,5 @@
 from backend.lib.multiprocessor import chunks, amend_groups
-from tests.lib.helpers.test_dataframe import DATA
+from tests.lib.test_measures import DATA
 from backend.settings import JOB_NUMBER
 import numpy as np
 import pandas as pd

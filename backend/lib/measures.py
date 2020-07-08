@@ -1,3 +1,4 @@
+from backend.db.db import get_all_measures_raw, get_all_measures_processed, save_all_measures
 from backend.lib.multiprocessor import job_pool
 import pandas as pd
 from backend.settings import JOB_NUMBER, LOG_LEVEL
@@ -5,6 +6,9 @@ import numpy as np
 import logging
 import time
 from backend.lib.helpers.dataframedebug import time_taken
+import argparse
+from nltk import SnowballStemmer, LancasterStemmer
+from backend.lib.helpers.dataframedebug import dfdebug
 
 logging.basicConfig(level=LOG_LEVEL)
 UNKNOWN_CATEGORY = '<unknown>'
@@ -46,19 +50,23 @@ WORD_MEASURES_DTYPES = [
     ('unslcpospav', 'f'),
     ('unspospav', 'f'),
     ('unstpav', 'f'),
-    ('concreteness_measure', 'f')
+    ('concreteness_measure', 'f'),
+    ('sstem', 'str'),
+    ('lstem', 'str'),
 ]
+ss = SnowballStemmer('english')
+ls = LancasterStemmer()
 
 
-def format_word_data(cur):
+def format_word_data(cur, save=None):
     item_dtype = WORD_MEASURES_DTYPES
     words = []
     for item in cur:
         row_dict = dict(item)
-        word_set = {row_dict['c_word'], row_dict['a_word'], row_dict['o_word'], row_dict['e_word'],
+        word_set = {row_dict['c_word'], row_dict['a_word'], row_dict['o_word'], row_dict['e_word'], row_dict['p_word'],
                     row_dict['phon_word']}
         word_set.discard(None)
-        for w in ['c_word', 'a_word', 'o_word', 'e_word', 'phon_word']:
+        for w in ['c_word', 'a_word', 'o_word', 'e_word', 'p_word', 'phon_word']:
             row_dict.pop(w)
         for word in word_set:
             break
@@ -72,7 +80,6 @@ def format_word_data(cur):
     words.drop('startswith', inplace=True, axis=1)
     # split the job into multiprocesses, making sure that words starting with the same letter remain in the same group
     jobs = job_pool(words, JOB_NUMBER * 2, format_word_data_multiprocess, item_dtype=item_dtype, split_col='changes')
-    # jobs = job_pool(words, JOB_NUMBER * 2, format_word_data_multiprocess, groupby=['startswith'], item_dtype=item_dtype)
     total_lines = sum([len(x) for x in jobs])
     logging.debug('jobs returned {} lines'.format(total_lines))
     result = pd.concat(jobs)
@@ -82,15 +89,29 @@ def format_word_data(cur):
 
 def format_word_data_multiprocess(df, item_dtype):
     item_dtype_dict = {k: v for k, v in item_dtype}
+
+    # set data types for each column
     start = time.time()
     df = set_data_types(df, item_dtype)
     time_taken(start, set_data_types)
+
+    # merge duplicates
     start = time.time()
     df = merge_word_records(df, item_dtype_dict)
     time_taken(start, merge_word_records)
+
+    # lemma
     start = time.time()
     df = replace_nulls_with_nearest_non_nulls_by_lemma(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_lemma)
+
+    # stems (same as lemma but calculated in this process)
+    start = time.time()
+    assert (df is not None)
+    df = replace_nulls_with_nearest_non_nulls_by_stems(df)
+    time_taken(start, replace_nulls_with_nearest_non_nulls_by_stems)
+
+    # similarity
     start = time.time()
     df = replace_nulls_with_nearest_non_nulls_by_similarity(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_similarity)
@@ -119,12 +140,13 @@ def merge_word_records(df, item_dtype_dict):
     #  the response
     # TODO work out how to aggregate each column. taking the mean of age doesn't make sense - should it be the max? min?
     for c, d in item_dtype_dict.items():
-        if d != 'f':
-            # this is for the join function, unique_chars
-            df[c].replace({None: UNKNOWN_CATEGORY}, inplace=True)
-            df[c].replace({'None': UNKNOWN_CATEGORY}, inplace=True)
-            df[c].replace({'<NA>': UNKNOWN_CATEGORY}, inplace=True)
-            df[c].replace({np.nan: UNKNOWN_CATEGORY}, inplace=True)
+        if c in df.columns:
+            if d != 'f':
+                # this is for the join function, unique_chars
+                df[c].replace({None: UNKNOWN_CATEGORY}, inplace=True)
+                df[c].replace({'None': UNKNOWN_CATEGORY}, inplace=True)
+                df[c].replace({'<NA>': UNKNOWN_CATEGORY}, inplace=True)
+                df[c].replace({np.nan: UNKNOWN_CATEGORY}, inplace=True)
     unique_chars = lambda x: ','.join([x for x in x.unique() if x != UNKNOWN_CATEGORY])
     agg_dict = {x: (unique_chars if item_dtype_dict[x] != 'f' else 'mean') for x in df.columns if x in item_dtype_dict}
     agg_dict.pop('word', None)
@@ -149,6 +171,29 @@ def replace_nulls_with_nearest_non_nulls_by_lemma(df):
     df.set_index('word', inplace=True)
     if 'index' in df.columns:
         df.rename({'index': 'word'}, inplace=True, axis=1)
+    return df
+
+
+def replace_nulls_with_nearest_non_nulls_by_stems(df):
+    df['sstem'] = df.index.get_level_values('word').str.decode('utf8').map(ss.stem)
+    df['lstem'] = df.index.get_level_values('word').str.decode('utf8').map(ls.stem)
+    # 2 is a totally arbitrary number...
+    snowball_groupby = df.groupby('sstem', as_index=True).agg(['mean'])
+    snowball_groupby.columns = [x[0] for x in snowball_groupby.columns]
+    snowball_groupby.index.rename('word', inplace=True)
+    lancaster_groupby = df.groupby('lstem', as_index=True).agg(['mean'])
+    lancaster_groupby.columns = [x[0] for x in lancaster_groupby.columns]
+    lancaster_groupby.index.rename('word', inplace=True)
+    lancaster_groupby.index = lancaster_groupby.index.str.encode('utf8')
+    snowball_groupby.index = snowball_groupby.index.str.encode('utf8')
+    df.reset_index(inplace=True)
+    df.set_index('sstem', inplace=True)
+    df.update(snowball_groupby, overwrite=False)
+    df.reset_index(inplace=True)
+    df.set_index('lstem', inplace=True)
+    df.update(lancaster_groupby, overwrite=False)
+    df.reset_index(inplace=True)
+    df.set_index('word', inplace=True)
     return df
 
 
@@ -198,7 +243,7 @@ def create_all_measures_dataframe(df, index=None):
     column_names = list(result.columns.values)
     result['word'] = lower_and_decode(result['word'])
     # TODO use columns_types to figure out which columns are not numeric
-    non_numeric = ['word', 'part_of_speech']
+    non_numeric = ['word', 'part_of_speech', 'sstem', 'lstem']
     for column in result.columns:
         if column not in non_numeric:
             result[column] = result[column].astype(np.float)
@@ -206,7 +251,8 @@ def create_all_measures_dataframe(df, index=None):
         result['part_of_speech'].cat.add_categories(UNKNOWN_CATEGORY, inplace=True)
     result['part_of_speech'].fillna(value=UNKNOWN_CATEGORY, inplace=True)
 
-    result = result.groupby(['word', 'part_of_speech'], as_index=True).agg(['mean']).sort_index(level='word')
+    result = result.groupby(['word', 'part_of_speech', 'sstem', 'lstem'], as_index=True).agg(['mean']).sort_index(
+        level='word')
     result = result.dropna(axis=0, how='all')
     result = result.reset_index()
     # Order getting messed up with part_of_speech and ages being mixed because of group by
@@ -260,3 +306,28 @@ def get_unpacked_words(df):
     unpacked_words.replace("", np.nan, inplace=True)
     unpacked_words.dropna(inplace=True)
     return unpacked_words
+
+
+def get_all_measures(cur=None, rebuild=None):
+    if rebuild:
+        if not cur:
+            cur = get_all_measures_raw()
+        item_list = format_word_data(cur)
+        df = create_all_measures_dataframe(item_list, index='word')
+        save_all_measures(df.reset_index().replace({np.nan: None}))
+    else:
+        cur = get_all_measures_processed()
+        df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+        df.drop('id', axis=1, inplace=True)
+    return df
+
+
+def setup():
+    parser = argparse.ArgumentParser(description='Create a table of words and all possible measures')
+    parser.add_argument('--rebuild', action='store_true', help="rebuild the measures and save to database")
+    args = parser.parse_args()
+    get_all_measures(rebuild=args.rebuild)
+
+
+if __name__ == "__main__":
+    setup()

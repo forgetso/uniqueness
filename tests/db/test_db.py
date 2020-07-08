@@ -1,5 +1,5 @@
-from backend.db.db import get_all_measures, get_orthographic
-import pandas as pd
+from backend.db.db import get_orthographic
+from backend.lib.measures import get_all_measures
 
 
 # TODO these are essentially integration tests as they rely on data from the db - create a mock DB layer

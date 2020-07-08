@@ -127,9 +127,12 @@ def create_shared_block(to_share, dtypes):
         if dtype == 'float64':
             to_share[col] = pd.to_numeric(to_share[col], downcast='float')
     # make the dataframe a numpy array
-    to_share.reset_index(inplace=True)
+    if to_share.index.name is not None:
+        print(to_share.index.name)
+        to_share.reset_index(inplace=True)
     dtypes_sorted = sort_dtypes(to_share, dtypes)
     values = [tuple(x) for x in to_share.values.tolist()]
+
     to_share = np.array(values, dtype=(dtypes_sorted))
     shm = shared_memory.SharedMemory(create=True, size=to_share.nbytes)
     # Now create a NumPy array backed by shared memory
@@ -140,11 +143,11 @@ def create_shared_block(to_share, dtypes):
 
 def sort_dtypes(df, dtypes):
     # category is a pandas dtype, not numpy
-    string_types = ('category', 'object', '|S')
+    string_types = ('category', 'object', '|S', 'str')
     dtypes = [(x, '|S{}'.format(df[x].str.len().max())) if y in string_types else (x, y) for x, y in dtypes if
               x in df.columns]
     # build a lookup
     dtypes_dict = {x: y for x, y in dtypes}
     # fix the order
-    dtypes_sorted = [(x, dtypes_dict[x]) for x in df.columns]
+    dtypes_sorted = [(x, dtypes_dict[x]) for x in df.columns if x in dtypes_dict]
     return dtypes_sorted

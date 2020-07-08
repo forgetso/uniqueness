@@ -1,12 +1,11 @@
 from backend.app.coding import check_syntagmatic, check_phonology, check_affix, basic_coding, check_senses_and_pos, \
-    check_corrections, get_all_measures, check_measures, main
-from backend.lib.helpers.dataframe import UNKNOWN_CATEGORY
+    check_corrections, check_measures, main
+from backend.lib.measures import UNKNOWN_CATEGORY, get_all_measures
 from decimal import Decimal
 import pandas as pd
 import numpy as np
 from nltk import PorterStemmer
 from tests.db.cur import TestCur
-from math import isclose
 
 DATA = [
     [b'back', b'and_forth', 'Back', 'Forth'],
@@ -25,7 +24,8 @@ PAIRS = [
     [1359600, 91776, 'hollow', 'hollow', None, 'adj', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
     [1351431, 91721, 'insipid', 'insipid', None, 'adj', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
     [1353030, 92070, 'my mind', 'my_mind', None, 'org', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
-    [1347002, 92193, 'void', 'void', None, 'noun', 'empty', 'empty', None, 'adj', 'humanbraincloud']
+    [1111111, 11111, 'artifact', 'artifact', None, 'noun', 'fossil', 'fossil', None, 'noun', 'humanbraincloud'],
+    [2222222, 22222, 'defense', 'defense', None, 'noun', 'offense', 'offense', None, 'noun', 'humanbraincloud']
 ]
 
 
@@ -386,9 +386,12 @@ def test_main():
     assert round(df[df_filter].at[0, 'arousal'], 2) == round(3.72 - 2.25, 2)
     assert round(df[df_filter].at[0, 'dominance'], 2) == round(4.21 - 3.61, 2)
     assert round(df[df_filter].at[0, 'bigram_freq'], 2) == round(640.93 - 294.5, 2)  # orthographic neighbours
-    assert round(df[df_filter].at[0, 'ortho_neighbours'], 2) == round(1 - 0, 2)
+    assert round(df[df_filter].at[0, 'ortho_neighbours'], 2) == round(0 - 1, 2)
     assert round(df[df_filter].at[0, 'trigram_freq'], 2) == round(236.51 - 86.32, 2)
     assert round(df[df_filter].at[0, 'prevalence'], 2) == round(2.173 - 2.576, 2)  # prevalence
     assert round(df[df_filter].at[0, 'concreteness_measure'], 2) == round(2.7 - 3.43, 2)  # concreteness
     # there are multiple results in the phongraphic table for empty so the mean should be populated in the measures table
     assert round(df[df_filter].at[0, 'nphon'], 2) == round(6 - ((5 + 4) / 2), 2)
+
+    df_filter = np.logical_and(df['cue'] == 'defense', df['response'] == 'offense')
+    assert round(df[df_filter].at[0, 'concreteness_measure'], 2) is not None  # concreteness
