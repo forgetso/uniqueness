@@ -3,7 +3,7 @@ from backend.db.db import get_cue_response_pairs, save_corrections, delete_corre
 import pandas as pd
 import numpy as np
 from backend.lib.helpers.string import check_spelling
-from backend.lib.dataframe import get_unpacked_words
+from backend.lib.measures import get_unpacked_words
 from backend.lib.multiprocessor import job_pool
 import logging
 from backend.settings import JOB_NUMBER

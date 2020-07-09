@@ -472,6 +472,7 @@ def get_senses():
 
 def save_all_measures(df):
     delete_measures()
+    # TODO save the sstems and lstems to a separate table and store an id in measures
     execute_values_wrap('measures', (x for x in df.columns), df.values.tolist())
 
 

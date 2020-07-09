@@ -12,7 +12,7 @@ import time
 import logging
 from backend.settings import LOG_LEVEL
 
-SAMPLE_SIZE = 5
+SAMPLE_SIZE = 8
 TO_PREDICT = 'user_id'
 MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
@@ -20,9 +20,13 @@ USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education
 
 
 def main(sample_size=None, source=None):
+    try:
+        sample_size = int(sample_size)
+    except TypeError:
+        sample_size = SAMPLE_SIZE
     start = time.perf_counter()
     logging.debug('Getting data')
-    sample_size = sample_size or SAMPLE_SIZE
+
     min_responses = 50 * sample_size
     data = getData(source=source, min_responses=min_responses)
 
@@ -144,8 +148,9 @@ def drop_wordnet_features(df):
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
     parser.add_argument('--source', default=None, help="code responses from a particular source only")
+    parser.add_argument('--samplesize', default=None, help="choose the number of responses to batch as sample")
     args = parser.parse_args()
-    main(source=args.source)
+    main(source=args.source, sample_size=args.samplesize)
 
 
 if __name__ == "__main__":

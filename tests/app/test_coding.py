@@ -393,5 +393,8 @@ def test_main():
     # there are multiple results in the phongraphic table for empty so the mean should be populated in the measures table
     assert round(df[df_filter].at[0, 'nphon'], 2) == round(6 - ((5 + 4) / 2), 2)
 
+    # GB spellings previously were not getting measures attached if the measures were listed under the US spellings
     df_filter = np.logical_and(df['cue'] == 'defense', df['response'] == 'offense')
+    assert round(df[df_filter].at[0, 'concreteness_measure'], 2) is not None  # concreteness
+    df_filter = np.logical_and(df['cue'] == 'artifact', df['response'] == 'fossil')
     assert round(df[df_filter].at[0, 'concreteness_measure'], 2) is not None  # concreteness
