@@ -17,7 +17,11 @@ def process(word=None):
     db = pymongo.MongoClient(host='localhost')[DATABASE]
     word_doc = db.words.find_one({"sources.{}".format(SOURCE): {'$exists': False}})
     if not word:
-        word = word_doc['word']
+        if word_doc:
+            word = word_doc['word']
+        else:
+            print('all words scraped!')
+            exit(0)
 
     uri_filled = uri.format(word=word)
     user_agent = random.choice(user_agent_list)
