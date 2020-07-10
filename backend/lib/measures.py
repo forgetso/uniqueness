@@ -1843,7 +1843,6 @@ def format_word_data_multiprocess(df, item_dtype):
 
     # stems (same as lemma but calculated in this process)
     start = time.time()
-    assert (df is not None)
     df = replace_nulls_with_nearest_non_nulls_by_stems(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_stems)
 
@@ -1851,6 +1850,7 @@ def format_word_data_multiprocess(df, item_dtype):
     start = time.time()
     df = replace_nulls_with_nearest_non_nulls_by_similarity(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_similarity)
+
     return df
 
 
@@ -1904,7 +1904,7 @@ def add_missing_lemmas(df):
     logging.debug('Lemmas returned by spacy {}'.format(df['word_lemma'].notnull().value_counts()[True]))
     df['word_lemma'] = df['word_lemma'].combine_first(nulls['word_lemma'])
     df['part_of_speech'] = df['part_of_speech'].combine_first(nulls['part_of_speech'])
-    df['word_lemma'] = df['word_lemma'].replace({None: ''})
+    df['word_lemma'] = df['word_lemma'].replace({None: np.nan})
     df['part_of_speech'] = df['part_of_speech'].replace({None: np.nan})
     return df
 
@@ -1913,7 +1913,7 @@ def get_lemma(getAllLemmas, word):
     lemmas = getAllLemmas(word)
     tmp = (None, None)
     if lemmas:
-        #TODO work out whether this is actually worth doing - maybe just return lemmas that are shorter than the word
+        # TODO work out whether this is actually worth doing - maybe just return lemmas that are shorter than the word
         tmp = (list(set([l[0] for l in lemmas.values()]))[0], ','.join(sorted(lemmas.keys())).lower())
     return tmp
 
@@ -1922,9 +1922,8 @@ def replace_nulls_with_non_nulls_by_american_british_spellings(df):
     gb2us = {v: k for k, v in us2gb.items()}
     words_decoded = df.index.get_level_values('word').str.decode('utf8')
     # replace is not a function on indexes https://github.com/pandas-dev/pandas/issues/19495
-    replace = lambda x, d: d[x] if x in d else None
-    df['us_version'] = words_decoded.map(lambda x: replace(x, gb2us))
-    df['gb_version'] = words_decoded.map(lambda x: replace(x, us2gb))
+    df['us_version'] = words_decoded.map(lambda x: index_replace(x, gb2us))
+    df['gb_version'] = words_decoded.map(lambda x: index_replace(x, us2gb))
     # first take any US measurements and copy into the GB words - it's far more likely measures will be for US spellings
     us_indexed = df[~df['us_version'].isnull()].reset_index(drop=True).copy()
     us_indexed['us_version'] = us_indexed['us_version'].str.encode('utf8')
@@ -1941,12 +1940,16 @@ def replace_nulls_with_non_nulls_by_american_british_spellings(df):
     return df
 
 
+def index_replace(x, d):
+    return d[x] if x in d else None
+
+
 def replace_nulls_with_nearest_non_nulls_by_lemma(df):
     # this copies the part of speech, is this necessary?
     selected_columns = df.copy()[[x for x in df.columns if x != 'word']]
     wordsdfcopy = selected_columns.reset_index(drop=True)
     wordsdfcopy = wordsdfcopy.set_index('word_lemma').dropna(how='all')
-    wordsdfcopy.index = wordsdfcopy.index.dropna()
+    wordsdfcopy = wordsdfcopy.loc[wordsdfcopy.index.dropna()]
     wordsdfcopy = wordsdfcopy.groupby(['word_lemma']).mean()
     # wordsdfcopy.reset_index(level='part_of_speech', inplace=True)
     df = df.reset_index()
@@ -1956,29 +1959,49 @@ def replace_nulls_with_nearest_non_nulls_by_lemma(df):
     df.set_index('word', inplace=True)
     if 'index' in df.columns:
         df.rename({'index': 'word'}, inplace=True, axis=1)
+
     return df
 
 
 def replace_nulls_with_nearest_non_nulls_by_stems(df):
     df['sstem'] = df.index.get_level_values('word').str.decode('utf8').map(ss.stem)
     df['lstem'] = df.index.get_level_values('word').str.decode('utf8').map(ls.stem)
-    # 2 is a totally arbitrary number...
+
+    # group up and mean the data by the two types of stems
     snowball_groupby = df.groupby('sstem', as_index=True).agg(['mean'])
     snowball_groupby.columns = [x[0] for x in snowball_groupby.columns]
     snowball_groupby.index.rename('word', inplace=True)
     lancaster_groupby = df.groupby('lstem', as_index=True).agg(['mean'])
     lancaster_groupby.columns = [x[0] for x in lancaster_groupby.columns]
     lancaster_groupby.index.rename('word', inplace=True)
+
+    # first, pull data from the df that is missing from stems in the groupbys
     lancaster_groupby.index = lancaster_groupby.index.str.encode('utf8')
     snowball_groupby.index = snowball_groupby.index.str.encode('utf8')
+    snowball_groupby.update(lancaster_groupby, overwrite=False)
+    lancaster_groupby.update(df, overwrite=False)
+
+    # then add the data back into the df by matching onto the sstems
+    snowball_groupby.index = snowball_groupby.index.str.decode('utf8')
     df.reset_index(inplace=True)
     df.set_index('sstem', inplace=True)
     df.update(snowball_groupby, overwrite=False)
+
+    # then add the data back into the df by matching onto the lstems
+    lancaster_groupby.index = lancaster_groupby.index.str.decode('utf8')
     df.reset_index(inplace=True)
     df.set_index('lstem', inplace=True)
     df.update(lancaster_groupby, overwrite=False)
     df.reset_index(inplace=True)
+
+    # then add the data back into the df by matching sstems onto the lstems
+    # e.g. qatar( sstem==qatar) qatari (lstem==qatar)
+    df.set_index('sstem', inplace=True)
+    df.update(lancaster_groupby, overwrite=False)
+    df.reset_index(inplace=True)
+
     df.set_index('word', inplace=True)
+
     return df
 
 
@@ -2015,6 +2038,7 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df):
     longer_words_df.index.rename('word', inplace=True)
     df.update(longer_words_df, overwrite=False)
     df.reset_index(inplace=True)
+
     return df
 
 

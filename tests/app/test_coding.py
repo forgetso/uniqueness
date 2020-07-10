@@ -25,7 +25,8 @@ PAIRS = [
     [1351431, 91721, 'insipid', 'insipid', None, 'adj', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
     [1353030, 92070, 'my mind', 'my_mind', None, 'org', 'empty', 'empty', None, 'adj', 'humanbraincloud'],
     [1111111, 11111, 'artifact', 'artifact', None, 'noun', 'fossil', 'fossil', None, 'noun', 'humanbraincloud'],
-    [2222222, 22222, 'defense', 'defense', None, 'noun', 'offense', 'offense', None, 'noun', 'humanbraincloud']
+    [2222222, 22222, 'defense', 'defense', None, 'noun', 'offense', 'offense', None, 'noun', 'humanbraincloud'],
+    [3333333, 33333, 'qatari', 'qatari', None, 'noun', 'qataris', 'qataris', None, 'noun', 'humanbraincloud']
 ]
 
 
@@ -311,6 +312,7 @@ def test_check_corrections():
         [b'respondent', b'respondad', 'respondent', 'respondad', None, 'responded', 'noun', 'noun'],
         [b'athletik', b'athleetes', 'athletik', 'athleetes', 'athletic', 'athletes', 'adj', np.nan],
         [b'carri', b'bread', 'carri', 'bread', 'carry', 'bread', 'adj', 'noun'],
+
     ]
     df = pd.DataFrame(data, columns=['cue_clean',
                                      'response_clean',
@@ -398,3 +400,5 @@ def test_main():
     assert round(df[df_filter].at[0, 'concreteness_measure'], 2) is not None  # concreteness
     df_filter = np.logical_and(df['cue'] == 'artifact', df['response'] == 'fossil')
     assert round(df[df_filter].at[0, 'concreteness_measure'], 2) is not None  # concreteness
+    df_filter = np.logical_and(df['cue'] == 'qatari', df['response'] == 'qataris')
+    assert np.isnan(df[df_filter].at[0, 'valence'])

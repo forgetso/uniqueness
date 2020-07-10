@@ -1,6 +1,6 @@
 from backend.lib.measures import create_all_measures_dataframe, merge_word_records, \
     replace_nulls_with_nearest_non_nulls_by_lemma, replace_nulls_with_nearest_non_nulls_by_similarity, \
-    set_data_types, format_word_data, WORD_MEASURES_DTYPES
+    set_data_types, format_word_data, WORD_MEASURES_DTYPES, replace_nulls_with_nearest_non_nulls_by_stems
 import pandas as pd
 import numpy as np
 from decimal import Decimal
@@ -80,6 +80,22 @@ def test_merge_word_records():
     assert merged.loc[b'blah']['dominance'] == 6
     assert set(merged.loc[b'blah']['part_of_speech'].split(',')) == {'noun', 'verb'}
     assert np.isnan(merged.loc[b'blah']['valence'])
+
+
+def test_replace_nulls_with_nearest_non_nulls_by_stems():
+    columns = ['word', 'age', 'part_of_speech', 'arousal', 'bigram_count', 'frequency', 'ortho_frequency',
+               'ortho_neighbours', 'unsbpav']
+    df = pd.DataFrame([
+        [b'qatar', np.nan, '', np.nan, 26.25, 559.01, 0, 0, 0.00557744],
+        [b'qatari', np.nan, '', np.nan, 42.6, 529.09, 0, 0, np.nan],
+        [b'qataris', np.nan, '', np.nan, 55.67, 297.47, 0, 0, np.nan]
+    ], columns=columns).set_index('word')
+    df = replace_nulls_with_nearest_non_nulls_by_stems(df)
+    print(df)
+    assert (df.loc[b'qatari']['unsbpav'] == 0.00557744)
+    assert (df.loc[b'qatari']['bigram_count'] == 42.6)
+    assert (df.loc[b'qataris']['unsbpav'] == 0.00557744)
+    assert (df.loc[b'qataris']['bigram_count'] == 55.67)
 
 
 def test_replace_nulls_with_nearest_non_nulls_by_lemma():
