@@ -9,6 +9,7 @@ from backend.scrapers.human_brain_cloud import process as human_brain_cloud
 import time
 from requests import get
 import psutil
+import signal
 
 logging.basicConfig(level=LOG_LEVEL)
 # this cannot be worked out using os.getcwd as the proxy script needs to be run from sudo so the CWD would be
@@ -90,7 +91,7 @@ def process(humanbrain=None):
             processes = findProcessIdByName('openvpn')
             logging.debug('had to kill the processes with the kernel')
             for p in processes:
-                os.kill(p['pid'])
+                os.kill(p['pid'], signal.SIGSTOP)
 
 
 def kill(process):
