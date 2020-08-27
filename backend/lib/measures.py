@@ -13,6 +13,7 @@ from lemminflect import getAllLemmas
 
 logging.basicConfig(level=LOG_LEVEL)
 UNKNOWN_CATEGORY = '<unknown>'
+DECIMAL_PLACES = 3
 WORD_MEASURES_DTYPES = [
     ('word', '|S'),
     ('word_lemma', 'str'),
@@ -2123,10 +2124,14 @@ def get_all_measures(cur=None, rebuild=None):
             cur = get_all_measures_raw()
         item_list = format_word_data(cur)
         df = create_all_measures_dataframe(item_list, index='word')
+        # fill any nan values with the mean of the column
+        # df.fillna(df.mean(), inplace=True)
+        # df = df.round(DECIMAL_PLACES)
         save_all_measures(df.reset_index().replace({np.nan: None}))
     else:
         cur = get_all_measures_processed()
         df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+        df = set_data_types(df, WORD_MEASURES_DTYPES)
         df.drop('id', axis=1, inplace=True)
     return df
 

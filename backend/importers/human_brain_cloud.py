@@ -22,10 +22,10 @@ def main(download=False):
     if download:
         get_external_backup(id_rsa, AWS_USERNAME, AWS_SERVER, "/tmp/{}.json".format(DATABASE), target)
     files_to_load = ['{}{}'.format(target, x) for x in listdir(target) if DATABASE in x]
-    multiprocess_human_brain_cloud_data(files_to_load)
+    multiprocess_data(files_to_load)
 
 
-def multiprocess_human_brain_cloud_data(files_to_load):
+def multiprocess_data(files_to_load):
     json_data = []
     for target_file in files_to_load:
         with open(target_file, 'r') as f:

@@ -11,6 +11,7 @@ import numpy as np
 import time
 import logging
 from backend.settings import LOG_LEVEL
+from sklearn.feature_selection import VarianceThreshold
 
 SAMPLE_SIZE = 8
 TO_PREDICT = 'user_id'
@@ -19,7 +20,7 @@ logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
 
 
-def main(sample_size=None, source=None):
+def main(sample_size=None, source=None, columns=None):
     try:
         sample_size = int(sample_size)
     except TypeError:
@@ -28,25 +29,29 @@ def main(sample_size=None, source=None):
     logging.debug('Getting data')
 
     min_responses = 50 * sample_size
-    data = getData(source=source, min_responses=min_responses)
+    label_encoder = preprocessing.LabelEncoder()
+    data = getData(source=source, min_responses=min_responses, columns=columns, label_encoder=label_encoder)
+    if data is None:
+        raise (ValueError('No data returned from getData!'))
 
     batched_data = data
     if sample_size > 1:
         batched_data = batch_data(data, sample_size)
-    logging.info('Predicting for {}'.format(TO_PREDICT))
-    classes, coefs, columns = logisticRegression(batched_data)
+    logging.info('Predicting for {} using {}'.format(TO_PREDICT, batched_data.columns))
+    classes, coefs, columns = logisticRegression(batched_data, label_encoder)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
     return classes, coefs, columns
 
 
-def logisticRegression(data):
+def logisticRegression(df, label_encoder):
     # define feature selection
-    fs = SelectKBest(score_func=f_classif, k=40)
+    logging.debug(df)
+    fs = SelectKBest(score_func=f_classif, k=1)
     # apply feature selection
-    X_selected = fs.fit_transform(data.drop(TO_PREDICT, axis=1), data[TO_PREDICT])
+    X_selected = fs.fit_transform(df.drop(TO_PREDICT, axis=1), df[TO_PREDICT])
 
-    X_train, X_test, y_train, y_test = train_test_split(X_selected, data[TO_PREDICT],
+    X_train, X_test, y_train, y_test = train_test_split(X_selected, df[TO_PREDICT],
                                                         test_size=0.30,
                                                         random_state=101)
 
@@ -59,14 +64,42 @@ def logisticRegression(data):
     # predictions
     predictions = logmodel.predict(X_test_scaled)
     report = classification_report(y_test, predictions, output_dict=True)
-    print(classification_report(y_test, predictions))
+    label_index = [int(x) for x in logmodel.classes_.tolist()]
+
+    target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
+    print(target_strings)
+    print(classification_report(y_test, predictions, target_names=target_strings))
     chance = 1 / len(logmodel.classes_)
     logging.info('Random chance would have been {}'.format(str(chance)))
     logging.info('This is {} times chance'.format(str(float(report['macro avg']['precision']) / chance)))
-    return logmodel.classes_, logmodel.coef_, data.columns
+    return logmodel.classes_, logmodel.coef_, df.columns
 
 
-def getData(source=None, min_responses=None):
+def filterData(df, columns=None):
+    constant_filter = VarianceThreshold(threshold=0)
+    constant_filter.fit(df)
+    constant_columns = [column for column in df.columns
+                        if column not in
+                        df.columns[constant_filter.get_support()]]
+    if len(constant_columns):
+        logging.debug('Following columns are CONSTANT {} '.format(constant_columns))
+
+        logging.debug('Dropping columns')
+        df = df.drop(constant_columns, axis=1)
+
+    if columns:
+        columns_list = columns.split(',')
+        columns_list.append(TO_PREDICT)
+        to_drop = [x for x in df.columns if x not in columns_list]
+        logging.debug('Dropping {} from df - keeping {}'.format(to_drop, columns_list))
+        df.drop(columns=to_drop, inplace=True)
+        # df = df.loc[df['left_hemi_distance'].notnull()]
+        # print(df)
+        # df = df.dropna(how='all')
+    return df
+
+
+def getData(label_encoder, source=None, min_responses=None, columns=None):
     # TODO make this multiprocess the formatting
     min_responses = min_responses or MIN_RESPONSES
 
@@ -102,14 +135,14 @@ def getData(source=None, min_responses=None):
     df['syntagmatic'] = df['syntagmatic'].replace({np.nan: ''})
     # print(np.where(np.isnan(df)))
     logging.debug('encoding non-numeric columns')
-    label_encoder = preprocessing.LabelEncoder()
+
     df['phonology'] = label_encoder.fit_transform(df['phonology'])
     df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
-
     df[TO_PREDICT] = label_encoder.fit_transform(df[TO_PREDICT])
     df = pd.DataFrame(df).fillna(value=0)
     df = df.astype(float)
     df = df.sort_values(by=TO_PREDICT)
+    df = filterData(df, columns)
     logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
     return df
 
@@ -126,9 +159,6 @@ def batch_data(df, size):
         group.reset_index(drop=True, inplace=True)
         group = group.groupby(group.index // size).mean()
         logging.info('There are {} samples for key {}'.format(len(group), key))
-        # TODO MemoryError: Unable to allocate 90.5 GiB for an array with shape (154023, 78895) and data type int64
-        #  check what size of output is coming from this function
-        #  it should be smaller than what was passed in
         batched = pd.concat([batched, group])
     batched = batched.loc[:, ~df.columns.duplicated()]
     return batched
@@ -149,8 +179,9 @@ def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
     parser.add_argument('--source', default=None, help="code responses from a particular source only")
     parser.add_argument('--samplesize', default=None, help="choose the number of responses to batch as sample")
+    parser.add_argument('--columns', default=None, help="predict based on specific columns")
     args = parser.parse_args()
-    main(source=args.source, sample_size=args.samplesize)
+    main(source=args.source, sample_size=args.samplesize, columns=args.columns)
 
 
 if __name__ == "__main__":

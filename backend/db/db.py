@@ -117,7 +117,7 @@ def get_cue_response_pairs(limit=None, source=None):
 
     if limit:
         query += """ LIMIT %s""" % str(int(limit))
-    logging.debug(query)
+    # logging.debug(query)
     cur.execute(query)
 
     return cur
@@ -158,30 +158,8 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.capitalised, 
           cod.punctuation, 
           cod.number_of_words, 
-          cod.derivationally_related_forms, 
-          cod.pertainyms, 
-          cod.instance_hypernyms, 
-          cod.hyponyms, 
-          cod.instance_hyponyms, 
-          cod.member_holonyms, 
-          cod.substance_holonyms, 
-          cod.part_holonyms, 
-          cod.member_meronyms, 
-          cod.substance_meronyms, 
-          cod.part_meronyms, 
-          cod.topic_domains, 
-          cod.region_domains, 
-          cod.usage_domains, 
-          cod.attributes, 
-          cod.entailments, 
-          cod.causes, 
-          cod.also_sees, 
-          cod.verb_groups, 
-          cod.similar_tos, 
-          cod.hypernyms, 
-          cod.root_hypernyms, 
           cod.synonym, 
-          cod.antonyms, 
+          cod.antonym, 
           cod.exact, 
           cod.affix, 
           cod.prevalent, 
@@ -205,7 +183,6 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.unconstrained_bigram_count, 
           cod.unconstrained_trigram_freq, 
           cod.unconstrained_trigram_count, 
-          cod.ortho_neighbours_diff, 
           cod.pknown, 
           cod.prevalence, 
           cod.nphon, 
@@ -224,7 +201,11 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.syntagmatic, 
           cod.phonology, 
           cod.pos_changes, 
-          cod.bad_spell 
+          cod.bad_spell,
+          cod.s2v_similarity,
+          cod.proverb_similarity,
+          cod.crawl_similarity,
+          cod.wikipedia_similarity
         FROM 
           responses r 
           LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 
