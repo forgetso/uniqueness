@@ -41,7 +41,8 @@ class CueResponsePairs:
             if not len(intersection):
                 exit("No intersection between allowed words and cue response pairs")
             all_pairs = all_pairs[
-                np.equal(all_pairs["cue_clean"].isin(intersection), True)
+                np.logical_and(np.equal(all_pairs["cue_clean"].isin(intersection), True),
+                               np.equal(all_pairs["response_clean"].isin(intersection), True))
             ]
             logging.debug("{} in all pairs after word filter".format(len(all_pairs)))
         # we take a subset of columns as we're not interested in source, rowid, etc.

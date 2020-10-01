@@ -34,21 +34,18 @@ def multiprocess_data(files_to_load):
     delete_responses(SOURCE)
     delete_users(SOURCE)
     start = time.perf_counter()
-    job_number = mp.cpu_count() - 1
-    jobs = job_pool(json_data, job_number, process_data)
-    total = []
-    users = []
-    for responses_saved, u in jobs:
-        total.append(responses_saved)
-        users.append(u)
+    #job_number = mp.cpu_count() - 1
+    print(len(json_data))
+    #jobs = job_pool(json_data, job_number, process_data)
+    responses_saved, users_saved = process_data(json_data)
 
     end = time.perf_counter()
 
     logging.info('time taken {}'.format(end - start))
 
     # take the individual results and sum them
-    logging.info('saved {} records'.format(sum(total)))
-    logging.info('saved {} users'.format(sum(users)))
+    logging.info('saved {} records'.format(responses_saved))
+    logging.info('saved {} users'.format(users_saved))
 
 
 def process_data(json_data):

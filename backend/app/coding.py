@@ -39,13 +39,14 @@ DROP_BEFORE_SAVING = [
     "{}_sense",
     "{}_bad_spell",
     "{}_best_sense",
+    "{}_stem"
 ]
-MODELS = ["s2v", "crawl", "wikipedia"]
+MODELS = ["s2v", "crawl", "wikipedia", "dict2vec"]
 PROVERB_THRESHOLD_SIMILARITY = 0.5
 
 
 def main(
-        save=None, source=None, word_filter=None, cur=None, rebuild=None, models=None,
+        save=None, source=None, word_filter=None, cur=None, rebuild=None, models=None
 ):
     df = None
     shm_data = None
@@ -57,11 +58,15 @@ def main(
             )
             word_filter = semantic_space["english1000_vocab"]
 
+        # get the cue response pairs, filtering by word_filter
+        pairs = CueResponsePairs(source=source, cur=cur, word_filter=word_filter)
+
+        # setup data to be shared between the processes
         shm_data = SharedManager(
             word_filter=word_filter, rebuild=rebuild, from_disk=True
         )
         shm_models = SharedModelManager(models=models, from_disk=True)
-        pairs = CueResponsePairs(source=source, cur=cur, word_filter=word_filter)
+
         if save:
             delete_existing_data()
 
@@ -151,6 +156,7 @@ def get_coding(df, shared_data, shared_model, save):
     # get one model at a time to save on RAM
     shm_model = None
     for model_name, share in shared_model.items():
+        logging.debug('model {}'.format(model_name))
         shm_model = SharedModelManager(from_shared=True, shares={model_name: share})
         cue_col = "cue_decoded"
         response_col = "response_decoded"
@@ -187,27 +193,26 @@ def get_coding(df, shared_data, shared_model, save):
     # attach the measures from all measures to the cues/responses and then subtract one from the other to get the diff
     measures_diff = get_measures_diff(df, all_measures)
     #
-    # # should exact match be considered?
-    # df = basic_coding(df)
-    #
-    # # phonology
+    # should exact match be considered?
+    df = basic_coding(df)
+
+    # phonology
     # phonology = pd.Series(np.vectorize(check_phonology)(df['cue_decoded'], df['response_decoded']), name='phonology')
     # phonology = phonology.astype('category')
     #
     # assert (len(phonology) == df_len)
     # df['phonology'] = phonology
 
-    # # check for syntagmatic and add to dataframe
+    # check for syntagmatic and add to dataframe
     # df = check_syntagmatic(df, all_words)
     # assert (len(df) == df_len)
-    #
-    # # check to see if a cue and response are related in a proverb / idiom / expression
+
+    # check to see if a cue and response are related in a proverb / idiom / expression
     # df = check_proverbs(df)
-    # print(df)
     # assert (len(df) == df_len)
-    #
-    # # check for affix and add to dataframe
-    # df = check_affix(df)
+
+    # check for affix and add to dataframe
+    # df = check_affix(df, shm_data.data['affixes'])
     # assert (len(df) == df_len)
     #
     # add the semantic brain area data
@@ -475,7 +480,7 @@ def check_phonology(cue, response):
     return None
 
 
-def check_affix(df):
+def check_affix(df, affixes):
     # TODO look closer at categories of affix https://en.wikipedia.org/wiki/Affix
     response_clean = df.index.get_level_values("response_clean").str.decode("utf8")
     cue_clean = df.index.get_level_values("cue_clean").str.decode("utf8")
@@ -525,7 +530,7 @@ def check_affix(df):
         remainder = remainder.drop(0, axis=1)
         # check if the remainder is in the affixes for either split1 or split2
         affix1 = np.logical_or(
-            remainder["s1"].isin(AFFIXES), remainder["s2"].isin(AFFIXES)
+            remainder["s1"].isin(affixes), remainder["s2"].isin(AFFIXES)
         )
         # check if the resultant word is just cueresponse or responsecue
         # TODO isn't this redundant because of syntagmatic checks?
@@ -693,7 +698,8 @@ def setup():
     )
     parser.add_argument(
         "--word_filter",
-        default=None,
+        default=False,
+        action="store_true",
         help="restrict responses to those that appear in a word filter list",
     )
     parser.add_argument(
@@ -710,7 +716,7 @@ def setup():
     )
     args = parser.parse_args()
 
-    main(save=args.save, source=args.source, rebuild=args.rebuild, models=MODELS)
+    main(save=args.save, source=args.source, rebuild=args.rebuild, models=MODELS, word_filter=args.word_filter)
 
 
 if __name__ == "__main__":

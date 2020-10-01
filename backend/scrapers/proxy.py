@@ -20,7 +20,7 @@ VPN_CONFIG_FOLDER = '/vpn/ovpn_udp/'
 VPN_CONFIG_FOLDER_FULL = ''.join([CWD, VPN_CONFIG_FOLDER])
 USERPASSFILE = ''.join([CWD, VPN_CONFIG_FOLDER, 'userpass.txt'])
 USERPASSCONFIG = 'auth-user-pass {}'.format(USERPASSFILE)
-
+OPENVPN_PID_FILE = "/tmp/openvpn_pid"
 
 def process(humanbrain=None):
     ## getting the IP address using socket.gethostbyname() method
@@ -53,8 +53,8 @@ def process(humanbrain=None):
         userpassfile.write(PROXY_PASSWORD)
         userpassfile.close()
     logging.debug(proxy_server_config)
-    command = ["sudo", "/usr/sbin/openvpn", proxy_server_config]
-    proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
+    proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
     try:
         start_time = time.time()
         while True:
@@ -80,10 +80,12 @@ def process(humanbrain=None):
         # various jobs to be run behind proxy
         if humanbrain:
             human_brain_cloud()
-
+        stop_openvpn()
         kill(proxy_process)
     except Exception as e:
         logging.debug(e)
+        if proxy_process is not None:
+            stop_openvpn()
         logging.debug('attempting to kill open vpn processes')
         kill(proxy_process)
         time.sleep(1)
@@ -93,6 +95,22 @@ def process(humanbrain=None):
             for p in processes:
                 os.kill(p['pid'], signal.SIGSTOP)
 
+
+def process_output(proxy_process, max_time=30):
+    start_time = time.time()
+    while True:
+        time_elapsed = time.time() - start_time
+        line = proxy_process.stdout.readline().decode('utf8')
+        logging.debug(line)
+        if time_elapsed > max_time:
+            break
+
+
+def stop_openvpn():
+    pid_file = open(OPENVPN_PID_FILE, mode='r')
+    pid = int(pid_file.read())
+    logging.debug('sending stop command to proxy process {}'.format(pid))
+    os.kill(pid, signal.SIGTERM)
 
 def kill(process):
     parent = psutil.Process(process.pid)

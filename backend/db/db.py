@@ -205,7 +205,8 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.s2v_similarity,
           cod.proverb_similarity,
           cod.crawl_similarity,
-          cod.wikipedia_similarity
+          cod.wikipedia_similarity,
+          cod.dict2vec_similarity
         FROM 
           responses r 
           LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 
@@ -215,7 +216,7 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           LEFT JOIN corrections AS r_corrections ON r.id = r_corrections.response_id 
           AND c_corrections.type = 'r' 
           LEFT JOIN users u ON u.id = r.user_id 
-          LEFT JOIN coding cod ON cod.response = r.response 
+          INNER JOIN coding cod ON cod.response = r.response 
           AND cod.cue = r.cue
         {sourcestr}
         ORDER BY 

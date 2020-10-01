@@ -387,7 +387,8 @@ def db_setup(
     s2v_similarity decimal,
     proverb_similarity decimal,
     crawl_similarity decimal,
-    wikipedia_similarity decimal)
+    wikipedia_similarity decimal,
+    dict2vec_similarity decimal)
     """
     )
     conn.commit()

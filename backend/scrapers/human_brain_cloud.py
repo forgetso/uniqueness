@@ -30,7 +30,7 @@ DATABASE = 'humanbrain'
 
 def process():
     # wait a random amount of seconds so that the requests don't go out at exactly the same time every 5 minutes
-    time.sleep(random.randint(1, 300))
+    time.sleep(random.randint(1, 3))
     # random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()
     random_id = get_uid()
     fake_visit(random_id)
