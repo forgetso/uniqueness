@@ -6,7 +6,6 @@ CWD = os.getcwd()
 SHARE_PREFIX = 'unq'
 PROJECT_ROOT = '/home/chris/dev/uniqueness'
 PG_USER = 'backend'
-PG_PASSWORD = "bhVNUe7BsZ3mp2UV"
 ZIP_FILE = ''.join([CWD, '/data/SWOW-EN.complete.csv.zip'])
 DATA_FILE = 'SWOW-EN.complete.csv'
 AFFIX_FILE = ''.join([CWD, '/data/affixes.csv'])
