@@ -10,6 +10,7 @@
 #   this is probably more valid than modelling on the response metrics as they will be indicative of the words
 # TODO  contractions (don't)
 # TODO  word is in ALL_WORDS
+# TODO  acronyms
 # TODO  encyclopaedic associations - e.g. if the cue is war and someone responds with the name of a particular war
 # TODO  obscene words
 # TODO  sexual references

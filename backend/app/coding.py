@@ -29,7 +29,7 @@ logging.basicConfig(level=LOG_LEVEL)
 ps = PorterStemmer()
 
 MIN_CUE_LENGTH = 3
-PUNCTUATION_REGEX = re.compile(r"[\.\-\',]")
+PUNCTUATION_REGEX = re.compile(r"[\.\-\',_$%£\{\};&\(\)]=@")
 DROP_BEFORE_SAVING = [
     "{}_clean",
     "{}_decoded",
@@ -268,13 +268,14 @@ def basic_coding(df):
     df["syllables"] = np.vectorize(syllables)(df["cue_raw"]) - np.vectorize(syllables)(
         df["response_raw"]
     )
+    # TODO check for capital letters in general, not just in the first letter
+    #   maybe make use of str.istitle in pandas for first letter and write a custom function for other capital letters
     df["capitalised"] = np.equal(
         df["cue_raw"].str[0].str.isupper(), df["response_raw"].str[0].str.isupper()
     )
-    df["punctuation"] = np.equal(
-        df["cue_raw"].str.contains(PUNCTUATION_REGEX),
-        df["response_raw"].str.contains(PUNCTUATION_REGEX),
-    )
+    # TODO this assumes there is no punctuation in the cue... does not work
+    df["punctuation"] = df["response_raw"].str.contains(PUNCTUATION_REGEX)
+
     df["number_of_words"] = (
             df["cue_decoded"].str.split("_").str.len()
             - df["response_decoded"].str.split("_").str.len()

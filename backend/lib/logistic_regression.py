@@ -25,7 +25,9 @@ MIN_RESPONSES = 3 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
 C_param_range = [0.001, 0.01, 0.1, 1, 10, 100]
-#C_param_range = [0.1]
+
+
+# C_param_range = [0.1]
 
 
 def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None):
@@ -56,6 +58,9 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     if data is None:
         raise (ValueError('No data returned from getData!'))
 
+    # create more features to try and increase the accuracy
+    data = feature_creation(data)
+
     batched_data = data
     if sample_size > 1:
         batched_data = batch_data(data, predict, sample_size)
@@ -77,26 +82,28 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
 
     # Principal Components Analysis
     # TODO This could be done with Incremental PCA in sklearn and then it would also handle the batching
-    pca_train = PCA(n_components=20)
-    pca_train.fit(x_test)
-    x_train = pca_train.transform(x_train)
-
-    pca_test = PCA(n_components=20)
-    pca_test.fit(x_test)
-    x_test = pca_test.transform(x_test)
+    # pca_train = PCA(n_components=20)
+    # pca_train.fit(x_test)
+    # x_train = pca_train.transform(x_train)
+    #
+    # pca_test = PCA(n_components=20)
+    # pca_test.fit(x_test)
+    # x_test = pca_test.transform(x_test)
 
     # create combined arrays for X and Y
     x_combined = np.vstack((x_train, x_test))
     y_combined = np.hstack((y_train, y_test))
 
     # feature selection
-    x_train, col_indices = feature_selection(x_train, y_train, k_value=k_value)
-    x_test = x_test[:, col_indices]
-    x_combined = x_combined[:, col_indices]
-
-    # get the column/feature names that were included
-    df_k_best = batched_data.iloc[:, col_indices]
-    # df_k_best = batched_data
+    if k_value is not None:
+        x_train, col_indices = feature_selection(x_train, y_train, k_value=k_value)
+        x_test = x_test[:, col_indices]
+        x_combined = x_combined[:, col_indices]
+        # get the column/feature names that were included
+        # TODO this is not right as predict column was dropped
+        df_k_best = batched_data.iloc[:, col_indices]
+    else:
+        df_k_best = batched_data
 
     logging.debug('including features: {}'.format(df_k_best.columns))
 
@@ -107,7 +114,6 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     for c_param in C_param_range:
         logmodel, y_predictions = logisticRegression(x_train, y_train, x_test, y_test, c_param, label_encoder)
         # Saving accuracy score in table
-
 
         accuracies.iloc[accuracy_row, 1] = accuracy_score(y_test, y_predictions)
         accuracy_row += 1
@@ -130,6 +136,34 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     return logmodel
 
 
+def feature_creation(df):
+    # (0.1, 0.2) band reduces the accuracy
+    distance_bands = ((0.2, 0.3), (0.301, 0.4), (0.401, 1))
+    for distance_band in distance_bands:
+        bands = [{'distance_lower': distance_band[0], 'distance_upper': distance_band[1], 'upper': 1, 'lower': 0.301},
+                 {'distance_lower': distance_band[0], 'distance_upper': distance_band[1], 'upper': 0.3, 'lower': 0.201},
+                 {'distance_lower': distance_band[0], 'distance_upper': distance_band[1], 'upper': 0.2, 'lower': 0.101},
+                 {'distance_lower': distance_band[0], 'distance_upper': distance_band[1], 'upper': 0.1, 'lower': -1},
+                 ]
+        for idx, band in enumerate(bands):
+            df['band_{}_{}_{}'.format(distance_band[0], distance_band[1], idx)] = np.logical_and(
+                np.logical_or.reduce((
+                    (df['dict2vec_similarity'].subtract(df['s2v_similarity'])).abs().between(
+                        band['distance_lower'],
+                        band['distance_upper']),
+                    (df['dict2vec_similarity'].subtract(df['wikipedia_similarity'])).abs().between(
+                        band['distance_lower'],
+                        band['distance_upper']),
+                    (df['dict2vec_similarity'].subtract(df['crawl_similarity'])).abs().between(
+                        band['distance_lower'],
+                        band['distance_upper'])
+                )),
+                df['dict2vec_similarity'].between(band['lower'], band['upper'])
+            )
+    df.drop(columns=['dict2vec_similarity', 's2v_similarity', 'wikipedia_similarity', 'crawl_similarity'], inplace=True)
+    return df
+
+
 def replace_nan_with_mean(arr):
     # Obtain mean of columns as you need, nanmean is convenient.
     col_mean = np.nanmean(arr, axis=0)
@@ -144,7 +178,7 @@ def replace_nan_with_mean(arr):
 
 def feature_normalization(df):
     x = preprocessing.robust_scale(df)
-    #x = preprocessing.scale(df)
+    # x = preprocessing.scale(df)
     return x
 
 
@@ -198,18 +232,10 @@ def filterData(df, predict, columns=None):
 
 def get_age_bracket(age):
     bracket = None
-    if age < 25:
-        bracket = '<25'
-    elif 25 <= age < 35:
-        bracket = '25-34'
-    elif 35 <= age < 45:
-        bracket = '35-44'
-    elif 45 <= age < 55:
-        bracket = '45-54'
-    elif 55 <= age < 65:
-        bracket = '55-64'
-    elif age >= 65:
-        bracket = '>=65'
+    if age < 50:
+        bracket = '<50'
+    elif age >= 50:
+        bracket = '>=50'
     return bracket
 
 
@@ -320,7 +346,7 @@ def plot_decision_regions(X, y, classifier, test_idx=None, resolution=0.02):
     # Plot samples
     X_test, Y_test = X[test_idx, :], y[test_idx]
 
-    #print(len(y), X.shape)
+    # print(len(y), X.shape)
     for idx, cl in enumerate(np.unique(y)):
         print(idx)
         plt.scatter(x=X[y == cl, 0], y=X[y == cl, 1],

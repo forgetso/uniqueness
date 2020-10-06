@@ -22,4 +22,5 @@ ALL_WORDS_FILE = ''.join([CWD, '/data/words_dictionary.json'])
 DATA_FOLDER = ''.join([CWD, '/data'])
 JOB_NUMBER = int(cpu_count() / 2)
 LOG_LEVEL = logging.DEBUG
+
 SYNONYMS_ANTONYMS_FILE = '/data/synonyms_antonyms.csv'
