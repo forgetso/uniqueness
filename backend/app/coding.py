@@ -7,9 +7,10 @@ import re
 import jellyfish
 from backend.lib.wordnet_relations import WordnetRelations
 from backend.lib.multiprocessor import job_pool
+from backend.lib.word_filter import get_word_filter
 import time
 import argparse
-from backend.settings import JOB_NUMBER, LOG_LEVEL, DATA_FOLDER, SEMANTIC_SPACE_FOLDER
+from backend.settings import JOB_NUMBER, LOG_LEVEL, DATA_FOLDER, SEMANTIC_SPACE_FOLDER, WORD_FREQUENCIES
 import os
 import numpy as np
 import pandas as pd
@@ -41,7 +42,9 @@ DROP_BEFORE_SAVING = [
     "{}_best_sense",
     "{}_stem"
 ]
-MODELS = ["s2v", "crawl", "wikipedia", "dict2vec"]
+MODELS = ["s2v", "crawl", "wikipedia", "dict2vec", "attractrepel"]
+LANG_MODELS = ["attractrepel"]
+LANG = 'en'
 PROVERB_THRESHOLD_SIMILARITY = 0.5
 
 
@@ -53,10 +56,7 @@ def main(
     shm_models = None
     try:
         if word_filter:
-            semantic_space = np.load(
-                "{}/semantic_space.npz".format(SEMANTIC_SPACE_FOLDER)
-            )
-            word_filter = semantic_space["english1000_vocab"]
+            word_filter = get_word_filter()
 
         # get the cue response pairs, filtering by word_filter
         pairs = CueResponsePairs(source=source, cur=cur, word_filter=word_filter)
@@ -122,6 +122,13 @@ def get_result(start, jobs, distinct_cue_response_pairs):
     df.to_csv(DATA_FOLDER + "/coding.csv")
 
 
+def get_lang_nlp_similarity(w1, w2, model):
+    lw1 = ''.join([LANG, '_', w1])
+    lw2 = ''.join([LANG, '_', w2])
+    sim = get_nlp_similarity(lw1, lw2, model)
+    return sim
+
+
 def get_nlp_similarity(w1, w2, model):
     sim = None
     if w1 and w2:
@@ -170,12 +177,20 @@ def get_coding(df, shared_data, shared_model, save):
                 df[cue_col] = df["cue_decoded"].apply(s2v.get_best_sense)
                 df[response_col] = df["response_decoded"].apply(s2v.get_best_sense)
 
-        df["{}_similarity".format(model_name)] = df.apply(
-            lambda row: get_nlp_similarity(
-                row[cue_col], row[response_col], shm_model.data[model_name]
-            ),
-            axis=1,
-        )
+        if model_name in LANG_MODELS:
+            df["{}_similarity".format(model_name)] = df.apply(
+                lambda row: get_lang_nlp_similarity(
+                    row[cue_col], row[response_col], shm_model.data[model_name]
+                ),
+                axis=1,
+            )
+        else:
+            df["{}_similarity".format(model_name)] = df.apply(
+                lambda row: get_nlp_similarity(
+                    row[cue_col], row[response_col], shm_model.data[model_name]
+                ),
+                axis=1,
+            )
         shm_model.close_shared_memories()
         gc.collect()
 
@@ -268,11 +283,12 @@ def basic_coding(df):
     df["syllables"] = np.vectorize(syllables)(df["cue_raw"]) - np.vectorize(syllables)(
         df["response_raw"]
     )
-    # TODO check for capital letters in general, not just in the first letter
-    #   maybe make use of str.istitle in pandas for first letter and write a custom function for other capital letters
     df["capitalised"] = np.equal(
         df["cue_raw"].str[0].str.isupper(), df["response_raw"].str[0].str.isupper()
     )
+    # the difference in number of capital letters between cue and response
+    df["capitalised_any"] = df.apply(lambda row: capitalised_diff(row['cue_raw'], row['response_raw']), axis=1)
+
     # TODO this assumes there is no punctuation in the cue... does not work
     df["punctuation"] = df["response_raw"].str.contains(PUNCTUATION_REGEX)
 
@@ -288,9 +304,22 @@ def basic_coding(df):
     )
     df["intersection"] = df["intersection"].apply(lambda x: list(x))
     df["char_intersect"] = df["intersection"].str.len() / df["cue_decoded"].str.len()
+    df["first_char_equal"] = df.apply(lambda row: first_char_equal(row['cue_decoded'], row['response_decoded']), axis=1)
     df.drop(columns=["cue_chars", "response_chars", "intersection"], inplace=True)
 
     return df
+
+
+def capitalised_diff(cue, response):
+    return sum([w.isupper() * 1 for w in cue]) - sum([w.isupper() * 1 for w in response])
+
+
+def first_char_equal(cue, response):
+    try:
+        result = cue[0] == response[0]
+    except IndexError:
+        result = False
+    return result
 
 
 def get_measures_diff(df, all_measures):

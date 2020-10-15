@@ -1,5 +1,5 @@
 import psycopg2 as pg
-from backend.settings import PG_PASSWORD, PG_USER
+from backend.settings_private import PG_PASSWORD, PG_USER
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
 import pprint

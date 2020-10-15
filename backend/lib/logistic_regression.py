@@ -1,5 +1,6 @@
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
 from sklearn.feature_selection import SelectKBest
@@ -18,21 +19,46 @@ from pathlib import Path
 import os
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+import math
 
 SAMPLE_SIZE = 8
 TO_PREDICT = 'user_id'
-MIN_RESPONSES = 3 * SAMPLE_SIZE
+MIN_RESPONSES = 50 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
 C_param_range = [0.001, 0.01, 0.1, 1, 10, 100]
-
-
-# C_param_range = [0.1]
+# Magic numbers
+# Without attractrepel
+# CATEGORIES = [
+#     {'name': 'synonym', 'mean': 0.39497, 'stdev': 0.09099, 'ratio': 12.57},
+#     {'name': 'lexical_set', 'mean': 0.36623, 'stdev': 0.08235, 'ratio': 21.98},
+#     {'name': 'other_conceptual', 'mean': 0.26388, 'stdev': 0.08276, 'ratio': 20.50},
+#     {'name': 'cue_response_collocation', 'mean': 0.27928, 'stdev': 0.08203, 'ratio': 21.02},
+#     {'name': 'response_cue_collocation', 'mean': 0.29624, 'stdev': 0.08674, 'ratio': 14.95},
+#     {'name': 'affix_manipulation', 'mean': 0.57684, 'stdev': 0.05269, 'ratio': 1.53},
+#     {'name': 'form_based', 'mean': 0.20946, 'stdev': 0.08244, 'ratio': 1.24},
+#     {'name': 'two_step', 'mean': 0.21379, 'stdev': 0.07663, 'ratio': 3.11},
+#     {'name': 'erratic', 'mean': 0.16325, 'stdev': 0.09704, 'ratio': 3.11},
+# ]
+# With attractrepel
+CATEGORIES = [
+    {'name': 'synonym', 'mean': 0.40205, 'stdev': 0.08037, 'ratio': 12.57},
+    {'name': 'lexical_set', 'mean': 0.34135, 'stdev': 0.09045, 'ratio': 21.98},
+    {'name': 'other_conceptual', 'mean': 0.23517, 'stdev': 0.09622, 'ratio': 20.50},
+    {'name': 'cue_response_collocation', 'mean': 0.24524, 'stdev': 0.10412, 'ratio': 21.02},
+    {'name': 'response_cue_collocation', 'mean': 0.26062, 'stdev': 0.10947, 'ratio': 14.95},
+    {'name': 'affix_manipulation', 'mean': 0.57744, 'stdev': 0.04565, 'ratio': 1.53},
+    {'name': 'form_based', 'mean': 0.18898, 'stdev': 0.08481, 'ratio': 1.24},
+    {'name': 'two_step', 'mean': 0.18407, 'stdev': 0.09391, 'ratio': 3.11},
+    {'name': 'erratic', 'mean': 0.13200, 'stdev': 0.10930, 'ratio': 3.11},
+]
+AGE_BRACKETS = [(0, 33), (33, 120)]
 
 
 def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None):
     if predict is None:
         predict = TO_PREDICT
+
     try:
         sample_size = int(sample_size)
     except TypeError:
@@ -40,7 +66,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     start = time.perf_counter()
     logging.debug('Getting data')
 
-    min_responses = 50 * sample_size
+    min_responses = MIN_RESPONSES
     label_encoder = preprocessing.LabelEncoder()
 
     coded_file = Path(
@@ -50,6 +76,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     if not Path.is_file(coded_file) or reload:
         data = getData(source=source, min_responses=min_responses, columns=columns, label_encoder=label_encoder,
                        predict=predict)
+        data = filterData(data, predict, columns)
         # avoid calling the DB every time
         data.to_csv(coded_file.absolute())
     else:
@@ -68,17 +95,19 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     logging.info('Predicting for {} using {}'.format(predict, batched_data.columns))
     # the data to be predicted
     y = batched_data[predict]
-
-    # feature normalization
     x = batched_data.drop(predict, axis=1)
-    x_normalized = feature_normalization(x)
 
     # split the data before replacing NaNs with mean to avoid leaking information into the test set
-    x_train, x_test, y_train, y_test = train_test_split(x_normalized, y, test_size=0.30, random_state=101)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.30, random_state=101)
+
+    # feature normalization
+
+    x_train_norm = feature_normalization(x_train)
+    x_test_norm = feature_normalization(x_test)
 
     # replace nans with zeros and inf with very large numbers
-    x_train = replace_nan_with_mean(x_train)
-    x_test = replace_nan_with_mean(x_test)
+    x_train = replace_nan_with_mean(x_train_norm)
+    x_test = replace_nan_with_mean(x_test_norm)
 
     # Principal Components Analysis
     # TODO This could be done with Incremental PCA in sklearn and then it would also handle the batching
@@ -108,28 +137,24 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     logging.debug('including features: {}'.format(df_k_best.columns))
 
     # logistic regression
-    accuracies = pd.DataFrame(columns=['C_parameter', 'Accuracy'])
+    accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
+    accuracies = pd.DataFrame(columns=accuracy_cols)
     accuracies['C_parameter'] = C_param_range
     accuracy_row = 0
     for c_param in C_param_range:
+        logging.debug('Logistic Regression')
         logmodel, y_predictions = logisticRegression(x_train, y_train, x_test, y_test, c_param, label_encoder)
+
         # Saving accuracy score in table
-
-        accuracies.iloc[accuracy_row, 1] = accuracy_score(y_test, y_predictions)
+        accuracies.iloc[accuracy_row, 2] = accuracy_score(y_test, y_predictions)
+        accuracies.iloc[accuracy_row, 0] = 'logistic'
         accuracy_row += 1
+    logging.debug('Naive Bayes')
+    logmodel, y_predictions = naiveBayes(x_train, y_train, x_test, y_test)
+    # Saving accuracy score in table
+    accuracies = accuracies.append(
+        pd.DataFrame([['naive-bayes', None, accuracy_score(y_test, y_predictions)]], columns=accuracy_cols))
 
-        # Printing decision regions
-        # plt.subplot(3, 2, accuracy_row)
-        # plt.subplots_adjust(hspace=0.4)
-        # print(x_combined)
-        # plot_decision_regions(X=x_combined
-        #                       , y=y_combined
-        #                       , classifier=logmodel
-        #                       , test_idx=range(105, 150))
-        # plt.xlabel('Sepal length')
-        # plt.ylabel('Sepal width')
-        # plt.title('C = %s' % c_param)
-        # plt.show()
     print(accuracies)
     end = time.perf_counter()
     logging.debug('time taken {}'.format(end - start))
@@ -160,8 +185,35 @@ def feature_creation(df):
                 )),
                 df['dict2vec_similarity'].between(band['lower'], band['upper'])
             )
-    df.drop(columns=['dict2vec_similarity', 's2v_similarity', 'wikipedia_similarity', 'crawl_similarity'], inplace=True)
-    return df
+
+    df['model_average'] = df[
+        ['dict2vec_similarity', 's2v_similarity', 'wikipedia_similarity', 'crawl_similarity']].mean(axis=1)
+
+    gaussian_cols = []
+    for category in CATEGORIES:
+        cat_gauss = ''.join([category['name'], '_gaussian'])
+        df[cat_gauss] = df['model_average'].apply(gaussian, args=(category['mean'], category['stdev']))
+        df[cat_gauss] = df[cat_gauss] * category['ratio']
+        gaussian_cols.append(cat_gauss)
+
+    for category in CATEGORIES:
+        cat_gauss = ''.join([category['name'], '_gaussian'])
+        df[category['name']] = df[cat_gauss] / df[gaussian_cols].sum(axis=1)
+
+    df = df.drop(columns=gaussian_cols)
+
+    result = df.drop(columns=['dict2vec_similarity', 's2v_similarity', 'wikipedia_similarity', 'crawl_similarity'])
+
+    return result
+
+
+def gaussian(x, mean, sd):
+    # return norm(mu, sig).pdf(x)
+    var = float(sd) ** 2
+    denom = (2 * math.pi * var) ** .5
+    num = math.exp(-(float(x) - float(mean)) ** 2 / (2 * var))
+    return num / denom
+    # return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
 
 
 def replace_nan_with_mean(arr):
@@ -197,6 +249,7 @@ def feature_selection(x, y, k_value=None):
 def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoder):
     # create an instance and fit the model
     logmodel = LogisticRegression(C=C_param)
+
     logmodel.fit(x_train, y_train)
     # predictions
     predictions = logmodel.predict(x_test)
@@ -204,6 +257,18 @@ def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoder)
     # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
     print(classification_report(y_test, predictions))  # , target_names=target_strings))
     return logmodel, predictions
+
+
+def naiveBayes(x_train, y_train, x_test, y_test):
+    # create an instance and fit the model
+    model = GaussianNB()
+    model.fit(x_train, y_train)
+    # predictions
+    predictions = model.predict(x_test)
+    label_index = [int(x) for x in model.classes_.tolist()]
+    # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
+    print(classification_report(y_test, predictions))  # , target_names=target_strings))
+    return model, predictions
 
 
 def filterData(df, predict, columns=None):
@@ -231,21 +296,23 @@ def filterData(df, predict, columns=None):
 
 
 def get_age_bracket(age):
-    bracket = None
-    if age < 50:
-        bracket = '<50'
-    elif age >= 50:
-        bracket = '>=50'
-    return bracket
+    result = None
+    for bracket in AGE_BRACKETS:
+        bracket_name = '-'.join([str(bracket[0]), str(bracket[1])])
+        if bracket[0] < age <= bracket[1]:
+            result = bracket_name
+            break
+    return result
 
 
-def getData(label_encoder, predict, source=None, min_responses=None, columns=None):
+def getData(label_encoder, predict, source=None, min_responses=None, columns=None, keep_pairs=None):
     # TODO make this multiprocess the formatting
     min_responses = min_responses or MIN_RESPONSES
 
     cur = get_cue_response_pairs_coded(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
-    df['age_bracket'] = df['age'].apply(get_age_bracket)
+    if predict == 'age_bracket':
+        df['age_bracket'] = df['age'].apply(get_age_bracket)
     df.drop(columns=['rowid'], inplace=True)
     logging.info('there are {} records'.format(len(df)))
     # full wordssoc table
@@ -256,11 +323,12 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
     if not len(groups_with_min_responses):
         exit('not enough responses')
     df = df[df[predict].isin(groups_with_min_responses)]
-    df = df.drop(
-        columns=['cue_clean', 'response_clean',
-                 'cue_raw', 'response_raw',
-                 'cue_correction', 'response_correction',
-                 'cue_sense', 'response_sense', 'source'])
+    if not keep_pairs:
+        df = df.drop(
+            columns=['cue_clean', 'response_clean',
+                     'cue_raw', 'response_raw',
+                     'cue_correction', 'response_correction',
+                     'cue_sense', 'response_sense', 'source'])
     user_columns = USER_COLUMNS
     if predict in USER_COLUMNS:
         user_columns.remove(predict)
@@ -282,13 +350,16 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
 
     df['phonology'] = label_encoder.fit_transform(df['phonology'])
     df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
-    df['age_bracket'] = label_encoder.fit_transform(df['age_bracket'])
+    if predict == 'age_bracket':
+        df['age_bracket'] = label_encoder.fit_transform(df['age_bracket'])
 
     df[predict] = label_encoder.fit_transform(df[predict])
-    df = df.astype(float)
+    print(df)
+    if not keep_pairs:
+        df = df.astype(float)
     df = df.sort_values(by=predict)
     logging.debug('filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
-    df = filterData(df, predict, columns)
+
     logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
     return df
 
@@ -297,6 +368,7 @@ def batch_data(df, predict, size):
     # GROUP BY variable to predict
     # GROUP BY n rows and calculate mean
     logging.info('There are {} samples to batch'.format(len(df)))
+    print(df.columns)
     groups = {key: df.loc[value] for key, value in df.groupby(predict).groups.items()}
     batched = pd.DataFrame()
     logging.debug('batching data...')
@@ -319,40 +391,6 @@ def drop_wordnet_features(df):
                           'entailments', 'causes', 'also_sees', 'verb_groups', 'similar_tos',
                           'hypernyms', 'root_hypernyms'])
     return df
-
-
-def plot_decision_regions(X, y, classifier, test_idx=None, resolution=0.02):
-    # Initialise the marker types and colors
-    markers = ('s', 'x', 'o', '^', 'v', '4')
-    colors = ('red', 'blue', 'lightgreen', 'gray', 'cyan')
-    color_Map = ListedColormap(colors[:len(np.unique(y))])  # we take the color mapping correspoding to the
-    # amount of classes in the target data
-
-    # Parameters for the graph and decision surface
-    x1_min = X[:, 0].min() - 1
-    x1_max = X[:, 0].max() + 1
-    x2_min = X[:, 1].min() - 1
-    x2_max = X[:, 1].max() + 1
-    xx1, xx2 = np.meshgrid(np.arange(x1_min, x1_max, resolution),
-                           np.arange(x2_min, x2_max, resolution))
-
-    Z = classifier.predict(np.array([xx1.ravel(), xx2.ravel()]).T)
-    Z = Z.reshape(xx1.shape)
-
-    plt.contour(xx1, xx2, Z, alpha=0.4, cmap=color_Map)
-    plt.xlim(xx1.min(), xx1.max())
-    plt.ylim(xx2.min(), xx2.max())
-
-    # Plot samples
-    X_test, Y_test = X[test_idx, :], y[test_idx]
-
-    # print(len(y), X.shape)
-    for idx, cl in enumerate(np.unique(y)):
-        print(idx)
-        plt.scatter(x=X[y == cl, 0], y=X[y == cl, 1],
-                    alpha=0.8, c=color_Map(idx),
-                    marker=markers[idx], label=cl
-                    )
 
 
 def setup():

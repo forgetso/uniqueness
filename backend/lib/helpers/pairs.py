@@ -31,7 +31,7 @@ class CueResponsePairs:
     def format_cue_response_pairs(self):
         all_pairs = self.all_pairs
         word_filter = self.word_filter
-        if word_filter is not None:
+        if hasattr(word_filter, 'size'):
             intersection = np.intersect1d(
                 np.intersect1d(all_pairs["cue_clean"], all_pairs["response_clean"]),
                 word_filter,
@@ -40,10 +40,12 @@ class CueResponsePairs:
 
             if not len(intersection):
                 exit("No intersection between allowed words and cue response pairs")
-            all_pairs = all_pairs[
-                np.logical_and(np.equal(all_pairs["cue_clean"].isin(intersection), True),
-                               np.equal(all_pairs["response_clean"].isin(intersection), True))
-            ]
+            # TODO work out whether to restrict responses
+            # all_pairs = all_pairs[
+            #     np.logical_and(np.equal(all_pairs["cue_clean"].isin(intersection), True),
+            #                    np.equal(all_pairs["response_clean"].isin(intersection), True))
+            # ]
+            all_pairs = all_pairs[np.equal(all_pairs["cue_clean"].isin(intersection), True)]
             logging.debug("{} in all pairs after word filter".format(len(all_pairs)))
         # we take a subset of columns as we're not interested in source, rowid, etc.
         distinct_pairs = all_pairs[

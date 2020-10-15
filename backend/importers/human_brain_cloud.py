@@ -9,7 +9,7 @@ from backend.lib.helpers.string import clean_word, get_country_code
 from os import listdir
 from backend.importers.common import save_responses_and_users, get_external_backup
 import logging
-from backend.settings import AWS_USERNAME, AWS_SERVER
+from backend.settings_private import AWS_USERNAME, AWS_SERVER
 
 SOURCE = 'humanbraincloud'
 DATABASE = 'humanbrain'

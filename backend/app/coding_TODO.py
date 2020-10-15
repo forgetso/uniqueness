@@ -5,13 +5,9 @@
 # TODO use split col throughout instead of splitting multiple times
 # TODO add s2v check for syntagmatic
 # TODO add proverb check for syntagmatic
-# TODO check if the part of speech changes from cue to response
-# TODO add comparisons between the other metrics instead of the metrics themselves (i.e. concreteness difference)
-#   this is probably more valid than modelling on the response metrics as they will be indicative of the words
 # TODO  contractions (don't)
-# TODO  word is in ALL_WORDS
 # TODO  acronyms
-# TODO  encyclopaedic associations - e.g. if the cue is war and someone responds with the name of a particular war
+# TODO  encyclopedic associations - e.g. if the cue is war and someone responds with the name of a particular war
 # TODO  obscene words
 # TODO  sexual references
 # TODO  slang

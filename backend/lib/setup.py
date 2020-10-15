@@ -333,7 +333,9 @@ def db_setup(
     length int,
     syllables int,
     capitalised bool,
+    capitalised_any int,
     punctuation bool,
+    first_char_equal bool,
     number_of_words int,
     synonym bool,
     antonym bool,
@@ -388,7 +390,8 @@ def db_setup(
     proverb_similarity decimal,
     crawl_similarity decimal,
     wikipedia_similarity decimal,
-    dict2vec_similarity decimal)
+    dict2vec_similarity decimal,
+    attractrepel_similarity decimal)
     """
     )
     conn.commit()
