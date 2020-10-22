@@ -52,7 +52,7 @@ CATEGORIES = [
     {'name': 'two_step', 'mean': 0.18407, 'stdev': 0.09391, 'ratio': 3.11},
     {'name': 'erratic', 'mean': 0.13200, 'stdev': 0.10930, 'ratio': 3.11},
 ]
-AGE_BRACKETS = [(0, 33), (33, 120)]
+AGE_BRACKETS = [(0, 25), (50 , 120)]
 
 
 def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None):
@@ -76,7 +76,12 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     if not Path.is_file(coded_file) or reload:
         data = getData(source=source, min_responses=min_responses, columns=columns, label_encoder=label_encoder,
                        predict=predict)
+        # create more features to try and increase the accuracy
+        data = feature_creation(data)
+
+        # filter out empty columns and apply any user defined filtering
         data = filterData(data, predict, columns)
+
         # avoid calling the DB every time
         data.to_csv(coded_file.absolute())
     else:
@@ -84,9 +89,6 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
         data.drop(columns=['Unnamed: 0'], inplace=True, axis=1)
     if data is None:
         raise (ValueError('No data returned from getData!'))
-
-    # create more features to try and increase the accuracy
-    data = feature_creation(data)
 
     batched_data = data
     if sample_size > 1:

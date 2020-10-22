@@ -2,10 +2,9 @@ import numpy as np
 import torch
 import torch.optim as optim
 import torch.nn as nn
-from torchviz import make_dot
 from torch.utils.data import Dataset, TensorDataset, DataLoader
 from torch.utils.data.dataset import random_split
-from backend.lib.logistic_regression import getData
+from backend.model.logistic_regression import getData
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 data = getData()
