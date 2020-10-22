@@ -1,5 +1,5 @@
 from backend.app.coding import check_syntagmatic, check_phonology, check_affix, basic_coding, check_senses_and_pos, \
-    check_corrections, check_measures, main
+    check_corrections, check_measures, main, idea_density
 from backend.lib.measures import UNKNOWN_CATEGORY, get_all_measures
 from decimal import Decimal
 import pandas as pd
@@ -402,3 +402,22 @@ def test_main():
     assert round(df[df_filter].at[0, 'concreteness_measure'], 2) is not None  # concreteness
     df_filter = np.logical_and(df['cue'] == 'qatari', df['response'] == 'qataris')
     assert np.isnan(df[df_filter].at[0, 'valence'])
+
+
+def test_idea_density():
+    # idea_density(cue_pos, response_pos, models)
+    models = ['model1', 'model2']
+    model_cols = ['{}_similarity'.format(x) for x in models]
+    data = [
+        ['verb', 'noun', 0.346, 0.123],
+        ['noun', 'verb', 0.346, 0.123],
+        ['noun', 'noun', 0.346, 0.123],
+        ['noun', 'adj', 0.346, 0.123],
+
+    ]
+    cols = ['cue_pos', 'response_pos']
+    cols.extend(model_cols)
+    df = pd.DataFrame(data, columns=cols)
+    df['idea_density'] = df.apply(lambda row: idea_density(row['cue_pos'], row['response_pos'], row[model_cols]),
+                                  axis=1)
+    assert np.array_equal(df['idea_density'].values, [0, 1 - (0.346 + 0.123) / 2, 0, 1 - (0.346 + 0.123) / 2])

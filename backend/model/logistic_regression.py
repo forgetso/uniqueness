@@ -17,8 +17,6 @@ from backend.settings import LOG_LEVEL, DATA_FOLDER
 from sklearn.feature_selection import VarianceThreshold
 from pathlib import Path
 import os
-import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
 import math
 
 SAMPLE_SIZE = 8

@@ -3,6 +3,7 @@ from backend.lib.helpers.pairs import CueResponsePairs
 from backend.db.db import save_coded_pairs, delete_coded_pairs
 from backend.lib.setup import db_setup
 from nltk.stem import PorterStemmer
+from nltk import ngrams
 import re
 import jellyfish
 from backend.lib.wordnet_relations import WordnetRelations
@@ -36,7 +37,7 @@ DROP_BEFORE_SAVING = [
     "{}_decoded",
     "{}_split",
     "{}_correction",
-    "{}_pos",
+    #"{}_pos",
     "{}_sense",
     "{}_bad_spell",
     "{}_best_sense",
@@ -162,11 +163,14 @@ def get_coding(df, shared_data, shared_model, save):
 
     # get one model at a time to save on RAM
     shm_model = None
+    similarity_cols = []
     for model_name, share in shared_model.items():
         logging.debug('model {}'.format(model_name))
         shm_model = SharedModelManager(from_shared=True, shares={model_name: share})
         cue_col = "cue_decoded"
         response_col = "response_decoded"
+        model_col = "{}_similarity".format(model_name)
+        similarity_cols.append(model_col)
         # model similarities
         if model_name == "s2v":
             cue_col = "cue_best_sense"
@@ -178,14 +182,14 @@ def get_coding(df, shared_data, shared_model, save):
                 df[response_col] = df["response_decoded"].apply(s2v.get_best_sense)
 
         if model_name in LANG_MODELS:
-            df["{}_similarity".format(model_name)] = df.apply(
+            df[model_col] = df.apply(
                 lambda row: get_lang_nlp_similarity(
                     row[cue_col], row[response_col], shm_model.data[model_name]
                 ),
                 axis=1,
             )
         else:
-            df["{}_similarity".format(model_name)] = df.apply(
+            df[model_col] = df.apply(
                 lambda row: get_nlp_similarity(
                     row[cue_col], row[response_col], shm_model.data[model_name]
                 ),
@@ -248,6 +252,11 @@ def get_coding(df, shared_data, shared_model, save):
     df = check_senses_and_pos(df)
     assert (len(df) == df_len)
 
+    # based on the average number of ideas (Adj, Adv, Verb, Prep) per 10 words from the last 10 sentences
+    # here an idea is given the inverse mean score from the models - so the less related two words are, the more likely
+    # they are to be original ideas
+    df['idea_density'] = df.apply(lambda x: idea_density(x['cue_pos'], x['response_pos'], x[similarity_cols]), axis=1)
+
     # get rid of unnecessary columns
     df = drop_before_saving(df)
 
@@ -286,6 +295,7 @@ def basic_coding(df):
     df["capitalised"] = np.equal(
         df["cue_raw"].str[0].str.isupper(), df["response_raw"].str[0].str.isupper()
     )
+    
     # the difference in number of capital letters between cue and response
     df["capitalised_any"] = df.apply(lambda row: capitalised_diff(row['cue_raw'], row['response_raw']), axis=1)
 
@@ -320,6 +330,12 @@ def first_char_equal(cue, response):
     except IndexError:
         result = False
     return result
+
+
+def idea_density(cue_pos, response_pos, models):
+    if cue_pos == 'noun' and response_pos in ('adj', 'verb', 'adv', 'preposition'):
+        return float(1) - sum(models) / len(models)
+    return 0
 
 
 def get_measures_diff(df, all_measures):

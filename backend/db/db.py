@@ -156,7 +156,9 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.length, 
           cod.syllables, 
           cod.capitalised, 
+          cod.capitalised_any,
           cod.punctuation, 
+          cod.first_char_equal,
           cod.number_of_words, 
           cod.synonym, 
           cod.antonym, 
@@ -206,7 +208,8 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.proverb_similarity,
           cod.crawl_similarity,
           cod.wikipedia_similarity,
-          cod.dict2vec_similarity
+          cod.dict2vec_similarity,
+          cod.idea_density
         FROM 
           responses r 
           LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 
