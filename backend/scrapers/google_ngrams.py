@@ -69,7 +69,7 @@ def iterate_words(words_to_scrape):
 
 
 def get_progress(output_file):
-    existing_data = []
+    existing_data = pd.DataFrame([])
     output_path = Path(output_file)
     if output_path.exists():
         existing_data = pd.read_csv(output_file)
