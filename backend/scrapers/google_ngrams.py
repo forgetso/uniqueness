@@ -5,20 +5,26 @@ from backend.settings import LOG_LEVEL
 from hyper.contrib import HTTP20Adapter
 from backend.scrapers.user_agents import user_agent_list
 from backend.lib.scraping import extract_json_from_script
+from backend.lib.multiprocessor import job_pool, chunks
 from bs4 import BeautifulSoup
 import pandas as pd
 import argparse
 import re
 from pathlib import Path
+from time import sleep
 
 logging.basicConfig(level=LOG_LEVEL)
 BASE_URL = 'https://books.google.com'
 USER_AGENT = random.choice(user_agent_list)
 OUTPUTFILE = 'ngrams.csv'
+JOB_NUMBER = 4
 
 
-def process(words=None, input_file=None, output_file=None):
+def process(**kwargs):
     words_to_scrape = []
+    words = kwargs.get('words')
+    input_file = kwargs.get('input_file')
+    output_file = kwargs.get('output_file')
     if words is not None:
         words_to_scrape = pd.Series(words.split(','))
     elif input_file is not None:
@@ -29,31 +35,36 @@ def process(words=None, input_file=None, output_file=None):
 
     existing_data = get_progress(output_file)
     words_to_scrape = remove_downloaded_words_from_list(existing_data, words_to_scrape)
+    jobs = job_pool(data=words_to_scrape, job_number=JOB_NUMBER, job_to_do=iterate_words)
+    df = pd.concat(jobs)
 
+    logging.info('Saving progress to {}'.format(output_file))
+    save_data_to_file(output_file, existing_data, df)
+
+    logging.debug('Got data:')
+    if len(df) != len(words_to_scrape):
+        raise ValueError('Less words returned than requested, job must have been cut short or failed!')
+    logging.debug(df)
+
+    return df
+
+
+def iterate_words(words_to_scrape):
     data = []
-    df = None
-
     if len(words_to_scrape):
         session = setup_session()
         try:
             for words in batch(words_to_scrape.values, batch_size=12):
+                # we get too many requests without waiting
+                sleep(1)
                 content_dict = download(session, words)
                 data.extend(content_dict)
         except (Exception, KeyboardInterrupt) as e:
-            logging.error('Download failed: {}'.format(e))
-            logging.info('Saving progress to {}'.format(output_file))
+            logging.error('\nDownload failed: {}'.format(e))
             df = pd.DataFrame(data)
-            save_data_to_file(output_file, existing_data, df)
-            exit()
+            return df
 
-        df = pd.DataFrame(data)
-        if len(df):
-            assert (len(data) == len(words_to_scrape))
-            if output_file is not None:
-                save_data_to_file(output_file, existing_data, df)
-
-    logging.debug('Got data:')
-    logging.debug(df)
+    df = pd.DataFrame(data)
     return df
 
 
@@ -79,9 +90,11 @@ def download(session, words):
     url = get_url(words)
     request_obj = session.get(url)
     if request_obj.status_code != 200:
+        logging.debug(request_obj.headers)
         raise ConnectionError(
             'Cannot access {} \nServer returned {} - {}'.format(url, request_obj.status_code,
                                                                 request_obj.content))
+
     soup = BeautifulSoup(request_obj.content, 'html.parser')
     all_scripts = soup.find_all('script')
     content_dict = extract_json_from_script(all_scripts, start_split='ngrams.data = ', end_split=';\n')

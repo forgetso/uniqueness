@@ -28,7 +28,7 @@ GET_UID_SCRIPT = '{}/backend/lib/helpers/get_uid.js'.format(PROJECT_ROOT)
 DATABASE = 'humanbrain'
 
 
-def process():
+def process(**kwargs):
     # wait a random amount of seconds so that the requests don't go out at exactly the same time every 5 minutes
     time.sleep(random.randint(1, 3))
     # random_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16)).lower()

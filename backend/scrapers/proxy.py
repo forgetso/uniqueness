@@ -3,13 +3,15 @@ import subprocess
 import os
 import random
 from backend.settings_private import PROXY_LOGIN, PROXY_PASSWORD
-from backend.settings import PROJECT_ROOT, IP, LOG_LEVEL
+from backend.settings import PROJECT_ROOT, LOG_LEVEL
+from backend.settings_private import IP
 import logging
-from backend.scrapers.human_brain_cloud import process as human_brain_cloud
 import time
 from requests import get
 import psutil
 import signal
+import json
+from importlib import import_module
 
 logging.basicConfig(level=LOG_LEVEL)
 # this cannot be worked out using os.getcwd as the proxy script needs to be run from sudo so the CWD would be
@@ -22,7 +24,8 @@ USERPASSFILE = ''.join([CWD, VPN_CONFIG_FOLDER, 'userpass.txt'])
 USERPASSCONFIG = 'auth-user-pass {}'.format(USERPASSFILE)
 OPENVPN_PID_FILE = "/tmp/openvpn_pid"
 
-def process(humanbrain=None):
+
+def process(job=None, **kwargs):
     ## getting the IP address using socket.gethostbyname() method
     ip_address_initial = IP
 
@@ -78,11 +81,13 @@ def process(humanbrain=None):
             kill(proxy_process)
             raise Exception('IP Address not changed')
         # various jobs to be run behind proxy
-        if humanbrain:
-            human_brain_cloud()
+        if job:
+            module = import_module(job)
+            process = getattr(module, 'process')
+            process(**kwargs)
         stop_openvpn()
         kill(proxy_process)
-    except Exception as e:
+    except (Exception, KeyboardInterrupt) as e:
         logging.debug(e)
         if proxy_process is not None:
             stop_openvpn()
@@ -111,6 +116,7 @@ def stop_openvpn():
     pid = int(pid_file.read())
     logging.debug('sending stop command to proxy process {}'.format(pid))
     os.kill(pid, signal.SIGTERM)
+
 
 def kill(process):
     parent = psutil.Process(process.pid)
@@ -157,9 +163,10 @@ def findProcessIdByName(processName):
 
 def setup():
     parser = argparse.ArgumentParser(description='Import various types of word data')
-    parser.add_argument('--humanbrain', action='store_true', help='Get human brain data via proxy')
+    parser.add_argument('job', help='Get job name to run via proxy')
+    parser.add_argument('args', help='JSON of arguments for the job')
     args = parser.parse_args()
-    process(humanbrain=args.humanbrain)
+    process(args.job, **json.loads(args.args))
 
 
 if __name__ == "__main__":
