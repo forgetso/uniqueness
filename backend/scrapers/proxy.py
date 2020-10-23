@@ -26,9 +26,6 @@ OPENVPN_PID_FILE = "/tmp/openvpn_pid"
 
 
 def process(job=None, **kwargs):
-    ## getting the IP address using socket.gethostbyname() method
-    ip_address_initial = IP
-
     files_path = [''.join([VPN_CONFIG_FOLDER_FULL, x]) for x in os.listdir(VPN_CONFIG_FOLDER_FULL) if
                   x.startswith('us') and x != 'userpass.txt']
     # make sure the configs are set to look for a credentials file
@@ -56,9 +53,36 @@ def process(job=None, **kwargs):
         userpassfile.write(PROXY_PASSWORD)
         userpassfile.close()
     logging.debug(proxy_server_config)
-    command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
-    proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
+
+    ## getting the IP address using socket.gethostbyname() method
+    ip_address_initial = get('https://api.ipify.org').text
+    proxy_process = None
+    if ip_address_initial == IP:
+        proxy_process = setup_proxy(proxy_server_config)
+
     try:
+        run_process(job, proxy_process, ip_address_initial, **kwargs)
+    except (Exception, KeyboardInterrupt) as e:
+        logging.debug(e)
+        if proxy_process is not None:
+            stop_openvpn()
+            logging.debug('attempting to kill open vpn processes')
+            kill(proxy_process)
+            time.sleep(1)
+
+        if checkIfProcessRunning('openvpn'):
+            processes = findProcessIdByName('openvpn')
+            logging.debug('had to kill the processes with the kernel')
+            for p in processes:
+                os.kill(p['pid'], signal.SIGSTOP)
+
+
+def setup_proxy(proxy_server_config):
+    proxy_process = None
+    try:
+        command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
+        proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         stdin=subprocess.PIPE)
         start_time = time.time()
         while True:
             line = proxy_process.stdout.readline().decode('utf8')
@@ -73,32 +97,26 @@ def process(job=None, **kwargs):
                     kill(proxy_process)
                     raise Exception('Could not connect to proxy server')
                 continue
+    except Exception as e:
+        print(e)
+        exit()
+    return proxy_process
 
-        ## getting the IP address using socket.gethostbyname() method
-        ip_address_subsequent = get('https://api.ipify.org').text
-        logging.debug('ip address was {} ip address now {}'.format(ip_address_initial, ip_address_subsequent))
-        if ip_address_subsequent == ip_address_initial:
-            kill(proxy_process)
-            raise Exception('IP Address not changed')
-        # various jobs to be run behind proxy
-        if job:
-            module = import_module(job)
-            process = getattr(module, 'process')
-            process(**kwargs)
-        stop_openvpn()
+
+def run_process(job, proxy_process, ip_address_initial, **kwargs):
+    ## getting the IP address using socket.gethostbyname() method
+    ip_address_subsequent = get('https://api.ipify.org').text
+    logging.debug('ip address was {} ip address now {}'.format(ip_address_initial, ip_address_subsequent))
+    if ip_address_subsequent == IP:
         kill(proxy_process)
-    except (Exception, KeyboardInterrupt) as e:
-        logging.debug(e)
-        if proxy_process is not None:
-            stop_openvpn()
-        logging.debug('attempting to kill open vpn processes')
-        kill(proxy_process)
-        time.sleep(1)
-        if checkIfProcessRunning('openvpn'):
-            processes = findProcessIdByName('openvpn')
-            logging.debug('had to kill the processes with the kernel')
-            for p in processes:
-                os.kill(p['pid'], signal.SIGSTOP)
+        raise Exception('IP Address not changed')
+    # various jobs to be run behind proxy
+    if job:
+        module = import_module(job)
+        process = getattr(module, 'process')
+        process(**kwargs)
+    stop_openvpn()
+    kill(proxy_process)
 
 
 def process_output(proxy_process, max_time=30):
