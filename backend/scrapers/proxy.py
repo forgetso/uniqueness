@@ -69,7 +69,6 @@ def process(job=None, **kwargs):
         run_process(job, proxy_process, ip_address_initial, **kwargs)
     finally:
         logging.debug('Finally trying to kill openvpn if no other processes are using it')
-        stop_openvpn()
         final_process_check()
 
 
@@ -78,7 +77,6 @@ def choose_proxy_config(files_path):
 
 
 def setup_proxy(proxy_server_config):
-
     command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
     proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      stdin=subprocess.PIPE)
@@ -112,8 +110,6 @@ def run_process(job, proxy_process, ip_address_initial, **kwargs):
         module = import_module(job)
         process = getattr(module, 'process')
         process(**kwargs)
-    stop_openvpn()
-    kill(proxy_process)
 
 
 def process_output(proxy_process, max_time=30):
@@ -142,7 +138,9 @@ def kill(process):
 
 def final_process_check():
     # make sure openvpn is killed if there are no other scrapers running
-    if checkIfProcessRunning('openvpn') and len(findProcessIdByName('python')) <= 1:
+    if len(findProcessIdByName('python')) <= 1:
+        stop_openvpn()
+    if checkIfProcessRunning('openvpn'):
         logging.debug('openvpn is still runnning, using ifconfig to stop tunnel')
         tunnel_down()
         processes = findProcessIdByName('openvpn')
