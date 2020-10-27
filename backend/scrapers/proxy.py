@@ -44,7 +44,7 @@ def process(job=None, **kwargs):
                 assert (USERPASSCONFIG in lines)
                 f.write(lines)
                 f.close()
-    proxy_server_config = random.choice(files_path)
+    proxy_server_config = choose_proxy_config(files_path)
     if not os.path.exists(USERPASSFILE):
         logging.debug('writing userpass file')
         userpassfile = open(USERPASSFILE, 'w')
@@ -58,48 +58,45 @@ def process(job=None, **kwargs):
     ip_address_initial = get('https://api.ipify.org').text
     proxy_process = None
     if ip_address_initial == IP:
-        proxy_process = setup_proxy(proxy_server_config)
+        attempts = 0
+        while attempts < 3:
+            try:
+                proxy_process = setup_proxy(proxy_server_config)
+            except ConnectionError:
+                attempts += 1
 
     try:
         run_process(job, proxy_process, ip_address_initial, **kwargs)
-    except (Exception, KeyboardInterrupt) as e:
-        logging.debug(e)
-        if proxy_process is not None:
-            stop_openvpn()
-            logging.debug('attempting to kill open vpn processes')
-            kill(proxy_process)
-            time.sleep(1)
+    finally:
+        logging.debug('Finally trying to kill openvpn if no other processes are using it')
+        stop_openvpn()
+        final_process_check()
 
-        if checkIfProcessRunning('openvpn'):
-            processes = findProcessIdByName('openvpn')
-            logging.debug('had to kill the processes with the kernel')
-            for p in processes:
-                os.kill(p['pid'], signal.SIGSTOP)
+
+def choose_proxy_config(files_path):
+    return random.choice(files_path)
 
 
 def setup_proxy(proxy_server_config):
-    proxy_process = None
-    try:
-        command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
-        proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                         stdin=subprocess.PIPE)
-        start_time = time.time()
-        while True:
-            line = proxy_process.stdout.readline().decode('utf8')
-            logging.debug(line)
-            try:
-                if line.index('Initialization Sequence Completed'):
-                    break
-            except ValueError:
-                time_elapsed = time.time() - start_time
-                time.sleep(0.1)
-                if time_elapsed > 30:
-                    kill(proxy_process)
-                    raise Exception('Could not connect to proxy server')
-                continue
-    except Exception as e:
-        print(e)
-        exit()
+
+    command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
+    proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     stdin=subprocess.PIPE)
+    start_time = time.time()
+    while True:
+        line = proxy_process.stdout.readline().decode('utf8')
+        logging.debug(line)
+        try:
+            if line.index('Initialization Sequence Completed'):
+                break
+        except ValueError:
+            time_elapsed = time.time() - start_time
+            time.sleep(0.1)
+            if time_elapsed > 10:
+                kill(proxy_process)
+                raise ConnectionError('Could not connect to proxy server')
+            continue
+
     return proxy_process
 
 
@@ -141,6 +138,23 @@ def kill(process):
     for child in parent.children(recursive=True):  # or parent.children() for recursive=False
         child.kill()
     parent.kill()
+
+
+def final_process_check():
+    # make sure openvpn is killed if there are no other scrapers running
+    if checkIfProcessRunning('openvpn') and len(findProcessIdByName('python')) <= 1:
+        logging.debug('openvpn is still runnning, using ifconfig to stop tunnel')
+        tunnel_down()
+        processes = findProcessIdByName('openvpn')
+        logging.debug('had to kill the processes with the kernel')
+        for p in processes:
+            os.kill(p['pid'], signal.SIGSTOP)
+
+
+def tunnel_down():
+    command = ["sudo", "ifconfig", "tun0", "down"]
+    subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                     stdin=subprocess.PIPE)
 
 
 def checkIfProcessRunning(processName):
