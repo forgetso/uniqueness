@@ -3,7 +3,7 @@ import unidecode
 import numpy as np
 from nltk import PorterStemmer
 from backend.settings import LOG_LEVEL
-from backend.db.db import get_cue_response_pairs
+from backend.db.layer import get_cue_response_pairs
 import pandas as pd
 
 ps = PorterStemmer()

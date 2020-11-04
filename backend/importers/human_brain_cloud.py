@@ -2,7 +2,7 @@ from pathlib import Path
 import time
 import json
 import argparse
-from backend.db.db import delete_responses, delete_users
+from backend.db.layer import delete_responses, delete_users
 from backend.lib.multiprocessor import job_pool
 import multiprocessing as mp
 from backend.lib.helpers.string import clean_word, get_country_code

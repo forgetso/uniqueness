@@ -1,4 +1,4 @@
-from backend.db.db import connect
+from backend.db.layer import connect
 import argparse
 from backend.lib.sense2vec.sense2vec import NAMED_ENTITITES, WORD_TYPES, NUM_TYPES
 import logging
@@ -9,20 +9,20 @@ logging.basicConfig(level=LOG_LEVEL)
 
 # TODO bundle these arguments into one larger argument
 def db_setup(
-    wordassoc=None,
-    responses=None,
-    affixes=None,
-    norms=None,
-    prevalences=None,
-    concreteness=None,
-    age=None,
-    emotions=None,
-    orthographic=None,
-    phonographic=None,
-    all_words=None,
-    senses=None,
-    users=None,
-    measures=None,
+        wordassoc=None,
+        responses=None,
+        affixes=None,
+        norms=None,
+        prevalences=None,
+        concreteness=None,
+        age=None,
+        emotions=None,
+        orthographic=None,
+        phonographic=None,
+        all_words=None,
+        senses=None,
+        users=None,
+        measures=None,
 ):
     # "id","participantID","created_at","age","nativeLanguage","gender","education","city","country","section","cue","R1Raw","R2Raw","R3Raw","R1","R2","R3"
     conn = connect()
@@ -339,12 +339,7 @@ def db_setup(
     punctuation bool,
     first_char_equal bool,
     number_of_words int,
-    synonym bool,
-    antonym bool,
-    phonology text,
     exact bool,
-    syntagmatic text,
-    affix bool,
     prevalent decimal,
     concreteness_measure decimal,
     age decimal,
@@ -394,7 +389,15 @@ def db_setup(
     wikipedia_similarity decimal,
     dict2vec_similarity decimal,
     attractrepel_similarity decimal,
-    idea_density decimal)
+    idea_density decimal,
+    ngram_angle_10 decimal,
+    ngram_angle_20 decimal,
+    ngram_angle_30 decimal,
+    ngram_angle_40 decimal,
+    ngram_diff_min_idx int,
+    ngram_diff_max_idx int,
+    hamming int
+    )
     """
     )
     conn.commit()

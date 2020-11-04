@@ -1,5 +1,5 @@
 import argparse
-from backend.db.db import get_cue_response_pairs, save_corrections, delete_corrections
+from backend.db.layer import get_cue_response_pairs, save_corrections, delete_corrections
 import pandas as pd
 import numpy as np
 from backend.lib.helpers.string import check_spelling

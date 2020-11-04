@@ -5,14 +5,15 @@ import argparse
 import numpy as np
 import time
 import logging
-from backend.settings import LOG_LEVEL, DATA_FOLDER
+from backend.settings import LOG_LEVEL
 from pathlib import Path
-import os
-from backend.model.logistic_regression import getData, feature_creation, feature_normalization, feature_selection, \
-    filterData, batch_data, replace_nan_with_mean, SAMPLE_SIZE, TO_PREDICT, MIN_RESPONSES, C_param_range
+from backend.model.logistic_regression import getData, feature_creation, \
+    filterData, SAMPLE_SIZE, TO_PREDICT, MIN_RESPONSES, C_param_range, \
+    get_coded_filename, prep_data
 from keras.models import Sequential
-from keras.layers import Dense, Conv1D, Flatten, Dropout, MaxPooling1D
+from keras.layers import Dense, Conv1D, Flatten, Dropout, MaxPooling1D, Conv2D, Activation
 import tensorflow as tf
+
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth = True
 config.log_device_placement = True
@@ -36,64 +37,26 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     min_responses = MIN_RESPONSES
     label_encoder = preprocessing.LabelEncoder()
 
-    coded_file = Path(
-        os.path.join(DATA_FOLDER, 'coded_data_{source}_{min_responses}_{columns}.csv'.format(source=source,
-                                                                                             min_responses=min_responses,
-                                                                                             columns=columns)))
+    coded_file = get_coded_filename(source, min_responses, columns)
+
     if not Path.is_file(coded_file) or reload:
-        data = getData(source=source, min_responses=min_responses, columns=columns, label_encoder=label_encoder,
-                       predict=predict)
+        df, label_encoder = getData(source=source, min_responses=min_responses, columns=columns,
+                                    label_encoder=label_encoder,
+                                    predict=predict)
         # create more features to try and increase the accuracy
-        data = feature_creation(data)
+        df = feature_creation(df)
 
         # filter out empty columns and apply any user defined filtering
-        data = filterData(data, predict, columns)
+        df = filterData(df, predict, columns)
 
         # avoid calling the DB every time
-        data.to_csv(coded_file.absolute())
+        df.to_csv(coded_file.absolute())
     else:
-        data = pd.read_csv(coded_file)
-        data.drop(columns=['Unnamed: 0'], inplace=True, axis=1)
-    if data is None:
+        df = pd.read_csv(coded_file)
+    if df is None:
         raise (ValueError('No data returned from getData!'))
 
-    batched_data = data
-    if sample_size > 1:
-        batched_data = batch_data(data, predict, sample_size)
-
-    logging.info('Predicting for {} using {}'.format(predict, batched_data.columns))
-    # the data to be predicted
-    y = batched_data[predict]
-    x = batched_data.drop(predict, axis=1)
-
-    # split the data before replacing NaNs with mean to avoid leaking information into the test set
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.30, random_state=101)
-
-    # feature normalization
-
-    x_train_norm = feature_normalization(x_train)
-    x_test_norm = feature_normalization(x_test)
-
-    # replace nans with zeros and inf with very large numbers
-    x_train = replace_nan_with_mean(x_train_norm)
-    x_test = replace_nan_with_mean(x_test_norm)
-
-    # create combined arrays for X and Y
-    x_combined = np.vstack((x_train, x_test))
-    y_combined = np.hstack((y_train, y_test))
-
-    # feature selection
-    if k_value is not None:
-        x_train, col_indices = feature_selection(x_train, y_train, k_value=k_value)
-        x_test = x_test[:, col_indices]
-        x_combined = x_combined[:, col_indices]
-        # get the column/feature names that were included
-        # TODO this is not right as predict column was dropped
-        df_k_best = batched_data.iloc[:, col_indices]
-    else:
-        df_k_best = batched_data
-
-    logging.debug('including features: {}'.format(df_k_best.columns))
+    X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, k_value)
 
     # logistic regression
     accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
@@ -101,7 +64,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     accuracies['C_parameter'] = C_param_range
     accuracy_row = 0
 
-    accuracy = keras_cnn(x_train, x_test, y_train, y_test)
+    accuracy = keras_cnn(X_train, X_test, y_train, y_test)
     print(accuracy)
 
     end = time.perf_counter()
@@ -110,6 +73,8 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
 
 
 def keras_cnn(x_train, x_test, y_train, y_test):
+    from keras.constraints import maxnorm
+    from keras.optimizers import SGD
     trainX = np.dstack(x_train).T
     trainy = np.vstack(y_train)
     testX = np.dstack(x_test).T
@@ -118,15 +83,15 @@ def keras_cnn(x_train, x_test, y_train, y_test):
     verbose, epochs, batch_size = 0, 10, 1
     n_records, n_features, n_outputs = trainX.shape[1], trainX.shape[2], trainy.shape[1]
     model = Sequential()
-    model.add(Conv1D(filters=16, kernel_size=3, activation='relu', input_shape=(n_records, n_features)))
-    #model.add(Dropout(0.5))
-    #model.add(MaxPooling1D(pool_size=2))
-    #model.add(Flatten())
-    #model.add(Dense(200, activation='relu'))
-    #model.add(Dense(n_outputs, activation='sigmoid'))
-    #model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    # answers are either 0 or 1
-    model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    model.add(Dense(512, input_shape=(n_records, n_features), activation='relu', kernel_constraint=maxnorm(3)))
+    model.add(Dropout(0.5))
+    model.add(Dense(256, activation='relu', kernel_constraint=maxnorm(3)))
+    model.add(Dropout(0.5))
+    model.add(Dense(64, activation='relu', kernel_constraint=maxnorm(3)))
+    model.add(Dense(n_outputs, activation='sigmoid'))
+    sgd = SGD(lr=0.1, momentum=0.9)
+    #model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    model.compile(loss='sparse_categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
     # fit network
     model.fit(trainX, trainy, epochs=epochs, batch_size=batch_size, verbose=verbose)
     # evaluate model

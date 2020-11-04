@@ -1,5 +1,5 @@
 import pymongo
-from backend.db.db import get_acquisition_ages
+from backend.db.layer import get_acquisition_ages
 
 ACQUISITION_AGES = get_acquisition_ages()
 DATABASE = 'words_to_scrape'

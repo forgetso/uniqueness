@@ -1,4 +1,4 @@
-from backend.db.db import connect
+from backend.db.layer import connect
 
 
 def main():

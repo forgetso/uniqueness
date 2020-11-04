@@ -3,7 +3,7 @@ from flask_restful import reqparse, Api, Resource
 from flask_cors import CORS
 import random
 import json
-from backend.db.db import get_cues, save_cue_response_pair, update_correction
+from backend.db.layer import get_cues, save_cue_response_pair, update_correction
 import logging
 import re
 from datetime import datetime as dt

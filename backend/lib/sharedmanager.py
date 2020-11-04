@@ -1,6 +1,6 @@
 import numpy as np
 from backend.settings import SEMANTIC_SPACE_FOLDER, SHARE_PREFIX
-from backend.db.db import get_affixes, get_all_words
+from backend.db.layer import get_affixes, get_all_words
 from backend.lib.measures import get_all_measures
 import pandas as pd
 from multiprocessing import shared_memory

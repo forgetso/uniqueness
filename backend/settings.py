@@ -1,7 +1,7 @@
 import os
 from multiprocessing import cpu_count
 import logging
-
+from pathlib import Path
 CWD = os.getcwd()
 SHARE_PREFIX = 'unq'
 PROJECT_ROOT = '/home/chris/dev/uniqueness'
@@ -23,5 +23,5 @@ DATA_FOLDER = ''.join([CWD, '/data'])
 JOB_NUMBER = int(cpu_count() / 2)
 LOG_LEVEL = logging.DEBUG
 WORD_FREQUENCIES = ''.join([CWD, '/data/bncfreqs.csv'])
-
+NGRAMS_DATA = Path(CWD).joinpath('data/ngrams.csv')
 SYNONYMS_ANTONYMS_FILE = '/data/synonyms_antonyms.csv'

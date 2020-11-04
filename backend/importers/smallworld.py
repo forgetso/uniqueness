@@ -9,7 +9,7 @@ import multiprocessing as mp
 import argparse
 from backend.lib.helpers.string import clean_word, get_country_code
 from backend.importers.common import save_responses_and_users
-from backend.db.db import delete_responses, delete_users
+from backend.db.layer import delete_responses, delete_users
 import logging
 from backend.settings import LOG_LEVEL
 

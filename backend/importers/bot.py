@@ -1,4 +1,4 @@
-from backend.db.db import get_part_of_speech, get_cue_response_pairs, delete_responses, delete_users
+from backend.db.layer import get_part_of_speech, get_cue_response_pairs, delete_responses, delete_users
 from backend.importers.common import save_responses_and_users
 import random
 import argparse

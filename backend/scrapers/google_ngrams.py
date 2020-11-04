@@ -43,8 +43,9 @@ def process(**kwargs):
 
     logging.debug('Got data:')
     if len(df) != len(words_to_scrape):
-        raise ValueError('Less words returned than requested, job must have been cut short or failed!')
-    logging.debug(df)
+        logging.error(
+            'Less words returned ({}) than requested ({}), job must have been cut short or failed!'.format(len(df), len(
+                words_to_scrape)))
 
     return df
 

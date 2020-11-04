@@ -1,5 +1,5 @@
 import argparse
-from backend.db.db import get_cue_response_pairs, update_senses
+from backend.db.layer import get_cue_response_pairs, update_senses
 import pandas as pd
 from backend.lib.sense2vec.sense2vec import Sense2Vec
 from backend.settings import SENSE2VEC_FOLDER, LOG_LEVEL, JOB_NUMBER

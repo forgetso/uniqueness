@@ -160,10 +160,7 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.punctuation, 
           cod.first_char_equal,
           cod.number_of_words, 
-          cod.synonym, 
-          cod.antonym, 
           cod.exact, 
-          cod.affix, 
           cod.prevalent, 
           cod.concreteness_measure, 
           cod.age AS age_of_acquisition, 
@@ -200,8 +197,6 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.strlcpospav, 
           cod.sfreq, 
           cod.scdcnt, 
-          cod.syntagmatic, 
-          cod.phonology, 
           cod.pos_changes, 
           cod.bad_spell,
           cod.s2v_similarity,
@@ -209,7 +204,12 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           cod.crawl_similarity,
           cod.wikipedia_similarity,
           cod.dict2vec_similarity,
-          cod.idea_density
+          cod.idea_density,
+          cod.ngram_angle_10,
+          cod.ngram_angle_20,
+          cod.ngram_angle_30,
+          cod.ngram_angle_40,
+          cod.hamming
         FROM 
           responses r 
           LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 

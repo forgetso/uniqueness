@@ -7,7 +7,7 @@ from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import f_classif
 from sklearn.metrics import accuracy_score
 from sklearn.decomposition import PCA
-from backend.db.db import get_cue_response_pairs_coded
+from backend.db.layer import get_cue_response_pairs_coded
 import pandas as pd
 import argparse
 import numpy as np
@@ -18,6 +18,7 @@ from sklearn.feature_selection import VarianceThreshold
 from pathlib import Path
 import os
 import math
+import hashlib
 
 SAMPLE_SIZE = 8
 TO_PREDICT = 'user_id'
@@ -25,20 +26,7 @@ MIN_RESPONSES = 50 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
 C_param_range = [0.001, 0.01, 0.1, 1, 10, 100]
-# Magic numbers
-# Without attractrepel
-# CATEGORIES = [
-#     {'name': 'synonym', 'mean': 0.39497, 'stdev': 0.09099, 'ratio': 12.57},
-#     {'name': 'lexical_set', 'mean': 0.36623, 'stdev': 0.08235, 'ratio': 21.98},
-#     {'name': 'other_conceptual', 'mean': 0.26388, 'stdev': 0.08276, 'ratio': 20.50},
-#     {'name': 'cue_response_collocation', 'mean': 0.27928, 'stdev': 0.08203, 'ratio': 21.02},
-#     {'name': 'response_cue_collocation', 'mean': 0.29624, 'stdev': 0.08674, 'ratio': 14.95},
-#     {'name': 'affix_manipulation', 'mean': 0.57684, 'stdev': 0.05269, 'ratio': 1.53},
-#     {'name': 'form_based', 'mean': 0.20946, 'stdev': 0.08244, 'ratio': 1.24},
-#     {'name': 'two_step', 'mean': 0.21379, 'stdev': 0.07663, 'ratio': 3.11},
-#     {'name': 'erratic', 'mean': 0.16325, 'stdev': 0.09704, 'ratio': 3.11},
-# ]
-# With attractrepel
+# Magic numbers with attractrepel
 CATEGORIES = [
     {'name': 'synonym', 'mean': 0.40205, 'stdev': 0.08037, 'ratio': 12.57},
     {'name': 'lexical_set', 'mean': 0.34135, 'stdev': 0.09045, 'ratio': 21.98},
@@ -50,7 +38,11 @@ CATEGORIES = [
     {'name': 'two_step', 'mean': 0.18407, 'stdev': 0.09391, 'ratio': 3.11},
     {'name': 'erratic', 'mean': 0.13200, 'stdev': 0.10930, 'ratio': 3.11},
 ]
-AGE_BRACKETS = [(0, 25), (50 , 120)]
+CATEGORICAL_LIMIT = 250
+AGE_BRACKETS = [(0, 20), (51, 60)]
+
+
+# AGE_BRACKETS = [(0, 20), (21, 30), (31, 40), (41, 50), (51, 60)]
 
 
 def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None):
@@ -67,47 +59,110 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     min_responses = MIN_RESPONSES
     label_encoder = preprocessing.LabelEncoder()
 
-    coded_file = Path(
-        os.path.join(DATA_FOLDER, 'coded_data_{source}_{min_responses}_{columns}.csv'.format(source=source,
-                                                                                             min_responses=min_responses,
-                                                                                             columns=columns)))
+    # filename can get too long
+    coded_file = get_coded_filename(source, min_responses, columns)
+
     if not Path.is_file(coded_file) or reload:
-        data = getData(source=source, min_responses=min_responses, columns=columns, label_encoder=label_encoder,
-                       predict=predict)
+        df, label_encoder = getData(source=source, min_responses=min_responses, columns=columns,
+                                    label_encoder=label_encoder,
+                                    predict=predict)
         # create more features to try and increase the accuracy
-        data = feature_creation(data)
+        df = feature_creation(df)
 
         # filter out empty columns and apply any user defined filtering
-        data = filterData(data, predict, columns)
+        logging.debug(
+            'filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
+        df = filterData(df, predict, columns)
+        logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
 
         # avoid calling the DB every time
-        data.to_csv(coded_file.absolute())
+        df.to_csv(coded_file.absolute(), index=False)
     else:
-        data = pd.read_csv(coded_file)
-        data.drop(columns=['Unnamed: 0'], inplace=True, axis=1)
-    if data is None:
+        df = pd.read_csv(coded_file)
+        try:
+            df.drop(columns=['Unnamed: 0'], inplace=True, axis=1)
+        except KeyError:
+            pass
+    if df is None:
         raise (ValueError('No data returned from getData!'))
 
-    batched_data = data
-    if sample_size > 1:
-        batched_data = batch_data(data, predict, sample_size)
+    X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, k_value)
 
-    logging.info('Predicting for {} using {}'.format(predict, batched_data.columns))
+    # create combined arrays for X and Y
+    x_combined = np.vstack((X_train, X_test))
+    y_combined = np.hstack((y_train, y_test))
+
+    # logistic regression
+    accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
+    accuracies = pd.DataFrame(columns=accuracy_cols)
+    accuracies['C_parameter'] = C_param_range
+    accuracy_row = 0
+    best_model = None
+    best_score = 0
+    for c_param in C_param_range:
+        logging.debug('Logistic Regression')
+        logmodel, y_predictions = logisticRegression(X_train, y_train, X_test, y_test, c_param, label_encoder)
+        # Saving accuracy score in table
+        score = accuracy_score(y_test, y_predictions)
+        if score >= best_score:
+            best_model = logmodel
+        accuracies.iloc[accuracy_row, 2] = score
+        accuracies.iloc[accuracy_row, 0] = 'logistic'
+        accuracy_row += 1
+    logging.debug('Naive Bayes')
+    logmodel, y_predictions = naiveBayes(X_train, y_train, X_test, y_test)
+    # Saving accuracy score in table
+    accuracies = accuracies.append(
+        pd.DataFrame([['naive-bayes', None, accuracy_score(y_test, y_predictions)]], columns=accuracy_cols))
+    logging.debug(accuracies)
+    end = time.perf_counter()
+    logging.debug('time taken {}'.format(end - start))
+    return X, y, best_model
+
+
+def prep_data(df, predict, sample_size, k_value):
+    # TODO work out if columns are categorical
+    cat_bool_cols = get_boolean_columns(df)
+    cat_bool_cols = [predict] + cat_bool_cols
+    continuous_cols = [x for x in df.columns if x not in cat_bool_cols]
+
+    # take the log of the data
+    original_count = len(df)
+    other = df.loc[:, cat_bool_cols]
+    df = df.loc[:, continuous_cols].replace(0, np.nan).astype('float64')
+    # df = remove_outliers(df)
+    df = log_transform(df)
+
+    df = other.join(df)
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.astype('float64')
+
+    assert (original_count == len(df))
+
+    batched_data = df
+    if sample_size > 1:
+        batched_data = batch_data(df, predict, sample_size)
+
+    logging.info('Predicting for {}'.format(predict))
     # the data to be predicted
+    X = batched_data.drop(predict, axis=1)
     y = batched_data[predict]
-    x = batched_data.drop(predict, axis=1)
+
+    # get rid of np.nan and np.inf etc.
+    X = pd.DataFrame(np.nan_to_num(X), columns=X.columns)
+    y = pd.Series(np.nan_to_num(y), name=predict)
 
     # split the data before replacing NaNs with mean to avoid leaking information into the test set
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.30, random_state=101)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=101)
 
     # feature normalization
 
-    x_train_norm = feature_normalization(x_train)
-    x_test_norm = feature_normalization(x_test)
+    x_train_norm = feature_normalization(X_train)
+    x_test_norm = feature_normalization(X_test)
 
     # replace nans with zeros and inf with very large numbers
-    x_train = replace_nan_with_mean(x_train_norm)
-    x_test = replace_nan_with_mean(x_test_norm)
+    X_train = replace_nan_with_mean(x_train_norm)
+    X_test = replace_nan_with_mean(x_test_norm)
 
     # Principal Components Analysis
     # TODO This could be done with Incremental PCA in sklearn and then it would also handle the batching
@@ -119,46 +174,57 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     # pca_test.fit(x_test)
     # x_test = pca_test.transform(x_test)
 
-    # create combined arrays for X and Y
-    x_combined = np.vstack((x_train, x_test))
-    y_combined = np.hstack((y_train, y_test))
-
     # feature selection
-    if k_value is not None:
-        x_train, col_indices = feature_selection(x_train, y_train, k_value=k_value)
-        x_test = x_test[:, col_indices]
-        x_combined = x_combined[:, col_indices]
-        # get the column/feature names that were included
-        # TODO this is not right as predict column was dropped
-        df_k_best = batched_data.iloc[:, col_indices]
-    else:
-        df_k_best = batched_data
+    # if k_value is not None:
+    #     X_train, col_indices = feature_selection(X_train, y_train, k_value=k_value)
+    #     X_test = X_test[:, col_indices]
+    #
+    #     x_combined = x_combined[:, col_indices]
+    #     # get the column/feature names that were included
+    #     # TODO this is not right as predict column was dropped
+    #     df_k_best = batched_data.iloc[:, col_indices]
+    # else:
+    #     df_k_best = batched_data
 
-    logging.debug('including features: {}'.format(df_k_best.columns))
+    logging.debug('including features: {}'.format(batched_data.columns))
 
-    # logistic regression
-    accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
-    accuracies = pd.DataFrame(columns=accuracy_cols)
-    accuracies['C_parameter'] = C_param_range
-    accuracy_row = 0
-    for c_param in C_param_range:
-        logging.debug('Logistic Regression')
-        logmodel, y_predictions = logisticRegression(x_train, y_train, x_test, y_test, c_param, label_encoder)
+    return X, X_train, X_test, y, y_train, y_test
 
-        # Saving accuracy score in table
-        accuracies.iloc[accuracy_row, 2] = accuracy_score(y_test, y_predictions)
-        accuracies.iloc[accuracy_row, 0] = 'logistic'
-        accuracy_row += 1
-    logging.debug('Naive Bayes')
-    logmodel, y_predictions = naiveBayes(x_train, y_train, x_test, y_test)
-    # Saving accuracy score in table
-    accuracies = accuracies.append(
-        pd.DataFrame([['naive-bayes', None, accuracy_score(y_test, y_predictions)]], columns=accuracy_cols))
 
-    print(accuracies)
-    end = time.perf_counter()
-    logging.debug('time taken {}'.format(end - start))
-    return logmodel
+def get_coded_filename(source, min_responses, columns):
+    hash = hashlib.md5('{source}_{min_responses}_{columns}'.format(source=source,
+                                                                   min_responses=min_responses,
+                                                                   columns=columns).encode('utf-8')).hexdigest()
+    return Path(os.path.join(DATA_FOLDER, 'coded_data_{}.csv'.format(hash)))
+
+
+def log_transform(df):
+    # https://statmodeling.stat.columbia.edu/2019/08/21/you-should-usually-log-transform-your-positive-data/
+    n = int(0.05 * len(df))
+    for col in df.columns:
+        # make sure there are no negatives in the column
+        if np.all(df[col] >= 0):
+            # make sure this isn't a categorical column
+            if len(df[col].value_counts()) > CATEGORICAL_LIMIT:
+                # check ratio between the highest and the lowest 5% is > 1.1 (close to 1 implies not much variance)
+                if np.divide(df.nsmallest(n, col).mean(), df.nlargest(n, col).mean()) > 1.1:
+                    df[col] = np.log(df[col])
+    return df
+
+
+def remove_outliers(df):
+    # remove any outliers more than + or -3 times the standard deviation of mean, for each column
+    from scipy import stats
+    df = df[(np.abs(stats.zscore(df)) < 3).all(axis=1)]
+    return df
+
+
+def get_boolean_columns(df):
+    bool_cols = []
+    for column in df.columns:
+        if df[column].isin([0, 1]).all():
+            bool_cols.append(column)
+    return bool_cols
 
 
 def feature_creation(df):
@@ -228,6 +294,11 @@ def replace_nan_with_mean(arr):
     return arr
 
 
+def log_df(df):
+    df = np.log(df)
+    return df
+
+
 def feature_normalization(df):
     x = preprocessing.robust_scale(df)
     # x = preprocessing.scale(df)
@@ -248,7 +319,7 @@ def feature_selection(x, y, k_value=None):
 
 def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoder):
     # create an instance and fit the model
-    logmodel = LogisticRegression(C=C_param)
+    logmodel = LogisticRegression(C=C_param, max_iter=2000)
 
     logmodel.fit(x_train, y_train)
     # predictions
@@ -305,7 +376,7 @@ def get_age_bracket(age):
     return result
 
 
-def getData(label_encoder, predict, source=None, min_responses=None, columns=None, keep_pairs=None):
+def getData(label_encoder, predict, source=None, min_responses=None, columns=None, keep_pairs=None, encode=True):
     # TODO make this multiprocess the formatting
     min_responses = min_responses or MIN_RESPONSES
 
@@ -343,32 +414,20 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
     # drop any columns with only zeroes
     df = df.loc[:, (df != 0).any(axis=0)]
 
-    logging.debug('replacing nans with strings in str columns')
-    df['phonology'] = df['phonology'].replace({np.nan: ''})
-    df['syntagmatic'] = df['syntagmatic'].replace({np.nan: ''})
-    logging.debug('encoding non-numeric columns')
+    if encode:
+        df[predict] = label_encoder.fit_transform(df[predict])
 
-    df['phonology'] = label_encoder.fit_transform(df['phonology'])
-    df['syntagmatic'] = label_encoder.fit_transform(df['syntagmatic'])
-    if predict == 'age_bracket':
-        df['age_bracket'] = label_encoder.fit_transform(df['age_bracket'])
-
-    df[predict] = label_encoder.fit_transform(df[predict])
-    print(df)
     if not keep_pairs:
         df = df.astype(float)
     df = df.sort_values(by=predict)
-    logging.debug('filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
 
-    logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
-    return df
+    return df, label_encoder
 
 
 def batch_data(df, predict, size):
     # GROUP BY variable to predict
     # GROUP BY n rows and calculate mean
     logging.info('There are {} samples to batch'.format(len(df)))
-    print(df.columns)
     groups = {key: df.loc[value] for key, value in df.groupby(predict).groups.items()}
     batched = pd.DataFrame()
     logging.debug('batching data...')
@@ -380,17 +439,6 @@ def batch_data(df, predict, size):
         batched = pd.concat([batched, group])
     batched = batched.loc[:, ~df.columns.duplicated()]
     return batched
-
-
-def drop_wordnet_features(df):
-    df = df.drop(columns=['derivationally_related_forms', 'pertainyms',
-                          'instance_hypernyms', 'hyponyms', 'instance_hyponyms',
-                          'member_holonyms', 'substance_holonyms', 'part_holonyms',
-                          'member_meronyms', 'substance_meronyms', 'part_meronyms',
-                          'topic_domains', 'region_domains', 'usage_domains', 'attributes',
-                          'entailments', 'causes', 'also_sees', 'verb_groups', 'similar_tos',
-                          'hypernyms', 'root_hypernyms'])
-    return df
 
 
 def setup():
