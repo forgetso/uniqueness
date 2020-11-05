@@ -265,7 +265,7 @@ class Sense2Vec(object):
         # Always ask for more because we'll always get the keys themselves
         n = min(len(self.vectors), n + len(keys))
         rows = numpy.asarray(self.vectors.find(keys=keys))
-        vecs = self.vectors.data[rows]
+        vecs = self.vectors.data.base[rows]
         average = vecs.mean(axis=0, keepdims=True)
         result_keys, _, scores = self.vectors.most_similar(
             average, n=n, batch_size=batch_size
