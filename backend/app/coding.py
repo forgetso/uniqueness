@@ -245,16 +245,18 @@ def calculate_similarities(df, shared_model):
         response_col = "response_decoded"
         model_col = "{}_similarity".format(model_name)
         similarity_cols.append(model_col)
+
         # model similarities
-        if model_name == "s2v":
+        model = shm_model.data[model_name]
+
+        # we need the best senses from s2v for later on
+        if hasattr(model, 'get_best_sense'):
             cue_col = "cue_best_sense"
             response_col = "response_best_sense"
-            path = Path("./data/s2v")
-            if path.exists():
-                s2v = Sense2Vec(model=shm_model.data[model_name]).from_disk(path)
-                df[cue_col] = df["cue_decoded"].apply(s2v.get_best_sense)
-                df[response_col] = df["response_decoded"].apply(s2v.get_best_sense)
+            df[cue_col] = df["cue_decoded"].apply(model.get_best_sense)
+            df[response_col] = df["response_decoded"].apply(model.get_best_sense)
 
+        # some models require the language to be prepended to the word e.g. en_dog, en_god
         if model_name in LANG_MODELS:
             df[model_col] = df.apply(
                 lambda row: get_lang_nlp_similarity(

@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import pandas as pd
 from math import ceil
-
+from multiprocessing_logging import install_mp_handler
 
 # split a list into evenly sized chunks
 def chunks(lst, n):
@@ -108,7 +108,8 @@ def job_pool(data, job_number, job_to_do, groupby=None, split_col=None, **kwargs
     if len(slices) < job_number:
         job_number = len(slices)
 
-    pool = multiprocessing.Pool(processes=job_number)
+    logging.debug('starting pool')
+    pool = multiprocessing.Pool(processes=job_number, initializer=install_mp_handler)
 
     if kwargs is not None:
         arg = [(job_to_do, slice, kwargs) for slice in slices]

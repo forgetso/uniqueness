@@ -4,6 +4,9 @@ import logging
 import spacy
 from typing import Union, List, Tuple
 import numpy as np
+from backend.lib.sense2vec.sense2vec import Sense2Vec
+from backend.settings import SENSE2VEC_FOLDER
+from pathlib import Path
 
 
 class SharedModelManager(SharedManager):
@@ -24,10 +27,18 @@ class SharedModelManager(SharedManager):
     def load_from_disk(self):
         for name in self.models:
             logging.debug("getting {} from shared memory".format(name))
-            model_path = "".join([DATA_FOLDER, "/{}/vocab/vectors".format(name)])
+            model_path = Path(DATA_FOLDER).joinpath(name).joinpath("vocab/vectors")
             self.data[name] = np.load(model_path)
 
     def get_shared_memory(self, name: str, share: dict):
         # take the share and put it in the right format for spacy
         shared = {"vectors": share}
-        self.data[name] = spacy.load("".join([DATA_FOLDER, "/", name]), shared=shared)
+        path = Path(DATA_FOLDER).joinpath(name)
+        model = spacy.load(path.absolute(), shared=shared)
+
+        # TODO allow models to have a type (spacy or sense2vec ... etc.)
+        if name == 's2v':
+            path = Path(SENSE2VEC_FOLDER)
+            self.data[name] = Sense2Vec(model=model).from_disk(path.absolute())
+        else:
+            self.data[name] = model

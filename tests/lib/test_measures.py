@@ -1,5 +1,5 @@
 from backend.lib.measures import create_all_measures_dataframe, merge_word_records, \
-    replace_nulls_with_nearest_non_nulls_by_lemma, replace_nulls_with_nearest_non_nulls_by_similarity, \
+    replace_nulls_with_nearest_non_nulls_by_lemma, replace_nulls_with_nearest_non_nulls_by_form, \
     set_data_types, format_word_data, WORD_MEASURES_DTYPES, replace_nulls_with_nearest_non_nulls_by_stems
 import pandas as pd
 import numpy as np
@@ -139,7 +139,7 @@ def test_replace_nulls_with_nearest_non_nulls_by_similarity():
     initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES).set_index('word')
     print('initial')
     print(initialdf)
-    df = replace_nulls_with_nearest_non_nulls_by_similarity(initialdf)
+    df = replace_nulls_with_nearest_non_nulls_by_form(initialdf)
     print(df)
     assert df.loc[df['word'] == b'earthy']['age'].values[0] == np.float32(1)
     assert np.array_equal(df.loc[df['word'] == b'earthy']['part_of_speech'].values, ['noun'])

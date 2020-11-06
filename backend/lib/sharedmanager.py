@@ -1,7 +1,5 @@
 import numpy as np
 from backend.settings import SEMANTIC_SPACE_FOLDER, SHARE_PREFIX
-from backend.db.layer import get_affixes, get_all_words
-from backend.lib.measures import get_all_measures
 import pandas as pd
 from multiprocessing import shared_memory
 import re
@@ -23,6 +21,7 @@ class SharedManager:
             shares: dict = None,
     ):
         try:
+
             self.rebuild = rebuild
             self.word_filter = word_filter
             self.data = {}
@@ -43,6 +42,9 @@ class SharedManager:
             self.unlink_shared_memories()
 
     def load_from_disk(self):
+        # TODO make a config for the various data types to load
+        from backend.db.layer import get_affixes, get_all_words
+        from backend.lib.measures import get_all_measures
         self.data["affixes"] = np.array(list({x.get("affix") for x in get_affixes()}))
         self.data["all_words"] = pd.DataFrame(get_all_words(), columns=["word"])
         self.data["all_measures"] = get_all_measures(rebuild=self.rebuild)
