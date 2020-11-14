@@ -36,6 +36,7 @@ class SharedManager:
                 # we don't need the original copy of the data in the parent process
                 del self.data
                 gc.collect()
+                self.data = {}
         except Exception as e:
             logging.error("Error in SharedManager, attempting cleanup - {}".format(e))
             self.close_shared_memories()

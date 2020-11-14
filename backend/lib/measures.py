@@ -1,7 +1,7 @@
 from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures
 from backend.lib.multiprocessor import job_pool
 import pandas as pd
-from backend.settings import JOB_NUMBER, LOG_LEVEL, DATA_FOLDER
+from backend.settings import JOB_NUMBER
 import numpy as np
 import logging
 import time
@@ -11,17 +11,17 @@ from nltk import SnowballStemmer, LancasterStemmer
 from backend.lib.helpers.dataframedebug import dfdebug
 from lemminflect import getAllLemmas
 from backend.lib.us2gb import us2gb
-from pathlib import Path
 from backend.lib.sharedmodel import SharedModelManager
-from backend.lib.sense2vec.sense2vec import Sense2Vec
 import gc
 import cupy
 
 logging.getLogger().setLevel(logging.DEBUG)
 UNKNOWN_CATEGORY = '<unknown>'
 
-DECIMAL_PLACES = 3
-SIMILARITY_MODEL = 'wikipedia'
+# Largest dp in the data sources
+DECIMAL_PLACES = 5
+# This is the only model that fits on the GTX 2070 for similarity calculations
+SIMILARITY_MODEL = 'crawlbin'
 WORD_MEASURES_DTYPES = [
     ('word', '|S'),
     ('word_lemma', 'str'),
@@ -64,12 +64,15 @@ WORD_MEASURES_DTYPES = [
     ('sstem', 'str'),
     ('lstem', 'str'),
 ]
+POTENTIAL_NULLS = ['concreteness_measure', 'age', 'valence', 'dominance', 'arousal', 'frequency', 'prevalence']
+# Depends on the GPU memory available after loading the model. Could be worked out dynamically.
+BATCH_SIZE = 64
 
 ss = SnowballStemmer('english')
 ls = LancasterStemmer()
 
 
-def format_word_data(cur, save=None):
+def format_word_data(cur):
     item_dtype = WORD_MEASURES_DTYPES
     words = []
     word = None
@@ -87,12 +90,13 @@ def format_word_data(cur, save=None):
         row_dict['startswith'] = ord(word[0]) - 64
         words.append(row_dict)
     words = sorted(words, key=lambda k: k['word'])
+    words = words[0:1025]
     words = pd.DataFrame(words)
     words['changes'] = words['startswith'] - words['startswith'].shift(1) != 0
     words.drop('startswith', inplace=True, axis=1)
     # set up model share
     shm_models = SharedModelManager(models=[SIMILARITY_MODEL], from_disk=True)
-
+    shm_models.load_from_shared()
     # split the job into multiprocesses, making sure that words starting with the same letter remain in the same group
     jobs = job_pool(words, JOB_NUMBER, format_word_data_multiprocess, split_col='changes', item_dtype=item_dtype)
     total_lines = sum([len(x) for x in jobs])
@@ -116,7 +120,7 @@ def format_word_data(cur, save=None):
     return df
 
 
-def format_word_data_multiprocess(df, item_dtype, shared_model):
+def format_word_data_multiprocess(df, item_dtype):
     item_dtype_dict = {k: v for k, v in item_dtype}
 
     # set data types for each column
@@ -144,7 +148,7 @@ def format_word_data_multiprocess(df, item_dtype, shared_model):
     df = replace_nulls_with_nearest_non_nulls_by_lemma(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_lemma)
 
-    # stems (same as lemma but calculated in this process)
+    # stems (same as lemma but stems are derived in this function)
     start = time.time()
     df = replace_nulls_with_nearest_non_nulls_by_stems(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_stems)
@@ -181,13 +185,16 @@ def merge_word_records(df, item_dtype_dict):
     for c, d in item_dtype_dict.items():
         if c in df.columns:
             if d != 'f':
-                if df[c].dtype.str.startswith('|S'):
-                    df[c] = df[c].str.decode('utf8').astype(str)
                 # this is for the join function, unique_chars
                 df[c].replace({None: UNKNOWN_CATEGORY}, inplace=True)
+                df[c].replace({np.nan: UNKNOWN_CATEGORY}, inplace=True)
+
+                if df[c].dtype.str.startswith('|S'):
+                    df[c] = df[c].str.decode('utf8').astype(str)
+
                 df[c].replace({'None': UNKNOWN_CATEGORY}, inplace=True)
                 df[c].replace({'<NA>': UNKNOWN_CATEGORY}, inplace=True)
-                df[c].replace({np.nan: UNKNOWN_CATEGORY}, inplace=True)
+
     unique_chars = lambda x: ','.join([x for x in x.unique() if x != UNKNOWN_CATEGORY])
     agg_dict = {x: (unique_chars if item_dtype_dict[x] != 'f' else 'mean') for x in df.columns if x in item_dtype_dict}
     agg_dict.pop('word', None)
@@ -340,37 +347,117 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     # concreteness, age of acquisition, valence, dominance, arousal, frequency, prevalence if they are not present
     df.reset_index(inplace=True)
     df['word'] = df['word'].str.decode('utf8')
-    # most similar takes ages so we need to limit what we run it on
 
-    subset = df.loc[
-        df[['concreteness_measure', 'age', 'valence', 'dominance', 'arousal', 'frequency', 'prevalence']].isnull().any(
-            axis=1)]
-    logging.debug('Checking most similar for {} words'.format(len(subset)))
+    # make sure the columns are actually in the dataframe
+    nullcols = [x for x in POTENTIAL_NULLS if x in df.columns]
 
-    lexemes = subset['word'].apply(model.vocab.__getitem__)
+    # find the subset of the dataframe where any of these columns are null
+    subset_nulls = df.loc[df[nullcols].isnull().any(axis=1)][['word'] + nullcols]
+
+    # find where these columns are not null
+    subset_nonnulls = df.loc[~df.index.isin(subset_nulls.index)].set_index('word')[nullcols]
+    logging.debug('Checking most similar for {} words'.format(len(subset_nulls)))
+
+    # pull out the vectors from the spacy model and put them in a list
+    lexemes = subset_nulls['word'].apply(model.vocab.__getitem__)
+
     vectors = lexemes.apply(lambda x: x.vector)
     vectors = vectors.tolist()
-    vectors = np.array(vectors, dtype='float64')
-    keys = lexemes.apply(lambda x: x.orth).values
+    vectors = np.array(vectors, dtype=model.vocab.vectors.data.base.dtype)
+    assert len(vectors) == len(subset_nulls)
+
+    # keys should be a list of keys corresponding to the words we're looking up
+    original_keys = lexemes.apply(lambda x: x.orth).values
+
     # to get spacy to work on the GPU we need to put this array on the GPU first
-    cupy_model = cupy.array(model.vocab.vectors.data.base)
-    cupy_vectors = cupy.array(vectors)
-    result_keys, _, scores = most_similar(cupy_vectors, model=model, n=2, batch_size=16, data=cupy_model)
-    result = list(zip(result_keys.flatten(), scores.flatten()))
-    result = [(model.vocab.strings[key], score) for key, score in result if key not in keys]
-    subsetsim = pd.concat([subset.reset_index(drop=True), pd.DataFrame(result, columns=['sim_word', 'sim_score'])],
-                          axis=1,
-                          ignore_index=True)
-    for metric in ['concreteness_measure', 'age', 'valence', 'dominance', 'arousal', 'frequency', 'prevalence']:
-        logging.debug('Checking for nulls in metric - {}'.format(metric))
+    mempool = cupy.get_default_memory_pool()
+    pinned_mempool = cupy.get_default_pinned_memory_pool()
 
-        nulls = df[(df[metric].isnull()) & (df['most_similar'].notnull())]
-    #
-    # gc.collect()
-    # df['word'] = df['word'].str.encode('utf8')
-    # df.set_index('word', inplace=True)
+    cupy_model = cupy.asarray(model.vocab.vectors.data.base, dtype=model.vocab.vectors.data.base.dtype)
+    cupy_vectors = cupy.asarray(vectors, dtype=model.vocab.vectors.data.base.dtype)
+    print(cupy_model.dtype)
+    print(cupy_vectors.dtype)
+    print('cupy_model  %s MiB' % str(cupy_model.nbytes / 1024 / 1024))
+    print('cupy_vectors  %s MiB' % str(cupy_vectors.nbytes / 1024 / 1024))
+    print('mempool.used_bytes()  %s MiB' % str(mempool.used_bytes() / 1024 / 1024))
+    mempool.free_all_blocks()
+    print('mempool.used_bytes()  %s MiB' % str(mempool.used_bytes() / 1024 / 1024))
+    print('mempool.total_bytes()  %s MiB' % str(mempool.total_bytes() / 1024 / 1024))
+    # only checking for second most similar word currently. this could be expanded to take anything above a threshold
+    result_keys, _, scores = most_similar(cupy_vectors, model=model, n=2, batch_size=BATCH_SIZE, data=cupy_model)
+    result = format_most_similar_result(result_keys, scores, original_keys, model)
 
+    print(result)
+    print(len(result), len(original_keys))
+    assert (len(result) == len(original_keys))
+    print(result)
+    exit()
+
+    subset_nulls = subset_nulls.reset_index(drop=True)
+
+    # put the result of the most_similar method into a dataframe
+    original = [model.vocab.strings[key] for key in keys]
+    sim_result = pd.concat(
+        [pd.DataFrame(original, columns=['original_word']), pd.DataFrame(result, columns=['sim_word', 'sim_score'])],
+        axis=1)
+
+    sim_result = sim_result[sim_result['sim_score'] > 0]
+    pd.set_option('display.max_rows', sim_result.shape[0] + 1)
+    print(sim_result)
+
+    # attach the null df to the nearest similar word, keeping the original word
+    subsetsim = subset_nulls.merge(sim_result,
+                                   left_on="word",
+                                   right_on="original_word",
+                                   how="left",
+                                   )
+    pd.set_option('display.max_rows', subsetsim.shape[0] + 1)
+    print(subsetsim)
+    subsetsim.drop('word', inplace=True)
+    subsetsim.rename(columns={'sim_word': 'word'}, inplace=True)
+    subsetsim.set_index('word', inplace=True)
+    # TODO consider only similar words above a threshold
+    subsetsim.drop(columns=['sim_score'], inplace=True)
+    print(subset_nonnulls)
+    subsetsim = subsetsim.combine_first(subset_nonnulls)
+    # put the original word back as the index
+    subsetsim = subsetsim.reset_index(drop=True).rename({'original_word': 'word'}, axis=1).set_index('word')
+    # copy any new values into the original dataframe
+    print(subsetsim)
+    subsetsim = subsetsim.drop_duplicates()
+    df = df.set_index('word').update(subsetsim, overwrite=False)
+    df.index = df.index.str.encode('utf-8')
+    gc.collect()
     return df
+
+
+def format_most_similar_result(result_keys, scores, original_keys, model):
+    # if all of the scores are zero then there has been no match and we just have some random shit sent back from the
+    # most_similar function.
+    # key. If it is not, ignore all of the results and remove original key from the original keys array to ensure that
+    # it is the same length as the results and in the correct order.
+    # TODO make this work for top N - e.g. if we ask for the top 2 results for 350 vectors, we get 700 results from this
+    #   function. Should it be 350x2 or 700x1?
+    results = []
+    for ikey_group, key_group in enumerate(result_keys):
+        inserted = []
+        for ikey, key in enumerate(key_group):
+            if key in original_keys:
+                continue
+            elif scores[ikey_group][ikey] > 0:
+                results.append((original_keys[ikey_group], key, scores[ikey_group][ikey]))
+                inserted.append(original_keys[ikey_group])
+            elif original_keys[ikey_group] not in inserted:
+                # this is a nonsense result. the algorithm has just returned some random zero similarity vector
+                inserted.append(original_keys[ikey_group])
+                results.append(
+                    (
+                        model.vocab.strings[original_keys[ikey_group]],  # the original string
+                        model.vocab.strings[key],  # the most similar string
+                        scores[ikey_group][ikey]  # the similarity score
+                    )
+                )
+    return results
 
 
 def most_similar(queries, *, model, batch_size=1024, n=1, sort=True, data=None):
@@ -396,22 +483,27 @@ def most_similar(queries, *, model, batch_size=1024, n=1, sort=True, data=None):
 
     xp = cupy
 
-    norms = xp.linalg.norm(data[filled], axis=1, keepdims=True)
-    norms[norms == 0] = 1
-    vectors = data[filled] / norms
+    if data.dtype != 'int8':
+        norms = xp.linalg.norm(data[filled], axis=1, keepdims=True)
+        norms[norms == 0] = 1
+        vectors = data[filled] / norms
+    else:
+        vectors = data
+
+    sim_fn = _similarity(model)
 
     best_rows = xp.zeros((queries.shape[0], n), dtype='i')
-    scores = xp.zeros((queries.shape[0], n), dtype='f')
+    scores = xp.zeros((queries.shape[0], n), dtype=xp.float16)
+    mempool = cupy.get_default_memory_pool()
+    pinnedmempool = cupy.get_default_pinned_memory_pool()
+    mempool.free_all_blocks()
+
     # Work in batches, to avoid memory problems.
     for i in range(0, queries.shape[0], batch_size):
+
         batch = queries[i: i + batch_size]
-        batch_norms = xp.linalg.norm(batch, axis=1, keepdims=True)
-        batch_norms[batch_norms == 0] = 1
-        batch /= batch_norms
-        # batch   e.g. (1024, 300)
-        # vectors e.g. (10000, 300)
-        # sims    e.g. (1024, 10000)
-        sims = xp.dot(batch, vectors.T)
+        sims = sim_fn(xp, batch, vectors)
+        mempool.free_all_blocks()
         best_rows[i:i + batch_size] = xp.argpartition(sims, -n, axis=1)[:, -n:]
         scores[i:i + batch_size] = xp.partition(sims, -n, axis=1)[:, -n:]
 
@@ -420,6 +512,9 @@ def most_similar(queries, *, model, batch_size=1024, n=1, sort=True, data=None):
                                                                                              axis=1)[:, ::-1]
             scores[i:i + batch_size] = scores[sorted_index]
             best_rows[i:i + batch_size] = best_rows[sorted_index]
+        logging.debug('Processed {} vectors'.format(i))
+        mempool.free_all_blocks()
+        pinnedmempool.free_all_blocks()
 
     if isinstance(best_rows, cupy.core.core.ndarray):
         best_rows = cupy.asnumpy(best_rows)
@@ -434,10 +529,44 @@ def most_similar(queries, *, model, batch_size=1024, n=1, sort=True, data=None):
         [[row2key[row] for row in best_rows[i] if row in row2key]
          for i in range(len(queries))], dtype="uint64")
     if isinstance(scores, cupy.core.core.ndarray):
-        scores = cupy.asnumpy(scores)
+        scores = np.array(cupy.asnumpy(scores))
     if len(keys) and isinstance(keys[0], cupy.core.core.ndarray):
         keys = np.array([cupy.asnumpy(key) for key in keys])
+
     return (keys, best_rows, scores)
+
+
+def _similarity(model):
+    sim_fn = _similarity_float
+    if model.vocab.vectors.data.base.dtype == np.int8:
+        sim_fn = _similarity_binary
+    return sim_fn
+
+
+def _similarity_float(xp, batch, vectors):
+    """For each of the given vectors, calculate similarities to batch by
+        cosine."""
+    batch_norms = xp.linalg.norm(batch, axis=1, keepdims=True)
+    batch_norms[batch_norms == 0] = 1
+    batch /= batch_norms
+    # batch   e.g. (1024, 300)
+    # vectors e.g. (10000, 300)
+    # sims    e.g. (1024, 10000)
+    sims = xp.dot(batch, vectors.T)
+    return sims
+
+
+def _similarity_binary(xp, vec1, vec2):
+    """For each of the given vectors, calculate similarities to batch by
+        Sokal Michener similarity."""
+    # types are cast to try and preserve memory
+    one = xp.int8(1)
+    # allows for vectors of shape (x,)
+    try:
+        n = xp.float16(vec1.shape[1])
+    except IndexError:
+        n = xp.float16(vec1.shape[0])
+    return (xp.dot(vec1, vec2.T) + xp.dot((one - vec1), (one - vec2.T))) / n
 
 
 def replace_nulls_with_nearest_non_nulls_by_form(df):
@@ -560,7 +689,7 @@ def get_all_measures(cur=None, rebuild=None):
         df = create_all_measures_dataframe(item_list, index='word')
         # fill any nan values with the mean of the column
         # df.fillna(df.mean(), inplace=True)
-        # df = df.round(DECIMAL_PLACES)
+        df = df.round(DECIMAL_PLACES)
         save_all_measures(df.reset_index().replace({np.nan: None}))
     else:
         cur = get_all_measures_processed()

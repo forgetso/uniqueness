@@ -1,9 +1,13 @@
 from backend.lib.measures import create_all_measures_dataframe, merge_word_records, \
     replace_nulls_with_nearest_non_nulls_by_lemma, replace_nulls_with_nearest_non_nulls_by_form, \
-    set_data_types, format_word_data, WORD_MEASURES_DTYPES, replace_nulls_with_nearest_non_nulls_by_stems
+    set_data_types, format_word_data, WORD_MEASURES_DTYPES, replace_nulls_with_nearest_non_nulls_by_stems, \
+    replace_nulls_with_nearest_non_nulls_by_similarity, UNKNOWN_CATEGORY
 import pandas as pd
 import numpy as np
 from decimal import Decimal
+import spacy
+from pathlib import Path
+from backend.settings import DATA_FOLDER
 
 DATA = [
     {'word_lemma': 'made', 'age': 1, 'part_of_speech': 'verb', 'word': 'made', 'arousal': 0, 'dominance': 0,
@@ -49,7 +53,6 @@ def test_create_all_measures_dataframe():
     result = create_all_measures_dataframe(df=format_word_data(DATA))
     to_test = ['age', 'arousal', 'concreteness_measure']
     result = result.replace(np.nan, 0)
-    print(result)
     for word_dict in DATA:
         for test_col in to_test:
             print('testing {} {}'.format(word_dict['word'], test_col))
@@ -119,7 +122,7 @@ def test_replace_nulls_with_nearest_non_nulls_by_lemma():
     assert df.loc[b'obstacles']['arousal'] == np.float32(4.6)
 
 
-def test_replace_nulls_with_nearest_non_nulls_by_similarity():
+def test_replace_nulls_with_nearest_non_nulls_by_form():
     # having word in the dict as well as the outer key is a bit redundant but it makes life easier when we are
     # identifying if words are already present or not and then later when we translate to a dataframe
     words = {
@@ -127,26 +130,25 @@ def test_replace_nulls_with_nearest_non_nulls_by_similarity():
         'abandonee': {'age': None, 'part_of_speech': None, 'word_lemma': 'abandon', 'word': 'abandonee'},
         'abandoner': {'age': None, 'part_of_speech': None, 'word_lemma': 'abandon', 'word': 'abandoner'},
         'earth': {'age': 1, 'part_of_speech': 'noun', 'word_lemma': 'earth', 'word': 'earth'},
-        'earthy': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'earthy'},
+        'earthy': {'age': None, 'part_of_speech': None, 'word_lemma': UNKNOWN_CATEGORY, 'word': 'earthy'},
         'car': {'age': 2, 'part_of_speech': 'noun', 'word_lemma': 'car', 'word': 'car'},
-        'carpool': {'age': None, 'part_of_speech': None, 'word_lemma': None, 'word': 'carpool'},
+        'carpool': {'age': None, 'part_of_speech': None, 'word_lemma': UNKNOWN_CATEGORY, 'word': 'carpool'},
         'obstacle': {'age': 7.84, 'arousal': 4.6, 'part_of_speech': 'noun', 'word_lemma': 'obstacle',
                      'word': 'obstacle'},
         'obstacles': {'age': 7.84, 'arousal': None, 'part_of_speech': 'noun', 'word_lemma': 'obstacle',
                       'word': 'obstacles'}
 
     }
+
     initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES).set_index('word')
-    print('initial')
-    print(initialdf)
+    initialdf.replace({None: np.nan}, inplace=True)
     df = replace_nulls_with_nearest_non_nulls_by_form(initialdf)
-    print(df)
     assert df.loc[df['word'] == b'earthy']['age'].values[0] == np.float32(1)
     assert np.array_equal(df.loc[df['word'] == b'earthy']['part_of_speech'].values, ['noun'])
-    assert np.isnan(df.loc[df['word'] == b'earthy']['word_lemma'].values[0])
-    assert np.isnan(df.loc[df['word'] == b'carpool']['word_lemma'].values[0])
+    assert df.loc[df['word'] == b'earthy']['word_lemma'].values[0] is UNKNOWN_CATEGORY
+    assert df.loc[df['word'] == b'carpool']['word_lemma'].values[0] is UNKNOWN_CATEGORY
     assert np.isnan(df.loc[df['word'] == b'carpool']['age'].values[0])
-    assert np.isnan(df.loc[df['word'] == b'carpool']['part_of_speech'].values[0])
+    assert df.loc[df['word'] == b'carpool']['part_of_speech'].values[0]
 
 
 def test_format_word_data():
@@ -303,3 +305,15 @@ def test_format_word_data():
     for word in all_words:
         assert word.lower() in words_in_data
     return
+
+
+def test_replace_nulls_with_nearest_non_nulls_by_similarity():
+    words = {
+        'shun': {'concreteness_measure': 2.54, 'part_of_speech': 'verb', 'word_lemma': 'shun', 'word': 'shun'},
+        'eschew': {'concreteness_measure': None, 'part_of_speech': None, 'word_lemma': 'eschew', 'word': 'eschew'},
+    }
+    # TODO make this a dummy model
+    model = spacy.load(Path(DATA_FOLDER).joinpath('wikipedia'))
+    initialdf = set_data_types(pd.DataFrame(words).T, WORD_MEASURES_DTYPES).set_index('word')
+    df = replace_nulls_with_nearest_non_nulls_by_similarity(initialdf, model)
+    np.testing.assert_allclose(df['concreteness_measure'], [2.54, 2.54])

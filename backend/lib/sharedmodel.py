@@ -17,12 +17,12 @@ class SharedModelManager(SharedManager):
             shares: dict = None,
             models: Union[List, Tuple] = None,
     ):
-        self.parent_process = from_disk and not from_shared
         self.models = []
+        self.parent_process = from_disk and not from_shared
         self.data = {}
         if models is not None:
             self.models = models
-        super().__init__(from_shared=from_shared, from_disk=from_disk, shares=shares)
+        super(SharedModelManager, self).__init__(from_shared=from_shared, from_disk=from_disk, shares=shares)
 
     def load_from_disk(self):
         for name in self.models:
