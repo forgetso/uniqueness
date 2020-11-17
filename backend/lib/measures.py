@@ -384,7 +384,9 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     subset_nulls = subset_nulls.reset_index(drop=True)
     sim_result = resultdf[resultdf['sim_score_1'] > 0]
 
-
+    # TODO change this to take the mean (valence, arousal, etc.) for n nearest neighbours
+    #   DOI 10.3758/s13428-012-0195-z
+    #   Checking and bootstrapping lexical norms by means of word similarity indexes
     for nn in range(1, n + 1):
         df.set_index('word', inplace=True)
         sim_word_col = "sim_word_{}".format(nn)
@@ -670,6 +672,7 @@ def get_all_measures(cur=None, rebuild=None):
     else:
         cur = get_all_measures_processed()
         df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+        df = df.replace('NaN', np.nan)
         df = set_data_types(df, WORD_MEASURES_DTYPES)
         df.drop('id', axis=1, inplace=True)
     return df
