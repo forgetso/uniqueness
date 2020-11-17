@@ -45,7 +45,7 @@ AGE_BRACKETS = [(0, 30), (40, 100)]
 # AGE_BRACKETS = [(0, 20), (21, 30), (31, 40), (41, 50), (51, 60)]
 
 
-def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None):
+def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None, exclude=None):
     if predict is None:
         predict = TO_PREDICT
 
@@ -72,7 +72,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
         # filter out empty columns and apply any user defined filtering
         logging.debug(
             'filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
-        df = filterData(df, predict, columns)
+        df = filterData(df, predict, columns, exclude)
         logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
 
         # avoid calling the DB every time
@@ -120,7 +120,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     return X, y, best_model
 
 
-def prep_data(df, predict, sample_size, k_value):
+def prep_data(df, predict, sample_size, k_value=None):
     # TODO work out if columns are categorical
     cat_bool_cols = get_boolean_columns(df)
     cat_bool_cols = [predict] + cat_bool_cols
@@ -266,6 +266,27 @@ def feature_creation(df):
         cat_gauss = ''.join([category['name'], '_gaussian'])
         df[category['name']] = df[cat_gauss] / df[gaussian_cols].sum(axis=1)
 
+    multiply = ['concreteness_measure', ('valence', 'arousal', 'dominance'), 'age_of_acquisition', 'frequency']
+
+    # Norms of valence, arousal, and dominance for 13,915 English lemmas
+    # Valence arousal and dominance interact with concreteness, age of acquisition, and frequency
+    # By multiplying we will hopefully increase the visibility of these interactions
+    # https://link.springer.com/article/10.3758/s13428-012-0314-x
+    for m1 in multiply:
+        for m2 in multiply:
+            if m1 == m2:
+                continue
+            if isinstance(m1, str):
+                if isinstance(m2, str):
+                    col = '{}.{}'.format(m1, m2)
+                    if col not in df.columns:
+                        df['{}.{}'.format(m1, m2)] = df[m1] * df[m2]
+                if isinstance(m2, tuple):
+                    for m3 in m2:
+                        col = '{}.{}'.format(m1, m3)
+                        if col not in df.columns:
+                            df[col] = df[m1] * df[m3]
+
     df = df.drop(columns=gaussian_cols)
 
     result = df.drop(columns=['dict2vec_similarity', 's2v_similarity', 'wikipedia_similarity', 'crawl_similarity'])
@@ -292,11 +313,6 @@ def replace_nan_with_mean(arr):
     # Place column means in the indices. Align the arrays using take
     arr[inds] = np.take(col_mean, inds[1])
     return arr
-
-
-def log_df(df):
-    df = np.log(df)
-    return df
 
 
 def feature_normalization(df):
@@ -342,7 +358,7 @@ def naiveBayes(x_train, y_train, x_test, y_test):
     return model, predictions
 
 
-def filterData(df, predict, columns=None):
+def filterData(df, predict, columns=None, exclude=None):
     constant_filter = VarianceThreshold(threshold=0)
     constant_filter.fit(df)
     constant_columns = [column for column in df.columns
@@ -363,6 +379,11 @@ def filterData(df, predict, columns=None):
         # df = df.loc[df['left_hemi_distance'].notnull()]
         # print(df)
         # df = df.dropna(how='all')
+
+    if exclude:
+        # only try and exclude columns that exist
+        exclude = [e for e in exclude.split(',') if e in df.columns]
+        df.drop(columns=exclude, inplace=True)
     return df
 
 
@@ -449,6 +470,7 @@ def setup():
     parser.add_argument('--columns', default=None, help="predict based on specific columns")
     parser.add_argument('--k_value', default=None, help="select K best features for regression", type=int)
     parser.add_argument('--reload', default=None, action="store_true", help="reload data from the DB")
+    parser.add_argument('--exclude', default=None, help="exclude specific columns")
     args = parser.parse_args()
     main(predict=args.predict, source=args.source, sample_size=args.samplesize, columns=args.columns,
          k_value=args.k_value, reload=args.reload)
