@@ -134,9 +134,12 @@ def get_lang_nlp_similarity(w1, w2, model):
 def get_nlp_similarity(w1, w2, model):
     sim = None
     if w1 and w2:
-        w1v = model(w1)
-        w2v = model(w2)
-        sim = w1v.similarity(w2v)
+        if hasattr(model, 'similarity'):
+            sim = model.similarity(w1, w2)
+        else:
+            w1v = model(w1)
+            w2v = model(w2)
+            sim = w1v.similarity(w2v)
     return sim
 
 
@@ -257,6 +260,7 @@ def calculate_similarities(df, shared_model):
             df[response_col] = df["response_decoded"].apply(model.get_best_sense)
 
         # some models require the language to be prepended to the word e.g. en_dog, en_god
+        # TODO move these calculations to the GPU and put them in a pipeline (spacy?)
         if model_name in LANG_MODELS:
             df[model_col] = df.apply(
                 lambda row: get_lang_nlp_similarity(

@@ -39,7 +39,7 @@ CATEGORIES = [
     {'name': 'erratic', 'mean': 0.13200, 'stdev': 0.10930, 'ratio': 3.11},
 ]
 CATEGORICAL_LIMIT = 250
-AGE_BRACKETS = [(0, 20), (51, 60)]
+AGE_BRACKETS = [(0, 30), (40, 100)]
 
 
 # AGE_BRACKETS = [(0, 20), (21, 30), (31, 40), (41, 50), (51, 60)]
