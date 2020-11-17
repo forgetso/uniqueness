@@ -52,6 +52,7 @@ __pycache__*
 # Data #
 data/
 s2v_old/
+workbooks/
 
 
 # Frontend Misc #

@@ -92,6 +92,7 @@ def format_word_data(cur):
         row_dict['startswith'] = ord(word[0]) - 64
         words.append(row_dict)
     words = sorted(words, key=lambda k: k['word'])
+    #words = words[:1025]
     words = pd.DataFrame(words)
     words['changes'] = words['startswith'] - words['startswith'].shift(1) != 0
     words.drop('startswith', inplace=True, axis=1)
@@ -370,7 +371,7 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     cupy_vectors = cupy.asarray(vectors, dtype=model.vocab.vectors.data.base.dtype)
 
     # only checking for second most similar word currently. this could be expanded to take anything above a threshold
-    n = 3
+    n = 20
     result_keys, _, scores = most_similar(model, cupy_vectors, n=n, batch_size=BATCH_SIZE, data=cupy_model, sort=True)
     newstrs = [[model.vocab.strings.__getitem__(key) for key in keygroup] for keygroup in result_keys]
     resultdf = pd.concat([
@@ -383,7 +384,9 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     subset_nulls = subset_nulls.reset_index(drop=True)
     sim_result = resultdf[resultdf['sim_score_1'] > 0]
 
+
     for nn in range(1, n + 1):
+        df.set_index('word', inplace=True)
         sim_word_col = "sim_word_{}".format(nn)
         sim_score_col = "sim_score_{}".format(nn)
         cols = ["original_word", sim_word_col, sim_score_col]
@@ -405,13 +408,14 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
         # copy any new values into the original dataframe
         # pd.set_option('display.max_rows', sim_result.shape[0] + 1)
         subsetsim = subsetsim.drop_duplicates()
+        df.update(subsetsim, overwrite=False)
+
         # recalculate where the nulls are
         if n > 1:
+            df.reset_index(inplace=True)
             subset_nulls = df.loc[df[nullcols].isnull().any(axis=1)][['word'] + nullcols]
 
     df.set_index('word', inplace=True)
-    df.update(subsetsim, overwrite=False)
-
     df.index = df.index.str.encode('utf-8')
     gc.collect()
     nullcount = df[nullcols].isnull().sum()
