@@ -360,8 +360,9 @@ def get_phonographic():
 
 
 def get_frequencies():
-    df = pd.read_csv(FREQUENCIES_FILE.absolute())
-    df = df.rename({'Word': 'word', 'Lg10WF': 'lg10wf'}, axis=1)
+    df = pd.read_csv(FREQUENCIES_FILE.absolute(), delimiter="\t", encoding='ISO-8859-1')
+    df = df.rename(columns={'Word': 'word', 'Lg10WF': 'lg10wf'})
+    print(df)
     df = df[['word', 'lg10wf']]
     df['word'] = df['word'].str.encode('utf8')
     df.set_index('word', inplace=True)
