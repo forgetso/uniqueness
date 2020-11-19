@@ -174,7 +174,7 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           --cod.bigram_count, 
           --cod.trigram_freq, 
           --cod.trigram_count, 
-          cod.frequency, 
+          cod.lg10wf, 
           --cod.ortho_frequency, 
           cod.ortho_neighbours, 
           --cod.unconstrained_unigram_freq, 
@@ -361,7 +361,7 @@ def get_phonographic():
 
 def get_frequencies():
     df = pd.read_csv(FREQUENCIES_FILE.absolute())
-    df = df.rename({'Word': 'word', 'Lg10WF': 'lg10wf'})
+    df = df.rename({'Word': 'word', 'Lg10WF': 'lg10wf'}, axis=1)
     df = df[['word', 'lg10wf']]
     df['word'] = df['word'].str.encode('utf8')
     df.set_index('word', inplace=True)

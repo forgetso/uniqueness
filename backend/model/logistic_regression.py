@@ -287,7 +287,7 @@ def feature_creation(df):
         cat_gauss = ''.join([category['name'], '_gaussian'])
         df[category['name']] = df[cat_gauss] / df[gaussian_cols].sum(axis=1)
 
-    multiply = ['concreteness_measure', ('valence', 'arousal', 'dominance'), 'age_of_acquisition', 'frequency']
+    multiply = ['concreteness_measure', ('valence', 'arousal', 'dominance'), 'age_of_acquisition', 'lg10wf']
 
     # Norms of valence, arousal, and dominance for 13,915 English lemmas
     # Valence arousal and dominance interact with concreteness, age of acquisition, and frequency

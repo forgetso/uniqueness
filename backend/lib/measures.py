@@ -34,7 +34,7 @@ WORD_MEASURES_DTYPES = [
     ('valence', 'f'),
     ('bigram_count', 'f'),
     ('bigram_freq', 'f'),
-    ('frequency', 'f'),
+    ('lg10wf', 'f'),
     ('ortho_frequency', 'f'),
     ('ortho_neighbours', 'f'),
     ('trigram_count', 'f'),
@@ -71,12 +71,14 @@ POTENTIAL_NULLS = ['concreteness_measure',
                    'valence',
                    'dominance',
                    'arousal',
-                   'frequency',
+                   'lg10wf',
                    'prevalence'
                    'pknown',
                    'lg10wf']
 # Depends on the GPU memory available after loading the model. Could be worked out dynamically.
 BATCH_SIZE = 32
+# The number of similarities to check when pulling in metrics from other words
+NEAREST_NEIGHBOURS = 30
 
 ss = SnowballStemmer('english')
 ls = LancasterStemmer()
@@ -386,7 +388,7 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     cupy_vectors = cupy.asarray(vectors, dtype=model.vocab.vectors.data.base.dtype)
 
     # only checking for second most similar word currently. this could be expanded to take anything above a threshold
-    n = 20
+    n = NEAREST_NEIGHBOURS
     result_keys, _, scores = most_similar(model, cupy_vectors, n=n, batch_size=BATCH_SIZE, data=cupy_model, sort=True)
     newstrs = [[model.vocab.strings.__getitem__(key) for key in keygroup] for keygroup in result_keys]
     resultdf = pd.concat([
