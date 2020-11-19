@@ -1,4 +1,4 @@
-from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures
+from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures, get_frequencies
 from backend.lib.multiprocessor import job_pool
 import pandas as pd
 from backend.settings import JOB_NUMBER
@@ -66,7 +66,15 @@ WORD_MEASURES_DTYPES = [
     ('sstem', 'str'),
     ('lstem', 'str'),
 ]
-POTENTIAL_NULLS = ['concreteness_measure', 'age', 'valence', 'dominance', 'arousal', 'frequency', 'prevalence']
+POTENTIAL_NULLS = ['concreteness_measure',
+                   'age',
+                   'valence',
+                   'dominance',
+                   'arousal',
+                   'frequency',
+                   'prevalence'
+                   'pknown',
+                   'lg10wf']
 # Depends on the GPU memory available after loading the model. Could be worked out dynamically.
 BATCH_SIZE = 32
 
@@ -92,7 +100,7 @@ def format_word_data(cur):
         row_dict['startswith'] = ord(word[0]) - 64
         words.append(row_dict)
     words = sorted(words, key=lambda k: k['word'])
-    #words = words[:1025]
+    # words = words[:1025]
     words = pd.DataFrame(words)
     words['changes'] = words['startswith'] - words['startswith'].shift(1) != 0
     words.drop('startswith', inplace=True, axis=1)
@@ -124,6 +132,8 @@ def format_word_data(cur):
 
 def format_word_data_multiprocess(df, item_dtype):
     item_dtype_dict = {k: v for k, v in item_dtype}
+    # not worth sharing this in memory as its so small
+    freqs = get_frequencies()
 
     # set data types for each column
     start = time.time()
@@ -134,6 +144,9 @@ def format_word_data_multiprocess(df, item_dtype):
     start = time.time()
     df = merge_word_records(df, item_dtype_dict)
     time_taken(start, merge_word_records)
+
+    # add frequencies
+    df = df.join(freqs)
 
     # add missing lemmas
     start = time.time()
@@ -347,13 +360,15 @@ def replace_nulls_with_nearest_non_nulls_by_stems(df):
 def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     # use a word embedding vector space to find similar words (e.g. sofa - couch) and take metrics
     # concreteness, age of acquisition, valence, dominance, arousal, frequency, prevalence if they are not present
-    df.reset_index(inplace=True)
+    if df.index.name == 'word':
+        df.reset_index(inplace=True)
     df['word'] = df['word'].str.decode('utf8')
 
     # make sure the columns are actually in the dataframe
     nullcols = [x for x in POTENTIAL_NULLS if x in df.columns]
 
     # find the subset of the dataframe where any of these columns are null
+    # TODO do this by individual column
     subset_nulls = df.loc[df[nullcols].isnull().any(axis=1)][['word'] + nullcols]
     logging.debug('nullcount')
     logging.debug(subset_nulls[nullcols].isnull().count())
@@ -384,11 +399,11 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     subset_nulls = subset_nulls.reset_index(drop=True)
     sim_result = resultdf[resultdf['sim_score_1'] > 0]
 
-    # TODO change this to take the mean (valence, arousal, etc.) for n nearest neighbours
-    #   DOI 10.3758/s13428-012-0195-z
-    #   Checking and bootstrapping lexical norms by means of word similarity indexes
+    # Takes the mean (valence, arousal, etc.) for n nearest neighbours
+    #   DOI 10.3758/s13428-012-0195-z: Checking and bootstrapping lexical norms by means of word similarity indexes
+    subsetsimstack = pd.DataFrame()
+    df.set_index('word', inplace=True)
     for nn in range(1, n + 1):
-        df.set_index('word', inplace=True)
         sim_word_col = "sim_word_{}".format(nn)
         sim_score_col = "sim_score_{}".format(nn)
         cols = ["original_word", sim_word_col, sim_score_col]
@@ -404,24 +419,33 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
         subsetsim.set_index('word', inplace=True)
         # TODO consider only similar words above a threshold
         subsetsim.drop(columns=[sim_score_col], inplace=True)
-        subsetsim = subsetsim.combine_first(subset_nonnulls)
-        # put the original word back as the index
-        subsetsim = subsetsim.reset_index(drop=True).rename({'original_word': 'word'}, axis=1).set_index('word')
-        # copy any new values into the original dataframe
-        # pd.set_option('display.max_rows', sim_result.shape[0] + 1)
-        subsetsim = subsetsim.drop_duplicates()
-        df.update(subsetsim, overwrite=False)
+        subsetsimstack = pd.concat([subsetsimstack, subsetsim], axis=0)
 
-        # recalculate where the nulls are
-        if n > 1:
-            df.reset_index(inplace=True)
-            subset_nulls = df.loc[df[nullcols].isnull().any(axis=1)][['word'] + nullcols]
+    # we should now have our columns stacked vertically
+    assert len(subsetsimstack) == n * len(subset_nulls)
 
-    df.set_index('word', inplace=True)
+    # take the non-null values from subset_nonnulls
+    subsetsimstack = subsetsimstack.combine_first(subset_nonnulls)
+
+    # take the mean of the n values (if only 3 found, 3 will be averaged)
+    simmean = subsetsimstack.groupby(by='original_word').agg(['mean'])
+
+    # we might not find all words but we definitely don't want more
+    assert len(simmean) <= len(subset_nulls)
+
+    simmean.columns = simmean.columns.droplevel(1)
+    # pd.set_option('display.max_rows', vc.shape[0] + 1)
+    # print(subsetsimstack)
+
+    # copy the new values into the dataframe, if they don't exist
+    df.update(simmean, overwrite=False)
+
+    if df.index.name != 'word':
+        df.set_index('word', inplace=True)
     df.index = df.index.str.encode('utf-8')
     gc.collect()
     nullcount = df[nullcols].isnull().sum()
-    logging.debug('null count')
+    logging.debug('Null count:\n')
     logging.debug(nullcount)
     return df
 
@@ -548,9 +572,6 @@ def as_numpy(xp, arr):
 
 
 def replace_nulls_with_nearest_non_nulls_by_form(df):
-    # TODO make this smarter. Maybe do it column by column? A word can have some null values in col X,Y and be missing Z.
-    #  another similar word might have a value for Z but be missing X and Y. Currently, the copying would only work in
-    #  one direction - from the word with the least nulls to the word with more nulls.
     # 2 is a totally arbitrary number...
     null_filter = df.isnull().sum(axis=1) >= 2
     wordsdf_nulls = df[null_filter]
@@ -587,7 +608,8 @@ def replace_nulls_with_nearest_non_nulls_by_form(df):
 def create_all_measures_dataframe(df, index=None):
     df.reset_index(inplace=True)
     # in case the index has already been reset
-    df.drop(columns=['index'], inplace=True)
+    if 'index' in df.columns:
+        df.drop(columns=['index'], inplace=True)
 
     result = df
     result.drop(columns='word_lemma', inplace=True)

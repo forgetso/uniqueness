@@ -1,5 +1,6 @@
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn import svm
 from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import classification_report
 from sklearn import preprocessing
@@ -38,14 +39,15 @@ CATEGORIES = [
     {'name': 'two_step', 'mean': 0.18407, 'stdev': 0.09391, 'ratio': 3.11},
     {'name': 'erratic', 'mean': 0.13200, 'stdev': 0.10930, 'ratio': 3.11},
 ]
-CATEGORICAL_LIMIT = 250
-AGE_BRACKETS = [(0, 30), (40, 100)]
+CATEGORICAL_LIMIT = 20
+AGE_BRACKETS = [(0, 25), (60, 100)]
 
 
 # AGE_BRACKETS = [(0, 20), (21, 30), (31, 40), (41, 50), (51, 60)]
 
 
-def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None, exclude=None):
+def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None, exclude=None,
+         model=None):
     if predict is None:
         predict = TO_PREDICT
 
@@ -63,28 +65,33 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     coded_file = get_coded_filename(source, min_responses, columns)
 
     if not Path.is_file(coded_file) or reload:
-        df, label_encoder = getData(source=source, min_responses=min_responses, columns=columns,
-                                    label_encoder=label_encoder,
-                                    predict=predict)
+        df, label_encoder, _user_data = getData(source=source, min_responses=min_responses, columns=columns,
+                                                label_encoder=label_encoder,
+                                                predict=predict)
         # create more features to try and increase the accuracy
         df = feature_creation(df)
-
-        # filter out empty columns and apply any user defined filtering
-        logging.debug(
-            'filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
-        df = filterData(df, predict, columns, exclude)
-        logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
 
         # avoid calling the DB every time
         df.to_csv(coded_file.absolute(), index=False)
     else:
         df = pd.read_csv(coded_file)
+
         try:
             df.drop(columns=['Unnamed: 0'], inplace=True, axis=1)
         except KeyError:
             pass
     if df is None:
         raise (ValueError('No data returned from getData!'))
+
+    # filter out empty columns and apply any user defined filtering
+    logging.debug(
+        'filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
+    logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
+    df = filterData(df, predict, columns, exclude)
+
+    df = balance_samples(df, predict)
+    logging.debug(df[predict].value_counts())
+
 
     X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, k_value)
 
@@ -99,9 +106,16 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     accuracy_row = 0
     best_model = None
     best_score = 0
+    model_fn = get_model_fn(model)
+    X_train_random_indices = np.random.choice(X_train.shape[0], size=10000, replace=False).tolist()
+    X_test_random_indices = np.random.choice(X_test.shape[0], size=10000, replace=False).tolist()
+    X_train = X_train.iloc[X_train_random_indices, :]
+    X_test = X_test.iloc[X_test_random_indices, :]
+    y_train = y_train.iloc[X_train_random_indices]
+    y_test = y_test.iloc[X_test_random_indices]
     for c_param in C_param_range:
-        logging.debug('Logistic Regression')
-        logmodel, y_predictions = logisticRegression(X_train, y_train, X_test, y_test, c_param, label_encoder)
+        logging.debug(model_fn)
+        logmodel, y_predictions = model_fn(X_train, y_train, X_test, y_test, c_param, label_encoder)
         # Saving accuracy score in table
         score = accuracy_score(y_test, y_predictions)
         if score >= best_score:
@@ -120,33 +134,48 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     return X, y, best_model
 
 
+def balance_samples(df, predict):
+    vc = df[predict].value_counts()
+    factor = 2
+    # check if there is a sample that has more than 3 times what the other samples have
+    small_samples = (df[predict].value_counts().max() / vc >= factor).sum()
+    while small_samples > 0:
+        max_category = vc.index[vc == vc.max()].values.tolist()[0]
+        items = df.index[df[predict] == max_category]
+        # use the second highest count
+        keep = np.random.choice(items, vc[1], replace=False)
+        remove = items[~items.isin(keep)]
+        df = df[~df.index.isin(remove)]
+        vc = df[predict].value_counts()
+        small_samples = (df[predict].value_counts().max() / vc >= factor).sum()
+    return df
+
+
+def get_model_fn(model):
+    fn = None
+    if model == 'logistic':
+        fn = logisticRegression
+    if model == 'svm':
+        fn = svc
+    if model == 'bayes':
+        fn = naiveBayes
+    return fn
+
+
 def prep_data(df, predict, sample_size, k_value=None):
-    # TODO work out if columns are categorical
-    cat_bool_cols = get_boolean_columns(df)
-    cat_bool_cols = [predict] + cat_bool_cols
-    continuous_cols = [x for x in df.columns if x not in cat_bool_cols]
-
-    # take the log of the data
-    original_count = len(df)
-    other = df.loc[:, cat_bool_cols]
-    df = df.loc[:, continuous_cols].replace(0, np.nan).astype('float64')
-    # df = remove_outliers(df)
-    df = log_transform(df)
-
-    df = other.join(df)
-    df = df.loc[:, ~df.columns.duplicated()]
-    df = df.astype('float64')
-
-    assert (original_count == len(df))
-
-    batched_data = df
-    if sample_size > 1:
-        batched_data = batch_data(df, predict, sample_size)
+    unique_vals = df[df.dtypes[(df.dtypes == np.float) | (df.dtypes == np.int)].index.values].nunique()
+    cat_bool_cols = unique_vals[unique_vals <= CATEGORICAL_LIMIT].index.tolist()
+    try:
+        cat_bool_cols.remove(predict)
+    except ValueError:
+        pass
+    df = pd.get_dummies(df, columns=cat_bool_cols)
+    continuous_cols = [x for x in df.columns if x not in cat_bool_cols and x != predict]
 
     logging.info('Predicting for {}'.format(predict))
     # the data to be predicted
-    X = batched_data.drop(predict, axis=1)
-    y = batched_data[predict]
+    y = df[predict]
+    X = df.drop(predict, axis=1)
 
     # get rid of np.nan and np.inf etc.
     X = pd.DataFrame(np.nan_to_num(X), columns=X.columns)
@@ -155,38 +184,25 @@ def prep_data(df, predict, sample_size, k_value=None):
     # split the data before replacing NaNs with mean to avoid leaking information into the test set
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=101)
 
+    # fill nans with the mean
+    X_train = X_train.fillna(X_train.mean())
+    X_test = X_test.fillna(X_test.mean())
+
+    assert X_train.isna().sum().sum() == 0
+    assert X_test.isna().sum().sum() == 0
+
+    # take the log of the data
+    X_train = log_transform(X_train, continuous_cols)
+    X_test = log_transform(X_test, continuous_cols)
+
     # feature normalization
+    X_train = feature_normalization(X_train, continuous_cols)
+    X_test = feature_normalization(X_test, continuous_cols)
 
-    x_train_norm = feature_normalization(X_train)
-    x_test_norm = feature_normalization(X_test)
+    if sample_size > 1:
+        exit('not implemented')
 
-    # replace nans with zeros and inf with very large numbers
-    X_train = replace_nan_with_mean(x_train_norm)
-    X_test = replace_nan_with_mean(x_test_norm)
-
-    # Principal Components Analysis
-    # TODO This could be done with Incremental PCA in sklearn and then it would also handle the batching
-    # pca_train = PCA(n_components=20)
-    # pca_train.fit(x_test)
-    # x_train = pca_train.transform(x_train)
-    #
-    # pca_test = PCA(n_components=20)
-    # pca_test.fit(x_test)
-    # x_test = pca_test.transform(x_test)
-
-    # feature selection
-    # if k_value is not None:
-    #     X_train, col_indices = feature_selection(X_train, y_train, k_value=k_value)
-    #     X_test = X_test[:, col_indices]
-    #
-    #     x_combined = x_combined[:, col_indices]
-    #     # get the column/feature names that were included
-    #     # TODO this is not right as predict column was dropped
-    #     df_k_best = batched_data.iloc[:, col_indices]
-    # else:
-    #     df_k_best = batched_data
-
-    logging.debug('including features: {}'.format(batched_data.columns))
+    logging.debug('including features: {}'.format(X_train.columns))
 
     return X, X_train, X_test, y, y_train, y_test
 
@@ -198,17 +214,22 @@ def get_coded_filename(source, min_responses, columns):
     return Path(os.path.join(DATA_FOLDER, 'coded_data_{}.csv'.format(hash)))
 
 
-def log_transform(df):
+def log_transform(df, continuous_cols):
     # https://statmodeling.stat.columbia.edu/2019/08/21/you-should-usually-log-transform-your-positive-data/
     n = int(0.05 * len(df))
-    for col in df.columns:
+    for col in continuous_cols:
         # make sure there are no negatives in the column
         if np.all(df[col] >= 0):
-            # make sure this isn't a categorical column
-            if len(df[col].value_counts()) > CATEGORICAL_LIMIT:
-                # check ratio between the highest and the lowest 5% is > 1.1 (close to 1 implies not much variance)
-                if np.divide(df.nsmallest(n, col).mean(), df.nlargest(n, col).mean()) > 1.1:
-                    df[col] = np.log(df[col])
+            # check ratio between the highest and the lowest 5% is > 1.1 (close to 1 implies not much variance)
+            if np.divide(df.nsmallest(n, col).mean(), df.nlargest(n, col).mean())[col] > 1.1:
+                # TODO this doesn't really work for length, syllables, frequency
+                #   they should instead use something like the below
+                #   [length, syllables].apply(lambda x:abs(0.5*np.log((2+x**5)/(2-x**5))))
+                #   [freq].apply(lambda x:abs(0.5*np.log((2+x**0.05)/(2-x**0.05))))
+                # df[col] = abs(np.log(1 / (1 + df[col] ** 0.5)))
+                df[col] = np.log(1 + df[col])
+
+    df = df.replace([np.inf, -np.inf], 0)
     return df
 
 
@@ -303,22 +324,19 @@ def gaussian(x, mean, sd):
     # return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
 
 
-def replace_nan_with_mean(arr):
-    # Obtain mean of columns as you need, nanmean is convenient.
-    col_mean = np.nanmean(arr, axis=0)
-
-    # Find indices that you need to replace
-    inds = np.where(np.isnan(arr))
-
-    # Place column means in the indices. Align the arrays using take
-    arr[inds] = np.take(col_mean, inds[1])
-    return arr
-
-
-def feature_normalization(df):
-    x = preprocessing.robust_scale(df)
-    # x = preprocessing.scale(df)
-    return x
+def feature_normalization(df, cols_to_normalize):
+    # TODO which type of scaling to use here?
+    old_index = df.index
+    df.reset_index(inplace=True, drop=True)
+    cols = [c for c in cols_to_normalize if c in df.columns]
+    x = df[cols]
+    min_max_scaler = preprocessing.MinMaxScaler()
+    x_scaled = min_max_scaler.fit_transform(x)
+    n_test = pd.DataFrame(x_scaled, columns=cols)
+    l_test = df.drop(cols, axis=1)
+    result = pd.concat([n_test, l_test], axis=1)
+    result.index = old_index
+    return result
 
 
 def feature_selection(x, y, k_value=None):
@@ -344,6 +362,23 @@ def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoder)
     # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
     print(classification_report(y_test, predictions))  # , target_names=target_strings))
     return logmodel, predictions
+
+
+def svc(x_train, y_train, x_test, y_test, C_param, label_encoder):
+    # create an instance and fit the model
+    # The implementation is based on libsvm.
+    # The fit time scales at least quadratically with the number of samples and
+    # may be impractical beyond tens of thousands of samples.
+
+    svmmodel = svm.SVC(C=C_param)
+
+    svmmodel.fit(x_train, y_train)
+    # predictions
+    predictions = svmmodel.predict(x_test)
+    label_index = [int(x) for x in svmmodel.classes_.tolist()]
+    # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
+    print(classification_report(y_test, predictions))  # , target_names=target_strings))
+    return svmmodel, predictions
 
 
 def naiveBayes(x_train, y_train, x_test, y_test):
@@ -403,6 +438,8 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
 
     cur = get_cue_response_pairs_coded(source=source)
     df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
+    df = df.replace('NaN', np.nan)
+    df = df.apply(pd.to_numeric, errors='ignore')
     if predict == 'age_bracket':
         df['age_bracket'] = df['age'].apply(get_age_bracket)
     df.drop(columns=['rowid'], inplace=True)
@@ -428,6 +465,7 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
     if TO_PREDICT != predict:
         df.drop(TO_PREDICT, inplace=True, axis=1)
 
+    user_data = df[user_columns]
     df = df.drop(columns=user_columns)
 
     # converts True/False to 1/0
@@ -440,9 +478,12 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
 
     if not keep_pairs:
         df = df.astype(float)
+
+    # if keep_pairs:
+    #     df = pd.concat(df, user_data, axis=1)
     df = df.sort_values(by=predict)
 
-    return df, label_encoder
+    return df, label_encoder, user_data
 
 
 def batch_data(df, predict, size):
@@ -471,9 +512,10 @@ def setup():
     parser.add_argument('--k_value', default=None, help="select K best features for regression", type=int)
     parser.add_argument('--reload', default=None, action="store_true", help="reload data from the DB")
     parser.add_argument('--exclude', default=None, help="exclude specific columns")
+    parser.add_argument('--model', default='logistic', help="type of model to run")
     args = parser.parse_args()
     main(predict=args.predict, source=args.source, sample_size=args.samplesize, columns=args.columns,
-         k_value=args.k_value, reload=args.reload)
+         k_value=args.k_value, reload=args.reload, model=args.model)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
 import psycopg2 as pg
 from backend.settings_private import PG_PASSWORD, PG_USER
+from backend.settings import FREQUENCIES_FILE
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
 import pprint
 import sys
 import logging
 import numpy as np
+import pandas as pd
 
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
@@ -149,61 +151,60 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           u.education, 
           u.city, 
           u.country, 
-          cod.right_hemi_distance, 
-          cod.r_hemi_area_differs, 
-          cod.l_hemi_area_differs, 
-          cod.left_hemi_distance, 
+          --cod.right_hemi_distance, 
+          --cod.r_hemi_area_differs, 
+          --cod.l_hemi_area_differs, 
+          --cod.left_hemi_distance, 
           cod.length, 
           cod.syllables, 
           cod.capitalised, 
           cod.capitalised_any,
-          cod.punctuation, 
+          --cod.punctuation, 
           cod.first_char_equal,
           cod.number_of_words, 
-          cod.exact, 
-          cod.prevalent, 
+          --cod.exact, 
           cod.concreteness_measure, 
           cod.age AS age_of_acquisition, 
           cod.valence, 
           cod.arousal, 
           cod.dominance, 
-          cod.unigram_freq, 
-          cod.unigram_count, 
-          cod.bigram_freq, 
-          cod.bigram_count, 
-          cod.trigram_freq, 
-          cod.trigram_count, 
+          --cod.unigram_freq, 
+          --cod.unigram_count, 
+          --cod.bigram_freq, 
+          --cod.bigram_count, 
+          --cod.trigram_freq, 
+          --cod.trigram_count, 
           cod.frequency, 
-          cod.ortho_frequency, 
+          --cod.ortho_frequency, 
           cod.ortho_neighbours, 
-          cod.unconstrained_unigram_freq, 
-          cod.unconstrained_unigram_count, 
-          cod.unconstrained_bigram_freq, 
-          cod.unconstrained_bigram_count, 
-          cod.unconstrained_trigram_freq, 
-          cod.unconstrained_trigram_count, 
-          cod.pknown, 
+          --cod.unconstrained_unigram_freq, 
+          --cod.unconstrained_unigram_count, 
+          --cod.unconstrained_bigram_freq, 
+          --cod.unconstrained_bigram_count, 
+          --cod.unconstrained_trigram_freq, 
+          --cod.unconstrained_trigram_count, 
+          --cod.pknown, 
           cod.prevalence, 
           cod.nphon, 
-          cod.unsdens, 
-          cod.strdens, 
-          cod.unsbpav, 
-          cod.strbpav, 
-          cod.unstpav, 
-          cod.strtpav, 
+          --cod.unsdens, 
+          --cod.strdens, 
+          --cod.unsbpav, 
+          --cod.strbpav, 
+          --cod.unstpav, 
+          --cod.strtpav, 
           cod.unspospav, 
-          cod.strpospav, 
-          cod.unslcpospav, 
-          cod.strlcpospav, 
-          cod.sfreq, 
-          cod.scdcnt, 
+          --cod.strpospav, 
+          --cod.unslcpospav, 
+          --cod.strlcpospav, 
+          --cod.sfreq, 
+          --cod.scdcnt, 
           cod.pos_changes, 
-          cod.bad_spell,
+          --cod.bad_spell,
           cod.s2v_similarity,
-          cod.proverb_similarity,
           cod.crawl_similarity,
           cod.wikipedia_similarity,
           cod.dict2vec_similarity,
+          cod.attractrepel_similarity,
           cod.idea_density,
           cod.ngram_angle_10,
           cod.ngram_angle_20,
@@ -358,6 +359,15 @@ def get_phonographic():
     return phonographic
 
 
+def get_frequencies():
+    df = pd.read_csv(FREQUENCIES_FILE.absolute())
+    df = df.rename({'Word': 'word', 'Lg10WF': 'lg10wf'})
+    df = df[['word', 'lg10wf']]
+    df['word'] = df['word'].str.encode('utf8')
+    df.set_index('word', inplace=True)
+    return df
+
+
 def get_coded_pairs():
     conn = connect()
     cur = conn.cursor(cursor_factory=pg.extras.DictCursor)
@@ -396,7 +406,6 @@ def get_all_measures_raw():
                     e.valence AS valence,
                     o.bigram_count AS bigram_count,
                     o.bigram_freq AS bigram_freq,
-                    o.frequency AS frequency,
                     o.ortho_frequency AS ortho_frequency,
                     o.ortho_neighbours AS ortho_neighbours,
                     o.trigram_count AS trigram_count,

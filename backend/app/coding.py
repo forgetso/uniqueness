@@ -342,9 +342,8 @@ def first_char_equal(cue, response):
 
 def idea_density(cue_pos, response_pos, models):
     if cue_pos == 'noun' and response_pos in ('adj', 'verb', 'adv', 'preposition'):
-        return float(1) - sum(models) / len(models)
-    return 0
-
+        return (float(1) - sum(models) / len(models)) + min(models)
+    return min(models)
 
 def get_measures_diff(df, all_measures):
     # trim down the cues and responses so we're only running functions once per word
