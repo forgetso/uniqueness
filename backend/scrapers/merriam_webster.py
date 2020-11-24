@@ -12,8 +12,8 @@ DATABASE = 'words_to_scrape'
 SUB_CATEGORIES = ['legal', 'medical']
 
 
-def process(word=None):
-    uri = 'https://www.merriam-webster.com/dictionary/{word}'
+def process(word=None, mode='thesaurus'):
+    uri = 'https://www.merriam-webster.com/{mode}/{word}'
     db = pymongo.MongoClient(host='localhost')[DATABASE]
     word_doc = db.words.find_one({"sources.{}".format(SOURCE): {'$exists': False}})
     if not word:
@@ -23,38 +23,62 @@ def process(word=None):
             print('all words scraped!')
             exit(0)
 
-    uri_filled = uri.format(word=word)
+    uri_filled = uri.format(word=word, mode=mode)
     user_agent = random.choice(user_agent_list)
     headers = {'User-Agent': user_agent}
     request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
-    definition_wrapper = soup.find(id="definition-wrapper")
+    definition_wrapper = soup.find(id="definition-wrapper".format(mode))
     definitions = None
     sub_category = None
-    definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith('dictionary-entry-'))
+    alternate_spelling = None
+    entry_id = '{}-entry-'.format(mode)
+    definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith(entry_id))
+
     # todo find out what all these different entries are
-    if not definitions_container:
-        for sub_category in SUB_CATEGORIES:
-            definitions_container = definition_wrapper.findAll('div',
-                                                               id=lambda x: x and x.startswith(sub_category + '-'))
-            if definitions_container:
-                break
+    if mode == 'dictionary':
+        if not definitions_container:
+            for sub_category in SUB_CATEGORIES:
+                definitions_container = definition_wrapper.findAll('div',
+                                                                   id=lambda x: x and x.startswith(sub_category + '-'))
+                if definitions_container:
+                    break
 
-    if not definitions_container and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
-        alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next(
-            'a').get_text()
-    else:
-        definitions, alternate_spelling = getDefinitions(definitions_container)
+        if not definitions_container:
+            missing = definition_wrapper.find('p', {'class': 'missing-query'})
+            if not missing and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
+                alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next(
+                    'a').get_text()
+        else:
+            definitions, alternate_spelling = getDefinitions(definitions_container)
 
-    synonyms, antonyms, pos_list = getRelations(soup)
+        synonyms, antonyms, pos_list = getRelations(soup)
 
-    if not len(pos_list) and definitions:
-        pos = getPos(soup)
-        if pos:
-            pos_list = [pos]
+        if not len(pos_list) and definitions:
+            pos = getPos(soup)
+            if pos:
+                pos_list = [pos]
 
-    if definitions or alternate_spelling:
-        storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
+        if definitions or alternate_spelling:
+            storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
+    elif mode == 'thesaurus':
+        synonyms = get_thesaurus_relations(definition_wrapper, 'syn')
+        antonyms = get_thesaurus_relations(definition_wrapper, 'ant')
+        storeRelations(db, word, synonyms, antonyms)
+
+
+def get_thesaurus_relations(definition_wrapper, rtype):
+    relations = []
+    rels_list = [x.findAll('div', {'class': 'synonyms_list'}) for x in
+               definition_wrapper.findAll('span', {'class': '{}-list'.format(rtype)})]
+    rels_list = [item for sublist in rels_list for item in sublist]
+    rels_list = [item.strip() for sublist in [x.get_text().split(',') for x in rels_list] for item in sublist]
+    if len(rels_list):
+        relations.extend(rels_list)
+        relations = [re.sub('\s\((or|also)\s(\w+)\)', ',\\2', y).split(',') for y in relations]
+        relations = [re.sub('\[\w+\]', '', item) for sublist in relations for item in sublist]
+    print(relations)
+    return relations
 
 
 def getDefinitions(definitions_container):
@@ -136,11 +160,22 @@ def storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spe
     db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
 
 
+def storeRelations(db, word, synonyms, antonyms):
+    result = {
+        'word': word,
+        'synonyms': synonyms,
+        'antonyms': antonyms,
+    }
+    db.relations.update({'word': word}, result, upsert=True)
+    db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
+
+
 def setup():
     parser = argparse.ArgumentParser(description='Import dictionary data')
     parser.add_argument('--word', help='Run for specific word')
+    parser.add_argument('--mode', help='Dictionary or thesaurus', default='thesaurus')
     args = parser.parse_args()
-    process(args.word)
+    process(args.word, args.mode)
 
 
 if __name__ == "__main__":
