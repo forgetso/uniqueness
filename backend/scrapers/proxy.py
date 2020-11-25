@@ -86,7 +86,7 @@ def process(job=None, **kwargs):
 
 
 def set_lock(job):
-    open(Path(TMP_FOLDER).joinpath('{}_{}'.format(LOCK_PREFIX, job)), 'a').close()
+    open(Path(TMP_FOLDER).joinpath('{}_{}'.format(LOCK_PREFIX, job)).absolute(), 'a').close()
 
 
 def release_lock(job):
