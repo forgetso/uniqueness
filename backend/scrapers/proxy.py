@@ -86,13 +86,13 @@ def process(job=None, **kwargs):
 
 
 def set_lock(job):
-    open(Path(TMP_FOLDER).joinpath('{}_{}'.format(LOCK_PREFIX, job)).absolute(), 'a').close()
+    open(str(Path(TMP_FOLDER).joinpath('{}_{}'.format(LOCK_PREFIX, job)).absolute()), 'a').close()
 
 
 def release_lock(job):
     path = Path(TMP_FOLDER).joinpath('{}_{}'.format(LOCK_PREFIX, job))
     if path.exists():
-        os.remove(path.absolute())
+        os.remove(str(path.absolute()))
 
 
 def ip_changed(ip_address_initial):
