@@ -1,5 +1,5 @@
 from backend.lib.semantic_atlas import BrainMap
-from backend.lib.measures import unpack_splits
+from backend.lib.measures import unpack_lists
 import numpy as np
 import pandas as pd
 import logging
@@ -110,8 +110,8 @@ def merge_semantic_columns(brain_map, cols, df, decode=None):
 def semantic_atlas_multi_word(df, brain_map, cue_hemi_l, cue_hemi_r, res_hemi_l, res_hemi_r):
     # TODO huge big mess, refactor to unpack all words by default and then apply semantic data back using row indexes?
     # get the individual words from multi word (len > 2) cue/responses
-    cue_splits = unpack_splits(df['cue_split'])
-    response_splits = unpack_splits(df['response_split'])
+    cue_splits = unpack_lists(df['cue_split'])
+    response_splits = unpack_lists(df['response_split'])
     # unpack the splits into one or two big columns?
     if cue_splits is not None and response_splits is None:
         unpacked_words = pd.DataFrame(np.unique(np.sort(cue_splits[:, 0])), columns=['word'])

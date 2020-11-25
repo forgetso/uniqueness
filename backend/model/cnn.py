@@ -6,10 +6,7 @@ import numpy as np
 import time
 import logging
 from backend.settings import LOG_LEVEL
-from pathlib import Path
-from backend.model.logistic_regression import getData, feature_creation, \
-    filterData, SAMPLE_SIZE, TO_PREDICT, MIN_RESPONSES, C_param_range, \
-    get_coded_filename, prep_data
+from backend.model.logistic_regression import prepare, C_PARAM_RANGE
 from keras.models import Sequential
 from keras.layers import Dense, Conv1D, Flatten, Dropout, MaxPooling1D, Conv2D, Activation
 import tensorflow as tf
@@ -23,61 +20,30 @@ tf.compat.v1.keras.backend.set_session(sess)
 logging.basicConfig(level=LOG_LEVEL)
 
 
-def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None):
-    if predict is None:
-        predict = TO_PREDICT
-
-    try:
-        sample_size = int(sample_size)
-    except TypeError:
-        sample_size = SAMPLE_SIZE
-    start = time.perf_counter()
-    logging.debug('Getting data')
-
-    min_responses = MIN_RESPONSES
-    label_encoder = preprocessing.LabelEncoder()
-
-    coded_file = get_coded_filename(source, min_responses, columns)
-
-    if not Path.is_file(coded_file) or reload:
-        df, label_encoder = getData(source=source, min_responses=min_responses, columns=columns,
-                                    label_encoder=label_encoder,
-                                    predict=predict)
-        # create more features to try and increase the accuracy
-        df = feature_creation(df)
-
-        # filter out empty columns and apply any user defined filtering
-        df = filterData(df, predict, columns)
-
-        # avoid calling the DB every time
-        df.to_csv(coded_file.absolute())
-    else:
-        df = pd.read_csv(coded_file)
-    if df is None:
-        raise (ValueError('No data returned from getData!'))
-
-    X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, k_value)
+def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None, exclude=None):
+    X, y, X_train, y_train, X_test, y_test, label_encoder = prepare(predict, sample_size, source, columns, reload,
+                                                                    exclude, k_value)
 
     # logistic regression
     accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
     accuracies = pd.DataFrame(columns=accuracy_cols)
-    accuracies['C_parameter'] = C_param_range
+    accuracies['C_parameter'] = C_PARAM_RANGE
     accuracy_row = 0
 
     accuracy = keras_cnn(X_train, X_test, y_train, y_test)
     print(accuracy)
 
     end = time.perf_counter()
-    logging.debug('time taken {}'.format(end - start))
     return
 
 
-def keras_cnn(x_train, x_test, y_train, y_test):
+def keras_cnn(X_train, X_test, y_train, y_test):
     from keras.constraints import maxnorm
     from keras.optimizers import SGD
-    trainX = np.dstack(x_train).T
+    print(X_train.shape, X_test.shape)
+    trainX = X_train.values.reshape(X_train.shape[0], X_train.shape[1], 1)
     trainy = np.vstack(y_train)
-    testX = np.dstack(x_test).T
+    testX = X_test.values.reshape(X_test.shape[0], X_test.shape[1], 1)
     testy = np.vstack(y_test)
     print(testX.shape, trainX.shape, trainy.shape, testy.shape)
     verbose, epochs, batch_size = 0, 10, 1
@@ -89,8 +55,8 @@ def keras_cnn(x_train, x_test, y_train, y_test):
     model.add(Dropout(0.5))
     model.add(Dense(64, activation='relu', kernel_constraint=maxnorm(3)))
     model.add(Dense(n_outputs, activation='sigmoid'))
-    sgd = SGD(lr=0.1, momentum=0.9)
-    #model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    sgd = SGD(lr=0.01, momentum=0.9)
+    # model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
     model.compile(loss='sparse_categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
     # fit network
     model.fit(trainX, trainy, epochs=epochs, batch_size=batch_size, verbose=verbose)

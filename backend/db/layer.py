@@ -1,6 +1,6 @@
 import psycopg2 as pg
 from backend.settings_private import PG_PASSWORD, PG_USER
-from backend.settings import FREQUENCIES_FILE
+from backend.settings import FREQUENCIES_FILE, WORD_FREQUENCIES, SYNONYMS_ANTONYMS_FILE
 from psycopg2.extras import execute_values
 from nltk import PorterStemmer
 import pprint
@@ -8,6 +8,9 @@ import sys
 import logging
 import numpy as np
 import pandas as pd
+import sqlalchemy
+from backend.lib.helpers.df import unpack_lists
+import re
 
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
 ps = PorterStemmer()
@@ -16,6 +19,12 @@ ps = PorterStemmer()
 def connect():
     conn = pg.connect(host='localhost', user=PG_USER, password=PG_PASSWORD, database="backend")
     return conn
+
+
+def engine():
+    engine = sqlalchemy.create_engine(
+        'postgresql://{user}:{password}@localhost:5432/backend'.format(user=PG_USER, password=PG_PASSWORD))
+    return engine
 
 
 def execute_values_wrap(table, fieldnametuple, values, returning=None):
@@ -138,12 +147,8 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           r.user_id, 
           r.cue AS cue_raw, 
           r.cue_clean, 
-          c_corrections.correction AS cue_correction, 
-          LOWER(c_sense.sense) as cue_sense, 
           r.response AS response_raw, 
           r.response_clean, 
-          r_corrections.correction AS response_correction, 
-          LOWER(r_sense.sense) as response_sense, 
           r.source, 
           u.age, 
           u.nativelanguage, 
@@ -151,74 +156,9 @@ def get_cue_response_pairs_coded(limit=None, source=None):
           u.education, 
           u.city, 
           u.country, 
-          --cod.right_hemi_distance, 
-          --cod.r_hemi_area_differs, 
-          --cod.l_hemi_area_differs, 
-          --cod.left_hemi_distance, 
-          cod.length, 
-          cod.syllables, 
-          cod.capitalised, 
-          cod.capitalised_any,
-          --cod.punctuation, 
-          cod.first_char_equal,
-          cod.number_of_words, 
-          --cod.exact, 
-          cod.concreteness_measure, 
-          cod.age AS age_of_acquisition, 
-          cod.valence, 
-          cod.arousal, 
-          cod.dominance, 
-          --cod.unigram_freq, 
-          --cod.unigram_count, 
-          --cod.bigram_freq, 
-          --cod.bigram_count, 
-          --cod.trigram_freq, 
-          --cod.trigram_count, 
-          cod.lg10wf, 
-          --cod.ortho_frequency, 
-          cod.ortho_neighbours, 
-          --cod.unconstrained_unigram_freq, 
-          --cod.unconstrained_unigram_count, 
-          --cod.unconstrained_bigram_freq, 
-          --cod.unconstrained_bigram_count, 
-          --cod.unconstrained_trigram_freq, 
-          --cod.unconstrained_trigram_count, 
-          --cod.pknown, 
-          cod.prevalence, 
-          cod.nphon, 
-          --cod.unsdens, 
-          --cod.strdens, 
-          --cod.unsbpav, 
-          --cod.strbpav, 
-          --cod.unstpav, 
-          --cod.strtpav, 
-          cod.unspospav, 
-          --cod.strpospav, 
-          --cod.unslcpospav, 
-          --cod.strlcpospav, 
-          --cod.sfreq, 
-          --cod.scdcnt, 
-          cod.pos_changes, 
-          --cod.bad_spell,
-          cod.s2v_similarity,
-          cod.crawl_similarity,
-          cod.wikipedia_similarity,
-          cod.dict2vec_similarity,
-          cod.attractrepel_similarity,
-          cod.idea_density,
-          cod.ngram_angle_10,
-          cod.ngram_angle_20,
-          cod.ngram_angle_30,
-          cod.ngram_angle_40,
-          cod.hamming
+          cod.*
         FROM 
           responses r 
-          LEFT JOIN s2vsenses AS c_sense ON r.cue_sense_id = c_sense.id 
-          LEFT JOIN s2vsenses AS r_sense ON r.response_sense_id = r_sense.id 
-          LEFT JOIN corrections AS c_corrections ON r.id = c_corrections.response_id 
-          AND c_corrections.type = 'c' 
-          LEFT JOIN corrections AS r_corrections ON r.id = r_corrections.response_id 
-          AND c_corrections.type = 'r' 
           LEFT JOIN users u ON u.id = r.user_id 
           INNER JOIN coding cod ON cod.response = r.response 
           AND cod.cue = r.cue
@@ -362,7 +302,6 @@ def get_phonographic():
 def get_frequencies():
     df = pd.read_csv(FREQUENCIES_FILE.absolute(), delimiter="\t", encoding='ISO-8859-1')
     df = df.rename(columns={'Word': 'word', 'Lg10WF': 'lg10wf'})
-    print(df)
     df = df[['word', 'lg10wf']]
     df['word'] = df['word'].str.encode('utf8')
     df.set_index('word', inplace=True)
@@ -386,6 +325,14 @@ def get_all_words():
     result = set([x[0] for x in cur])
     conn.close()
     return result
+
+
+def get_word_filter():
+    # Take only words in the 2k to 3k band from the British National Corpus as per Fitzgerald et. al
+    df = pd.read_csv(WORD_FREQUENCIES, sep='\t')
+    word_filter = df[2000:3999].copy()
+    word_filter['word'] = word_filter['Word'].str.lower().str.encode('utf8')
+    return word_filter['word'].values
 
 
 def get_all_measures_raw():
@@ -465,10 +412,48 @@ def get_senses():
     return result
 
 
+def get_synonyms_antonyms():
+    # TODO move these utility functions to somewhere more general
+    df = pd.read_csv(SYNONYMS_ANTONYMS_FILE)
+
+    def listify(wordstr):
+        flat = wordstr
+        if isinstance(wordstr, str):
+            x = wordstr
+            nested = [re.sub('\s\((or|also\s(\w+))\)', ',\\2', y).split(',') for y in x.split(',')]
+            flat = [re.sub('\s+\[\w+\]', '', item) for sublist in nested for item in sublist]
+        return flat
+
+    def get_related_list(df, relation):
+        unpacked = pd.DataFrame(unpack_lists(df['{}_list'.format(relation)]), columns=[relation, 'index'], dtype=str)
+        unpacked['index'] = unpacked['index'].astype(int)
+        unpacked[relation] = unpacked[relation].astype(str)
+        unpacked.set_index('index', inplace=True)
+        df.index.name = 'index'
+        relations = pd.merge(df[['word']].astype(str), unpacked, how='right', left_index=True, right_index=True)
+        return relations
+
+    df['synonym_list'] = df['synonyms'].apply(listify)
+    df['antonym_list'] = df['antonyms'].apply(listify)
+    synonyms = get_related_list(df, 'synonym')
+    antonyms = get_related_list(df, 'antonym')
+    return synonyms, antonyms
+
+
+def get_related_list(df, relation):
+    unpacked = pd.DataFrame(unpack_lists(df['{}_list'.format(relation)]), columns=[relation, 'index'], dtype=str)
+    unpacked['index'] = unpacked['index'].astype(int)
+    unpacked[relation] = unpacked[relation].astype(str)
+    unpacked.set_index('index', inplace=True)
+    df.index.name = 'index'
+    relations = pd.merge(df[['word']].astype(str), unpacked, how='right', left_index=True, right_index=True)
+    return relations
+
+
 def save_all_measures(df):
-    delete_measures()
-    # TODO save the sstems and lstems to a separate table and store an id in measures
-    execute_values_wrap('measures', (x for x in df.columns), df.values.tolist())
+    logging.debug('Saving measures to db')
+    conn = engine()
+    df.to_sql('measures', con=conn, if_exists='replace', index=False)
 
 
 def save_cue_response_pair(cue_response_pair):
@@ -569,11 +554,10 @@ def update_correction(response_id, original_word, correction):
     conn.commit()
 
 
-def save_coded_pairs(coded_pairs, fieldnames):
+def save_coded_pairs(coded_pairs):
     logging.debug('Saving coded pairs')
-    conn = connect()
-    execute_values_wrap('coding', fieldnames, coded_pairs.values.tolist())
-    conn.commit()
+    conn = engine()
+    coded_pairs.to_sql('coding', con=conn, if_exists='append')
 
 
 def delete_coded_pairs():

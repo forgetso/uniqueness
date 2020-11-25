@@ -1,4 +1,5 @@
-from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures, get_frequencies
+from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures, get_frequencies, \
+    get_synonyms_antonyms
 from backend.lib.multiprocessor import job_pool
 import pandas as pd
 from backend.settings import JOB_NUMBER
@@ -16,6 +17,7 @@ import gc
 import cupy
 from thinc.api import get_array_module
 import tqdm
+from backend.lib.semantic_atlas import BrainMap
 
 logging.getLogger().setLevel(logging.DEBUG)
 UNKNOWN_CATEGORY = '<unknown>'
@@ -71,15 +73,24 @@ POTENTIAL_NULLS = ['concreteness_measure',
                    'valence',
                    'dominance',
                    'arousal',
-                   'lg10wf',
                    'prevalence'
                    'pknown',
-                   'lg10wf']
+                   'lg10wf',
+                   'left_hemi_label',
+                   'left_r',
+                   'left_g',
+                   'left_b',
+                   'right_hemi_label',
+                   'right_r',
+                   'right_g',
+                   'right_b',
+                   ]
 # Depends on the GPU memory available after loading the model. Could be worked out dynamically.
 BATCH_SIZE = 32
 # The number of similarities to check when pulling in metrics from other words
 NEAREST_NEIGHBOURS = 30
 
+bm = BrainMap()
 ss = SnowballStemmer('english')
 ls = LancasterStemmer()
 
@@ -102,7 +113,7 @@ def format_word_data(cur):
         row_dict['startswith'] = ord(word[0]) - 64
         words.append(row_dict)
     words = sorted(words, key=lambda k: k['word'])
-    # words = words[:1025]
+    words = words[:1025]
     words = pd.DataFrame(words)
     words['changes'] = words['startswith'] - words['startswith'].shift(1) != 0
     words.drop('startswith', inplace=True, axis=1)
@@ -129,6 +140,7 @@ def format_word_data(cur):
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_similarity)
 
     logging.debug('concat returned {} lines'.format(len(df)))
+    shm_models.close_shared_memories()
     return df
 
 
@@ -149,6 +161,12 @@ def format_word_data_multiprocess(df, item_dtype):
 
     # add frequencies
     df = df.join(freqs)
+    df = df.apply(pd.to_numeric, errors='ignore')
+
+    # add brain areas
+    start = time.time()
+    df = add_brain_areas(df)
+    time_taken(start, add_brain_areas)
 
     # add missing lemmas
     start = time.time()
@@ -175,6 +193,23 @@ def format_word_data_multiprocess(df, item_dtype):
     df = replace_nulls_with_nearest_non_nulls_by_form(df)
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_form)
 
+    return df
+
+
+def add_brain_areas(df):
+    areas = bm.get_semantic_area(df.index.values)
+    left_hemi_colours = bm.get_label_colour('left', areas[areas['left_hemi_label'] != b''].set_index(
+        'left_hemi_label')).set_index('word')
+    right_hemi_colours = bm.get_label_colour('right', areas[areas['right_hemi_label'] != b''].set_index(
+        'right_hemi_label')).set_index('word')
+    areas.set_index('word', inplace=True)
+    areas_l = areas.join(left_hemi_colours[['r', 'g', 'b']]).rename({'r': 'left_r', 'g': 'left_g', 'b': 'left_b'},
+                                                                    axis=1)
+    areas_lr = areas_l.join(right_hemi_colours[['r', 'g', 'b']]).rename(
+        {'r': 'right_r', 'g': 'right_g', 'b': 'right_b'}, axis=1)
+    df = pd.merge(df, areas_lr, left_index=True, right_index=True, how='left')
+    df['left_hemi_label'] = df['left_hemi_label'].str.decode('utf8')
+    df['right_hemi_label'] = df['right_hemi_label'].str.decode('utf8')
     return df
 
 
@@ -360,7 +395,7 @@ def replace_nulls_with_nearest_non_nulls_by_stems(df):
 
 
 def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
-    # use a word embedding vector space to find similar words (e.g. sofa - couch) and take metrics
+    # Use a word embedding vector space (spacy model) to find similar words (e.g. sofa - couch) and take metrics
     # concreteness, age of acquisition, valence, dominance, arousal, frequency, prevalence if they are not present
     if df.index.name == 'word':
         df.reset_index(inplace=True)
@@ -429,6 +464,8 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     # take the non-null values from subset_nonnulls
     subsetsimstack = subsetsimstack.combine_first(subset_nonnulls)
 
+    # make sure that synonyms and antonyms are not taking measures from each other
+
     # take the mean of the n values (if only 3 found, 3 will be averaged)
     simmean = subsetsimstack.groupby(by='original_word').agg(['mean'])
 
@@ -450,6 +487,16 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     logging.debug('Null count:\n')
     logging.debug(nullcount)
     return df
+
+
+# def antonym_filter(sims):
+#
+#     synonyms, antonyms = get_synonyms_antonyms()
+#     match = pd.merge(sims, antonyms, left_on=['original_word', 'word'], right_on=['word', 'antonym'])
+#     # we have antonyms returned in the nearest neighbours method so need to apply some logic to avoid directly
+#     # copying measures from an antonym, as antonyms might be negatively correlated in emotional measures
+#     if len(match):
+#
 
 
 def most_similar(model, queries, *, batch_size=1024, n=1, sort=True, data=None):
@@ -617,24 +664,22 @@ def create_all_measures_dataframe(df, index=None):
     result.drop(columns='word_lemma', inplace=True)
     column_names = list(result.columns.values)
     result['word'] = lower_and_decode(result['word'])
-    # TODO use columns_types to figure out which columns are not numeric
-    non_numeric = ['word', 'part_of_speech', 'sstem', 'lstem']
-    for column in result.columns:
-        if column not in non_numeric:
-            result[column] = result[column].astype(np.float)
+    non_numeric = df[df.dtypes[df.dtypes == np.object].index.tolist()].columns.values.tolist()
+    result = df.apply(pd.to_numeric, errors='ignore')
     if result['part_of_speech'].dtype.name == 'category':
         result['part_of_speech'].cat.add_categories(UNKNOWN_CATEGORY, inplace=True)
-    result['part_of_speech'].fillna(value=UNKNOWN_CATEGORY, inplace=True)
-
-    result = result.groupby(['word', 'part_of_speech', 'sstem', 'lstem'], as_index=True).agg(['mean']).sort_index(
-        level='word')
+    result[non_numeric] = result[non_numeric].fillna(value=UNKNOWN_CATEGORY)
+    result = result.groupby(non_numeric, as_index=True).agg(['mean']).sort_index(level='word')
     result = result.dropna(axis=0, how='all')
+    result.columns = result.columns.droplevel(1)
     result = result.reset_index()
+    print(result)
     # Order getting messed up with part_of_speech and ages being mixed because of group by
     for idn, nn in enumerate(non_numeric):
         if column_names[idn] != nn:
             column_names[column_names.index(nn)], column_names[idn] = column_names[idn], nn
 
+    result[non_numeric] = result[non_numeric].replace(UNKNOWN_CATEGORY, None)
     # re-index on word (or whatever is passed in)
     if index:
         logging.debug('setting index to {}'.format(index))
@@ -642,6 +687,7 @@ def create_all_measures_dataframe(df, index=None):
         result.index.rename(index)
     logging.debug('index names {}'.format(result.index.names))
     result.columns = [x for x in column_names if x not in result.index.names]
+
     return result
 
 
@@ -657,20 +703,6 @@ def lower_and_decode(col):
     return col
 
 
-def unpack_splits(splits, length=None):
-    # return a list of individual words from columns of word lists and include the original column index of the list
-    unpacked = None
-    if not length:
-        length = 2
-    try:
-        unpacked = np.vstack([np.c_[x, [idx] * len(x)] for idx, x in enumerate(splits) if len(x) >= length])
-    except ValueError:
-        # the array may be empty if there are no multi word strings, causing concatenate to fail with
-        # "ValueError: need at least one array to concatenate"
-        pass
-    return unpacked
-
-
 def get_unpacked_words(df):
     cue_clean = df['cue_clean']
     response_clean = df['response_clean']
@@ -684,6 +716,7 @@ def get_unpacked_words(df):
 
 
 def get_all_measures(cur=None, rebuild=None):
+    # TODO all of this should be in pandas instead of relying on the SQL query
     if rebuild:
         if not cur:
             cur = get_all_measures_raw()

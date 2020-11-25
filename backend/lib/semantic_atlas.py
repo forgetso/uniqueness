@@ -28,8 +28,8 @@ class BrainMap():
     def get_label_coordinates(self):
         # Retrieve fsaverage5 surface dataset for the plotting background. It contains
         # the surface template as pial and inflated version and a sulcal depth maps
-        # which is used for shading
-        # high resolution fsaverage with 163842 nodes (https://nilearn.github.io/modules/generated/nilearn.datasets.fetch_surf_fsaverage.html)
+        # which is used for shading high resolution fsaverage with 163842 nodes
+        # (https://nilearn.github.io/modules/generated/nilearn.datasets.fetch_surf_fsaverage.html)
         fsaverage = datasets.fetch_surf_fsaverage(mesh='fsaverage')
         coordinates = {'left': {}, 'right': {}}
 
@@ -47,6 +47,16 @@ class BrainMap():
             coordinates[hemi].index = labels
             coordinates[hemi].index = coordinates[hemi].index.rename('label')
         return coordinates
+
+    def get_label_colour(self, hemi, labels):
+
+        colours = self.hemi_data[hemi]['semantic']['rgb']
+        prefix = hemi[0]
+        col = '{}label'.format(prefix)
+        labels_colours = pd.concat(
+            [pd.DataFrame(self.pragmatic_info['{}names'.format(prefix)], columns=[col]),
+             pd.DataFrame(colours, columns=['r', 'g', 'b'])], axis=1).set_index(col)
+        return labels.join(labels_colours)
 
     def get_semantic_area(self, words):
         # get the words in the semantic model that have been given as WA responses (10470,) True or False

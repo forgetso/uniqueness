@@ -26,7 +26,7 @@ TO_PREDICT = 'user_id'
 MIN_RESPONSES = 50 * SAMPLE_SIZE
 logging.basicConfig(level=LOG_LEVEL)
 USER_COLUMNS = ['nativelanguage', 'gender', 'age', 'city', 'country', 'education']
-C_param_range = [0.001, 0.01, 0.1, 1, 10, 100]
+C_PARAM_RANGE = [0.001, 0.01, 0.1, 1, 10, 100]
 # Magic numbers with attractrepel
 CATEGORIES = [
     {'name': 'synonym', 'mean': 0.40205, 'stdev': 0.08037, 'ratio': 12.57},
@@ -48,6 +48,36 @@ AGE_BRACKETS = [(0, 25), (60, 100)]
 
 def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None, exclude=None,
          model=None):
+    X, y, X_train, y_train, X_test, y_test, label_encoder = setup(predict, sample_size, source, columns, reload,
+                                                                          exclude, k_value)
+
+    accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
+    accuracies = pd.DataFrame(columns=accuracy_cols)
+    accuracies['C_parameter'] = C_PARAM_RANGE
+    accuracy_row = 0
+    best_model = None
+    best_score = 0
+    model_fn = get_model_fn(model)
+    for c_param in C_PARAM_RANGE:
+        logging.debug(model_fn)
+        logmodel, y_predictions = model_fn(X_train, y_train, X_test, y_test, c_param, label_encoder)
+        # Saving accuracy score in table
+        score = accuracy_score(y_test, y_predictions)
+        if score >= best_score:
+            best_model = logmodel
+        accuracies.iloc[accuracy_row, 2] = score
+        accuracies.iloc[accuracy_row, 0] = 'logistic'
+        accuracy_row += 1
+    logging.debug('Naive Bayes')
+    logmodel, y_predictions = naiveBayes(X_train, y_train, X_test, y_test)
+    # Saving accuracy score in table
+    accuracies = accuracies.append(
+        pd.DataFrame([['naive-bayes', None, accuracy_score(y_test, y_predictions)]], columns=accuracy_cols))
+    logging.debug(accuracies)
+    return X, y, best_model
+
+
+def prepare(predict, sample_size, source, columns, reload, exclude, k_value):
     if predict is None:
         predict = TO_PREDICT
 
@@ -55,7 +85,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
         sample_size = int(sample_size)
     except TypeError:
         sample_size = SAMPLE_SIZE
-    start = time.perf_counter()
+
     logging.debug('Getting data')
 
     min_responses = MIN_RESPONSES
@@ -83,15 +113,29 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     if df is None:
         raise (ValueError('No data returned from getData!'))
 
+    df = df.drop(
+        columns=['cue_clean', 'response_clean',
+                 'cue_raw', 'response_raw', 'source',
+                 'cue', 'response', 'cue_lstem', 'cue_sstem',
+                 'response_lstem', 'response_sstem'])
+
+    if 'index' in df.columns:
+        df.drop('index', inplace=True, axis=1)
+
     # filter out empty columns and apply any user defined filtering
     logging.debug(
         'filtering columns to remove constant columns and perform requested filtering: {}'.format(columns))
-    logging.debug('columns left in dataframe {}'.format(sorted(df.columns)))
+    logging.debug('columns left in dataframe: {}'.format(len(df.columns)))
+
+    # encode any string columns here
+    cat_cols = df.select_dtypes(include='object').columns
+    for cat_col in cat_cols:
+        df[cat_col] = label_encoder.fit_transform(df[cat_col].astype(str))
+
     df = filterData(df, predict, columns, exclude)
 
     df = balance_samples(df, predict)
     logging.debug(df[predict].value_counts())
-
 
     X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, k_value)
 
@@ -99,39 +143,14 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     x_combined = np.vstack((X_train, X_test))
     y_combined = np.hstack((y_train, y_test))
 
-    # logistic regression
-    accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
-    accuracies = pd.DataFrame(columns=accuracy_cols)
-    accuracies['C_parameter'] = C_param_range
-    accuracy_row = 0
-    best_model = None
-    best_score = 0
-    model_fn = get_model_fn(model)
+    # following line just keeps the sample size sane for SVM
     X_train_random_indices = np.random.choice(X_train.shape[0], size=10000, replace=False).tolist()
     X_test_random_indices = np.random.choice(X_test.shape[0], size=10000, replace=False).tolist()
     X_train = X_train.iloc[X_train_random_indices, :]
     X_test = X_test.iloc[X_test_random_indices, :]
     y_train = y_train.iloc[X_train_random_indices]
     y_test = y_test.iloc[X_test_random_indices]
-    for c_param in C_param_range:
-        logging.debug(model_fn)
-        logmodel, y_predictions = model_fn(X_train, y_train, X_test, y_test, c_param, label_encoder)
-        # Saving accuracy score in table
-        score = accuracy_score(y_test, y_predictions)
-        if score >= best_score:
-            best_model = logmodel
-        accuracies.iloc[accuracy_row, 2] = score
-        accuracies.iloc[accuracy_row, 0] = 'logistic'
-        accuracy_row += 1
-    logging.debug('Naive Bayes')
-    logmodel, y_predictions = naiveBayes(X_train, y_train, X_test, y_test)
-    # Saving accuracy score in table
-    accuracies = accuracies.append(
-        pd.DataFrame([['naive-bayes', None, accuracy_score(y_test, y_predictions)]], columns=accuracy_cols))
-    logging.debug(accuracies)
-    end = time.perf_counter()
-    logging.debug('time taken {}'.format(end - start))
-    return X, y, best_model
+    return X, y, X_train, y_train, X_test, y_test, label_encoder
 
 
 def balance_samples(df, predict):
@@ -169,6 +188,7 @@ def prep_data(df, predict, sample_size, k_value=None):
         cat_bool_cols.remove(predict)
     except ValueError:
         pass
+
     df = pd.get_dummies(df, columns=cat_bool_cols)
     continuous_cols = [x for x in df.columns if x not in cat_bool_cols and x != predict]
 
@@ -249,6 +269,7 @@ def get_boolean_columns(df):
 
 
 def feature_creation(df):
+    # TODO move all of this into coding OR a separate process between coding and modelling
     # (0.1, 0.2) band reduces the accuracy
     distance_bands = ((0.2, 0.3), (0.301, 0.4), (0.401, 1))
     for distance_band in distance_bands:
@@ -288,27 +309,39 @@ def feature_creation(df):
         df[category['name']] = df[cat_gauss] / df[gaussian_cols].sum(axis=1)
 
     multiply = ['concreteness_measure', ('valence', 'arousal', 'dominance'), 'age_of_acquisition', 'lg10wf']
+    c_multiply = ['cue_{}'.format(x) for x in multiply]
+    r_multiply = ['response_{}'.format(x) for x in multiply]
 
     # Norms of valence, arousal, and dominance for 13,915 English lemmas
     # Valence arousal and dominance interact with concreteness, age of acquisition, and frequency
     # By multiplying we will hopefully increase the visibility of these interactions
     # https://link.springer.com/article/10.3758/s13428-012-0314-x
-    for m1 in multiply:
-        for m2 in multiply:
-            if m1 == m2:
-                continue
-            if isinstance(m1, str):
-                if isinstance(m2, str):
-                    col = '{}.{}'.format(m1, m2)
-                    if col not in df.columns:
-                        df['{}.{}'.format(m1, m2)] = df[m1] * df[m2]
-                if isinstance(m2, tuple):
-                    for m3 in m2:
-                        col = '{}.{}'.format(m1, m3)
-                        if col not in df.columns:
-                            df[col] = df[m1] * df[m3]
+    # for m1 in c_multiply:
+    #     for m2 in r_multiply:
+    #         if m1 == m2:
+    #             continue
+    #         if isinstance(m1, str):
+    #             if isinstance(m2, str):
+    #                 col = '{}.{}'.format(m1, m2)
+    #                 if col not in df.columns:
+    #                     df['{}.{}'.format(m1, m2)] = df[m1] * df[m2]
+    #             if isinstance(m2, tuple):
+    #                 for m3 in m2:
+    #                     col = '{}.{}'.format(m1, m3)
+    #                     if col not in df.columns:
+    #                         df[col] = df[m1] * df[m3]
 
     df = df.drop(columns=gaussian_cols)
+
+    # TODO add test for character intersection and probably move it to it's own function
+    df["cue_chars"] = df["cue_chars"].apply(set)
+    df["response_chars"] = df["response_chars"].apply(set)
+    df["intersection"] = df.apply(
+        lambda row: set.intersection(row["cue_chars"], row["response_chars"]), axis=1
+    )
+    df["intersection"] = df["intersection"].apply(lambda x: list(x))
+    df["char_intersect"] = df["intersection"].str.len() / df["cue_clean"].str.len()
+    df = df.drop(columns=["cue_chars", "response_chars", "intersection"])
 
     result = df.drop(columns=['dict2vec_similarity', 's2v_similarity', 'wikipedia_similarity', 'crawl_similarity'])
 
@@ -452,12 +485,7 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
     if not len(groups_with_min_responses):
         exit('not enough responses')
     df = df[df[predict].isin(groups_with_min_responses)]
-    if not keep_pairs:
-        df = df.drop(
-            columns=['cue_clean', 'response_clean',
-                     'cue_raw', 'response_raw',
-                     'cue_correction', 'response_correction',
-                     'cue_sense', 'response_sense', 'source'])
+
     user_columns = USER_COLUMNS
     if predict in USER_COLUMNS:
         user_columns.remove(predict)
@@ -476,8 +504,7 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
     if encode:
         df[predict] = label_encoder.fit_transform(df[predict])
 
-    if not keep_pairs:
-        df = df.astype(float)
+    df = df.apply(pd.to_numeric, errors='ignore')
 
     # if keep_pairs:
     #     df = pd.concat(df, user_data, axis=1)

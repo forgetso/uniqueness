@@ -1,4 +1,4 @@
-from backend.app.coding import basic_coding, check_senses_and_pos, check_measures, main, idea_density
+from backend.app.coding import basic_measures, check_senses_and_pos, get_measures, main, idea_density
 from backend.lib.measures import UNKNOWN_CATEGORY, get_all_measures
 from decimal import Decimal
 import pandas as pd
@@ -37,7 +37,7 @@ def test_basic_coding():
     response_clean_utf8 = df['response_clean'].str.decode('utf8')
     df['cue_decoded'] = cue_clean_utf8
     df['response_decoded'] = response_clean_utf8
-    df = basic_coding(df)
+    df = basic_measures(df)
     assert (np.array_equal(df['capitalised'].values, [True, True, True, False, True, True, True, True, False]))
     assert (df['length'].values[0] == len(DATA[0][0]) - len(DATA[0][1]))
     assert (df['length'].values[3] == len(DATA[3][0]) - len(DATA[3][1]))
@@ -240,7 +240,7 @@ def test_check_measures():
            ]
     all_measures = get_all_measures(cur)
     words = pd.DataFrame(['abacus', 'abandonment', 'madeupword', 'made_up_word'])
-    result = check_measures(all_measures, distinct_words=words)
+    result = get_measures(all_measures, distinct_words=words)
     print(result)
     np.testing.assert_allclose(result[result[0] == 'made_up_word']['concreteness_measure'].values, [2.54])
 

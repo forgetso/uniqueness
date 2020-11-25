@@ -26,4 +26,4 @@ JOB_NUMBER = int(cpu_count() / 2)
 LOG_LEVEL = logging.DEBUG
 WORD_FREQUENCIES = ''.join([PROJECT_ROOT, '/data/bncfreqs.csv'])
 NGRAMS_DATA = Path(PROJECT_ROOT).joinpath('data/ngrams.csv')
-SYNONYMS_ANTONYMS_FILE = '/data/synonyms_antonyms.csv'
+SYNONYMS_ANTONYMS_FILE = Path(PROJECT_ROOT).joinpath('./data/synonyms_antonyms.csv').absolute()
