@@ -28,14 +28,13 @@ def process(word=None, mode='thesaurus'):
     headers = {'User-Agent': user_agent}
     request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
+    definition_wrapper = soup.find(id="definition-wrapper".format(mode))
 
-    no_spelling_suggestions = soup.find('div', {'class': 'no-spelling-suggestions'})
-    if no_spelling_suggestions:
+    if not definition_wrapper:
         print('word not found in {}'.format(mode))
         db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
         exit()
 
-    definition_wrapper = soup.find(id="definition-wrapper".format(mode))
     definitions = None
     sub_category = None
     alternate_spelling = None
