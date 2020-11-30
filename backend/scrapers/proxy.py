@@ -204,6 +204,7 @@ def final_process_check():
             for p in processes:
                 logging.debug('sending SIGSTOP to process {}'.format(p['pid']))
                 os.kill(p['pid'], signal.SIGKILL)
+            os.remove(OPENVPN_PID_FILE)
 
 
 def tunnel_down():
