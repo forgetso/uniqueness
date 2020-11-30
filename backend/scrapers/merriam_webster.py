@@ -32,6 +32,7 @@ def process(word=None, mode='thesaurus'):
     no_spelling_suggestions = soup.find('div', {'class': 'no-spelling-suggestions'})
     if no_spelling_suggestions:
         print('word not found in {}'.format(mode))
+        db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
         exit()
 
     definition_wrapper = soup.find(id="definition-wrapper".format(mode))
