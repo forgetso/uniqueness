@@ -203,7 +203,7 @@ def final_process_check():
             logging.debug('had to kill the processes with the kernel')
             for p in processes:
                 logging.debug('sending SIGSTOP to process {}'.format(p['pid']))
-                os.kill(p['pid'], signal.SIGSTOP)
+                os.kill(p['pid'], signal.SIGKILL)
 
 
 def tunnel_down():
