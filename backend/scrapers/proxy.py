@@ -177,13 +177,13 @@ def stop_openvpn():
     pid = int(pid_file.read())
     logging.debug('sending stop command to proxy process {}'.format(pid))
     try:
-        os.kill(pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
 
 
 def kill(process):
-    # os.killpg(os.getpgid(pro.pid), signal.SIGTERM)
+    # os.killpg(os.getpgid(pro.pid), signal.SIGKILL)
     if process is not None:
         parent = psutil.Process(process.pid)
         for child in parent.children(recursive=True):  # or parent.children() for recursive=False
