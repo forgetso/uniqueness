@@ -28,6 +28,12 @@ def process(word=None, mode='thesaurus'):
     headers = {'User-Agent': user_agent}
     request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
     soup = BeautifulSoup(request_obj.content, 'html.parser')
+
+    no_spelling_suggestions = soup.find('div', {'class': 'no-spelling-suggestions'})
+    if no_spelling_suggestions:
+        print('word not found in {}'.format(mode))
+        exit()
+
     definition_wrapper = soup.find(id="definition-wrapper".format(mode))
     definitions = None
     sub_category = None
@@ -70,7 +76,7 @@ def process(word=None, mode='thesaurus'):
 def get_thesaurus_relations(definition_wrapper, rtype):
     relations = []
     rels_list = [x.findAll('div', {'class': 'synonyms_list'}) for x in
-               definition_wrapper.findAll('span', {'class': '{}-list'.format(rtype)})]
+                 definition_wrapper.findAll('span', {'class': '{}-list'.format(rtype)})]
     rels_list = [item for sublist in rels_list for item in sublist]
     rels_list = [item.strip() for sublist in [x.get_text().split(',') for x in rels_list] for item in sublist]
     if len(rels_list):
