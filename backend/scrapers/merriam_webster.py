@@ -5,72 +5,83 @@ import re
 import argparse
 import random
 from backend.scrapers.user_agents import user_agent_list
+import logging
+from backend.lib.multiprocessor import job_pool
+from backend.settings import JOB_NUMBER
 
 SOURCE = 'merriam_webster'
 REF_REGEX = re.compile(r'^cxl')
 DATABASE = 'words_to_scrape'
 SUB_CATEGORIES = ['legal', 'medical']
+URI = 'https://www.merriam-webster.com/{mode}/{word}'
 
 
 def process(word=None, mode='thesaurus'):
-    uri = 'https://www.merriam-webster.com/{mode}/{word}'
     db = pymongo.MongoClient(host='localhost')[DATABASE]
-    word_doc = db.words.find_one({"sources.{}".format(SOURCE): {'$exists': False}})
-    if not word:
-        if word_doc:
-            word = word_doc['word']
-        else:
-            print('all words scraped!')
-            exit(0)
+    word_docs = db.words.find({"sources.{}".format(SOURCE): {'$exists': False}})
+    words = []
+    if word is not None:
+        words = [word]
+    elif word_docs:
+        words = [x['word'] for x in word_docs]
+    else:
+        logging.info('all words scraped!')
+        exit(0)
+    job_pool(data=words, job_number=JOB_NUMBER, job_to_do=multiprocess, mode=mode)
 
-    uri_filled = uri.format(word=word, mode=mode)
-    user_agent = random.choice(user_agent_list)
-    headers = {'User-Agent': user_agent}
-    request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
-    soup = BeautifulSoup(request_obj.content, 'html.parser')
-    definition_wrapper = soup.find(id="definition-wrapper".format(mode))
 
-    if not definition_wrapper:
-        print('word not found in {}'.format(mode))
-        db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
-        exit()
+def multiprocess(words, mode):
+    db = pymongo.MongoClient(host='localhost')[DATABASE]
+    for word in words:
 
-    definitions = None
-    sub_category = None
-    alternate_spelling = None
-    entry_id = '{}-entry-'.format(mode)
-    definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith(entry_id))
+        uri_filled = URI.format(word=word, mode=mode)
+        user_agent = random.choice(user_agent_list)
+        headers = {'User-Agent': user_agent}
+        request_obj = requests.get(uri_filled, allow_redirects=True, headers=headers)
+        soup = BeautifulSoup(request_obj.content, 'html.parser')
+        definition_wrapper = soup.find(id="definition-wrapper".format(mode))
 
-    # todo find out what all these different entries are
-    if mode == 'dictionary':
-        if not definitions_container:
-            for sub_category in SUB_CATEGORIES:
-                definitions_container = definition_wrapper.findAll('div',
-                                                                   id=lambda x: x and x.startswith(sub_category + '-'))
-                if definitions_container:
-                    break
+        if not definition_wrapper:
+            logging.debug('word not found in {}'.format(mode))
+            db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
 
-        if not definitions_container:
-            missing = definition_wrapper.find('p', {'class': 'missing-query'})
-            if not missing and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
-                alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next(
-                    'a').get_text()
-        else:
-            definitions, alternate_spelling = getDefinitions(definitions_container)
+        definitions = None
+        sub_category = None
+        alternate_spelling = None
+        entry_id = '{}-entry-'.format(mode)
+        definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith(entry_id))
 
-        synonyms, antonyms, pos_list = getRelations(soup)
+        # TODO find out what all these different entries are
+        if mode == 'dictionary':
+            if not definitions_container:
+                for sub_category in SUB_CATEGORIES:
+                    definitions_container = definition_wrapper.findAll('div',
+                                                                       id=lambda x: x and x.startswith(
+                                                                           sub_category + '-'))
+                    if definitions_container:
+                        break
 
-        if not len(pos_list) and definitions:
-            pos = getPos(soup)
-            if pos:
-                pos_list = [pos]
+            if not definitions_container:
+                missing = definition_wrapper.find('p', {'class': 'missing-query'})
+                if not missing and definition_wrapper.find('h1', {'class': 'mispelled-word'}):
+                    alternate_spelling = definition_wrapper.find_next('p', {'class': 'spelling-suggestions'}).find_next(
+                        'a').get_text()
+            else:
+                definitions, alternate_spelling = getDefinitions(definitions_container)
 
-        if definitions or alternate_spelling:
-            storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
-    elif mode == 'thesaurus':
-        synonyms = get_thesaurus_relations(definition_wrapper, 'syn')
-        antonyms = get_thesaurus_relations(definition_wrapper, 'ant')
-        storeRelations(db, word, synonyms, antonyms)
+            synonyms, antonyms, pos_list = getRelations(soup)
+
+            if not len(pos_list) and definitions:
+                pos = getPos(soup)
+                if pos:
+                    pos_list = [pos]
+
+            if definitions or alternate_spelling:
+                storeWord(db, word, definitions, synonyms, antonyms, pos_list, alternate_spelling, sub_category)
+        elif mode == 'thesaurus':
+            synonyms = get_thesaurus_relations(definition_wrapper, 'syn')
+            antonyms = get_thesaurus_relations(definition_wrapper, 'ant')
+            storeRelations(db, word, synonyms, antonyms)
 
 
 def get_thesaurus_relations(definition_wrapper, rtype):
