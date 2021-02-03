@@ -20,6 +20,8 @@ from pathlib import Path
 import os
 import math
 import hashlib
+from collections import defaultdict
+
 
 SAMPLE_SIZE = 8
 TO_PREDICT = 'user_id'
@@ -48,8 +50,8 @@ AGE_BRACKETS = [(0, 25), (60, 100)]
 
 def main(predict=None, sample_size=None, source=None, columns=None, k_value=None, reload=None, exclude=None,
          model=None):
-    X, y, X_train, y_train, X_test, y_test, label_encoder = setup(predict, sample_size, source, columns, reload,
-                                                                          exclude, k_value)
+    X, y, X_train, y_train, X_test, y_test, label_encoder = prepare(predict, sample_size, source, columns, reload,
+                                                                     exclude, k_value)
 
     accuracy_cols = ['Model', 'C_parameter', 'Accuracy']
     accuracies = pd.DataFrame(columns=accuracy_cols)
@@ -77,7 +79,7 @@ def main(predict=None, sample_size=None, source=None, columns=None, k_value=None
     return X, y, best_model
 
 
-def prepare(predict, sample_size, source, columns, reload, exclude, k_value):
+def prepare(predict, sample_size, source, columns, reload, exclude, one_hot=True):
     if predict is None:
         predict = TO_PREDICT
 
@@ -89,15 +91,12 @@ def prepare(predict, sample_size, source, columns, reload, exclude, k_value):
     logging.debug('Getting data')
 
     min_responses = MIN_RESPONSES
-    label_encoder = preprocessing.LabelEncoder()
 
     # filename can get too long
     coded_file = get_coded_filename(source, min_responses, columns)
 
     if not Path.is_file(coded_file) or reload:
-        df, label_encoder, _user_data = getData(source=source, min_responses=min_responses, columns=columns,
-                                                label_encoder=label_encoder,
-                                                predict=predict)
+        df, _user_data = getData(source=source, min_responses=min_responses, columns=columns, predict=predict)
         # create more features to try and increase the accuracy
         df = feature_creation(df)
 
@@ -129,19 +128,20 @@ def prepare(predict, sample_size, source, columns, reload, exclude, k_value):
 
     # encode any string columns here
     cat_cols = df.select_dtypes(include='object').columns
-    for cat_col in cat_cols:
-        df[cat_col] = label_encoder.fit_transform(df[cat_col].astype(str))
-
+    d = defaultdict(preprocessing.LabelEncoder)
+    df[cat_cols] = df[cat_cols].apply(lambda x: d[x.name].fit_transform(x.astype(str)))
     df = filterData(df, predict, columns, exclude)
 
     df = balance_samples(df, predict)
     logging.debug(df[predict].value_counts())
+    cat_bool_cols = get_category_boolean_columns(df, predict)
 
-    X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, k_value)
+    X, X_train, X_test, y, y_train, y_test = prep_data(df, predict, sample_size, cat_bool_cols)
 
-    # create combined arrays for X and Y
-    x_combined = np.vstack((X_train, X_test))
-    y_combined = np.hstack((y_train, y_test))
+    # split out category columns into one-hot columns
+    if one_hot:
+        X_train = pd.get_dummies(X_train, columns=cat_bool_cols)
+        X_test = pd.get_dummies(X_test, columns=cat_bool_cols)
 
     # following line just keeps the sample size sane for SVM
     X_train_random_indices = np.random.choice(X_train.shape[0], size=10000, replace=False).tolist()
@@ -150,7 +150,7 @@ def prepare(predict, sample_size, source, columns, reload, exclude, k_value):
     X_test = X_test.iloc[X_test_random_indices, :]
     y_train = y_train.iloc[X_train_random_indices]
     y_test = y_test.iloc[X_test_random_indices]
-    return X, y, X_train, y_train, X_test, y_test, label_encoder
+    return X, y, X_train, y_train, X_test, y_test, d
 
 
 def balance_samples(df, predict):
@@ -181,15 +181,17 @@ def get_model_fn(model):
     return fn
 
 
-def prep_data(df, predict, sample_size, k_value=None):
+def get_category_boolean_columns(df, predict):
     unique_vals = df[df.dtypes[(df.dtypes == np.float) | (df.dtypes == np.int)].index.values].nunique()
     cat_bool_cols = unique_vals[unique_vals <= CATEGORICAL_LIMIT].index.tolist()
     try:
         cat_bool_cols.remove(predict)
     except ValueError:
         pass
+    return cat_bool_cols
 
-    df = pd.get_dummies(df, columns=cat_bool_cols)
+
+def prep_data(df, predict, sample_size, cat_bool_cols):
     continuous_cols = [x for x in df.columns if x not in cat_bool_cols and x != predict]
 
     logging.info('Predicting for {}'.format(predict))
@@ -384,7 +386,7 @@ def feature_selection(x, y, k_value=None):
     return X_selected, col_indices
 
 
-def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoder):
+def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoders):
     # create an instance and fit the model
     logmodel = LogisticRegression(C=C_param, max_iter=2000)
 
@@ -392,12 +394,12 @@ def logisticRegression(x_train, y_train, x_test, y_test, C_param, label_encoder)
     # predictions
     predictions = logmodel.predict(x_test)
     label_index = [int(x) for x in logmodel.classes_.tolist()]
-    # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
+    # target_strings = [str(x) for x in label_encoders[predict].inverse_transform(label_index)]
     print(classification_report(y_test, predictions))  # , target_names=target_strings))
     return logmodel, predictions
 
 
-def svc(x_train, y_train, x_test, y_test, C_param, label_encoder):
+def svc(x_train, y_train, x_test, y_test, C_param, label_encoders):
     # create an instance and fit the model
     # The implementation is based on libsvm.
     # The fit time scales at least quadratically with the number of samples and
@@ -409,7 +411,7 @@ def svc(x_train, y_train, x_test, y_test, C_param, label_encoder):
     # predictions
     predictions = svmmodel.predict(x_test)
     label_index = [int(x) for x in svmmodel.classes_.tolist()]
-    # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
+    # target_strings = [str(x) for x in label_encoders[predict].inverse_transform(label_index)]
     print(classification_report(y_test, predictions))  # , target_names=target_strings))
     return svmmodel, predictions
 
@@ -421,7 +423,7 @@ def naiveBayes(x_train, y_train, x_test, y_test):
     # predictions
     predictions = model.predict(x_test)
     label_index = [int(x) for x in model.classes_.tolist()]
-    # target_strings = [str(x) for x in label_encoder.inverse_transform(label_index)]
+    # target_strings = [str(x) for x in label_encoders[predict].inverse_transform(label_index)]
     print(classification_report(y_test, predictions))  # , target_names=target_strings))
     return model, predictions
 
@@ -465,7 +467,7 @@ def get_age_bracket(age):
     return result
 
 
-def getData(label_encoder, predict, source=None, min_responses=None, columns=None, keep_pairs=None, encode=True):
+def getData(label_encoder, predict, source=None, min_responses=None, columns=None, keep_pairs=None):
     # TODO make this multiprocess the formatting
     min_responses = min_responses or MIN_RESPONSES
 
@@ -501,16 +503,13 @@ def getData(label_encoder, predict, source=None, min_responses=None, columns=Non
     # drop any columns with only zeroes
     df = df.loc[:, (df != 0).any(axis=0)]
 
-    if encode:
-        df[predict] = label_encoder.fit_transform(df[predict])
-
     df = df.apply(pd.to_numeric, errors='ignore')
 
     # if keep_pairs:
     #     df = pd.concat(df, user_data, axis=1)
     df = df.sort_values(by=predict)
 
-    return df, label_encoder, user_data
+    return df, user_data
 
 
 def batch_data(df, predict, size):

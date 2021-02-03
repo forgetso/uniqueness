@@ -1,5 +1,4 @@
-from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures, get_frequencies, \
-    get_synonyms_antonyms
+from backend.db.layer import get_all_measures_raw, get_all_measures_processed, save_all_measures, get_frequencies
 from backend.lib.multiprocessor import job_pool
 import pandas as pd
 from backend.settings import JOB_NUMBER
@@ -24,8 +23,12 @@ UNKNOWN_CATEGORY = '<unknown>'
 
 # Largest dp in the data sources
 DECIMAL_PLACES = 5
-# This is the only model that fits on the GTX 2070 for similarity calculations
-SIMILARITY_MODEL = 'crawlbin'
+# Only binarized models fit on the GTX 2070 for similarity calculations
+# models in order of preference
+SIMILARITY_MODELS = ['smallworldofwords', 'attractrepel']
+MODEL_LOOPS = 10
+LANG_MODELS = ["attractrepel"]
+LANG = 'en'
 WORD_MEASURES_DTYPES = [
     ('word', '|S'),
     ('word_lemma', 'str'),
@@ -113,15 +116,22 @@ def format_word_data(cur):
         row_dict['startswith'] = ord(word[0]) - 64
         words.append(row_dict)
     words = sorted(words, key=lambda k: k['word'])
-    words = words[:1025]
     words = pd.DataFrame(words)
+    # words = words.sample(n=10000).sort_values(by='word').reset_index(drop=True)
+
     words['changes'] = words['startswith'] - words['startswith'].shift(1) != 0
     words.drop('startswith', inplace=True, axis=1)
+    words = words.apply(pd.to_numeric, errors='ignore')
     # set up model share
-    shm_models = SharedModelManager(models=[SIMILARITY_MODEL], from_disk=True)
+    shm_models = SharedModelManager(models=SIMILARITY_MODELS, from_disk=True)
     shm_models.load_from_shared()
     # split the job into multiprocesses, making sure that words starting with the same letter remain in the same group
-    jobs = job_pool(words, JOB_NUMBER, format_word_data_multiprocess, split_col='changes', item_dtype=item_dtype)
+    # do not split for smaller lists with no changes
+    if words['changes'].value_counts()[True] > 1 or len(words) > 1000:  # multiprocess bug with small values
+        jobs = job_pool(words, JOB_NUMBER, format_word_data_multiprocess, split_col='changes', item_dtype=item_dtype)
+    else:
+        jobs = [format_word_data_multiprocess(words, item_dtype)]
+
     total_lines = sum([len(x) for x in jobs])
     logging.debug('jobs returned {} lines'.format(total_lines))
     df = pd.concat(jobs)
@@ -132,11 +142,13 @@ def format_word_data(cur):
 
     # similarity replacement based on most_similar word from 3rd part model
     start = time.time()
-    for model_name, model in shm_models.data.items():
-        logging.debug('Using model {}'.format(model_name))
-        df = replace_nulls_with_nearest_non_nulls_by_similarity(df, model)
-        # should currently only be passing one model in for similarities
-        break
+    for _ in range(1, MODEL_LOOPS):
+        for model_name, model in shm_models.data.items():
+            logging.debug('Using model {}'.format(model_name))
+
+            df = replace_nulls_with_nearest_non_nulls_by_similarity(df, model, model_name)
+        # TODO check if the dataframe null count is unchanged after all models have run
+        # df[nullcols].isnull().count()
     time_taken(start, replace_nulls_with_nearest_non_nulls_by_similarity)
 
     logging.debug('concat returned {} lines'.format(len(df)))
@@ -208,6 +220,15 @@ def add_brain_areas(df):
     areas_lr = areas_l.join(right_hemi_colours[['r', 'g', 'b']]).rename(
         {'r': 'right_r', 'g': 'right_g', 'b': 'right_b'}, axis=1)
     df = pd.merge(df, areas_lr, left_index=True, right_index=True, how='left')
+    # add label coordinates
+    coords = bm.coordinates
+    # insignificant labels all have an empty string but we don't want to join this in the coords table
+    df = df.replace(b'', np.nan)
+    df = pd.merge(df, coords['left'], left_on='left_hemi_label', right_index=True, how='left')
+    df.rename({'coord_x': 'left_coord_x', 'coord_y': 'left_coord_y', 'coord_z': 'left_coord_z'}, inplace=True, axis=1)
+    df = pd.merge(df, coords['right'], left_on='right_hemi_label', right_index=True, how='left')
+    df.rename({'coord_x': 'right_coord_x', 'coord_y': 'right_coord_y', 'coord_z': 'right_coord_z'}, inplace=True,
+              axis=1)
     df['left_hemi_label'] = df['left_hemi_label'].str.decode('utf8')
     df['right_hemi_label'] = df['right_hemi_label'].str.decode('utf8')
     return df
@@ -276,7 +297,7 @@ def add_missing_lemmas(df):
     logging.debug('add_missing_lemmas: There are {} words without lemmas'.format(len(nulls)))
 
     # get the word_lemma and the part of speech according to lemminflect library
-    nulls[['word_lemma', 'part_of_speech']] = nulls.apply(lambda row: pd.Series(get_lemma(getAllLemmas, row['word'])),
+    nulls[['word_lemma', 'part_of_speech']] = nulls.apply(lambda row: pd.Series(get_lemma(row['word'])),
                                                           axis=1)
 
     # reduce the nulls list to only those words that have non null lemma or non null part of speech
@@ -297,7 +318,7 @@ def add_missing_lemmas(df):
     return df
 
 
-def get_lemma(getAllLemmas, word):
+def get_lemma(word):
     word = str(word)
     lemmas = getAllLemmas(word)
     tmp = (None, None)
@@ -394,12 +415,72 @@ def replace_nulls_with_nearest_non_nulls_by_stems(df):
     return df
 
 
-def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
+def replace_nulls_with_nearest_non_nulls_by_form(df):
+    # TODO change this function to take into account prefixes and affixes
+    #    Antonymy in affixes
+    #    super - sub
+    #    hyper - hypo
+    #    pre - post
+    #    pro - anti
+    #    micro - macro
+    #    mini - maxi
+    #    over - under
+    #    up - down
+    #    in - out
+    #    in - ex
+    #    less - ful
+    #    https://books.google.co.uk/books?hl=en&lr=&id=1SFzAAAAQBAJ&oi=fnd&pg=PA143&dq=derivational+affixes&ots=dLMQhzFIZW&sig=WaNHDTA610f5IeElLkNFa-NdLV4#v=onepage&q=derivational%20affixes&f=false
+    # 2 is a totally arbitrary number...
+    null_filter = df.isnull().sum(axis=1) >= 2
+    wordsdf_nulls = df[null_filter]
+    wordsdf_notnull = df[~null_filter]
+    longer_words = wordsdf_notnull.index.get_level_values('word')[wordsdf_notnull.index.str.len() > 4]
+    # return a list of tuples that can be used to update null values, e.g. (earthy, earth)
+    # earthy can be updated with the values from earth
+    longer_words_contained_in_nulls = [(y, x) for y in [y for y in wordsdf_nulls.index.get_level_values('word')]
+                                       for x in longer_words if y.startswith(x) and len(y) > len(x)]
+
+    longer_words_df = pd.DataFrame(longer_words_contained_in_nulls, columns=['null_word', 'non_null_word'])
+    # if there are multiple versions of y (null_word) stored in longerwords_df, take the record where x (non_null_word)
+    # is the longest word that fits in y that is not y itself
+    value_counts = longer_words_df['null_word'].value_counts()
+    dupe_words = value_counts.loc[value_counts > 1].index
+    dupes = longer_words_df.loc[longer_words_df['null_word'].isin(dupe_words)].copy()
+    non_dupes = longer_words_df.loc[~longer_words_df['null_word'].isin(dupe_words)].copy()
+    non_dupes.set_index('null_word', inplace=True)
+    dupes['non_null_word_length'] = dupes['non_null_word'].str.len()
+    dupes = dupes.sort_values(['null_word', 'non_null_word_length'], ascending=[True, False]).groupby(
+        'null_word').first()
+    dupes.drop(columns=['non_null_word_length'], inplace=True)
+    longer_words_df = pd.concat([dupes, non_dupes], axis=0)
+    assert (~longer_words_df.index.duplicated().any())
+    longer_words_df = pd.merge(longer_words_df, df, how='left', left_on='non_null_word', right_index=True)
+    longer_words_df.drop(['word_lemma', 'non_null_word'], inplace=True, axis=1)
+    longer_words_df.index.rename('word', inplace=True)
+    # dfcopy = df.copy()
+    df.update(longer_words_df, overwrite=False)
+    # dfcopy = dfcopy[~(df == dfcopy).all(axis=1) == False]
+    # import os
+    # dfcopy['longer_word'] = longer_words_df.index.get_level_values(0)
+    # dfcopy.to_csv(str(os.getpid()))
+    # exit()
+    df.reset_index(inplace=True)
+    df.set_index('word', inplace=True)
+
+    return df
+
+
+def replace_nulls_with_nearest_non_nulls_by_similarity(df, model, model_name):
     # Use a word embedding vector space (spacy model) to find similar words (e.g. sofa - couch) and take metrics
     # concreteness, age of acquisition, valence, dominance, arousal, frequency, prevalence if they are not present
     if df.index.name == 'word':
         df.reset_index(inplace=True)
     df['word'] = df['word'].str.decode('utf8')
+    LANG_PREFIX = LANG + '_'
+
+    if model_name in LANG_MODELS:
+        df['word'] = LANG_PREFIX + df['word']
+    print(df['word'])
 
     # make sure the columns are actually in the dataframe
     nullcols = [x for x in POTENTIAL_NULLS if x in df.columns]
@@ -412,7 +493,6 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
 
     # find where these columns are not null
     subset_nonnulls = df.loc[~df.index.isin(subset_nulls.index)].set_index('word')[nullcols]
-    logging.debug('Checking most similar for {} words'.format(len(subset_nulls)))
 
     original = [word for word in subset_nulls['word'].values.tolist() if np.sum(model(word).vector) > 0]
     # pull out the vectors from the spacy model and put them in a list. discard any vectors that are all zeroes
@@ -425,6 +505,12 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     # only checking for second most similar word currently. this could be expanded to take anything above a threshold
     n = NEAREST_NEIGHBOURS
     result_keys, _, scores = most_similar(model, cupy_vectors, n=n, batch_size=BATCH_SIZE, data=cupy_model, sort=True)
+
+    # free memory from gpu, hopefully
+    cupy_model = cupy.empty((1, 1))
+    cupy_vectors = cupy.empty((1, 1))
+    free_gpu_memory(cupy)
+
     newstrs = [[model.vocab.strings.__getitem__(key) for key in keygroup] for keygroup in result_keys]
     resultdf = pd.concat([
         pd.DataFrame(original, columns=['original_word']),
@@ -434,12 +520,14 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
         axis=1)
 
     subset_nulls = subset_nulls.reset_index(drop=True)
+    subset_nulls = subset_nulls.loc[subset_nulls.index.dropna()]
     sim_result = resultdf[resultdf['sim_score_1'] > 0]
 
     # Takes the mean (valence, arousal, etc.) for n nearest neighbours
     #   DOI 10.3758/s13428-012-0195-z: Checking and bootstrapping lexical norms by means of word similarity indexes
-    subsetsimstack = pd.DataFrame()
+    subsetstack = pd.DataFrame()
     df.set_index('word', inplace=True)
+
     for nn in range(1, n + 1):
         sim_word_col = "sim_word_{}".format(nn)
         sim_score_col = "sim_score_{}".format(nn)
@@ -454,30 +542,42 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
         subsetsim.drop('word', inplace=True, axis=1)
         subsetsim.rename(columns={sim_word_col: 'word'}, inplace=True)
         subsetsim.set_index('word', inplace=True)
-        # TODO consider only similar words above a threshold
+        # TODO consider only similar words above a threshold - per model?
         subsetsim.drop(columns=[sim_score_col], inplace=True)
-        subsetsimstack = pd.concat([subsetsimstack, subsetsim], axis=0)
+        subsetstack = pd.concat([subsetstack, subsetsim.loc[~subsetsim.index.isna()]], axis=0)
 
     # we should now have our columns stacked vertically
-    assert len(subsetsimstack) == n * len(subset_nulls)
+    assert len(subsetstack) <= n * len(subset_nulls)
 
     # take the non-null values from subset_nonnulls
-    subsetsimstack = subsetsimstack.combine_first(subset_nonnulls)
+    subsetstack = subsetstack.combine_first(subset_nonnulls)
+    subsetstack.reset_index(drop=True, inplace=True)
+    # get rid of any original_word nans
+    subsetstack = subsetstack[~subsetstack['original_word'].isna()]
+    # get rid of rows were the values are all null (except original_word which should never be null)
+    subsetstack = subsetstack[~subsetstack.select_dtypes(include=[np.number]).isna().all(axis=1).values]
 
-    # make sure that synonyms and antonyms are not taking measures from each other
-
-    # take the mean of the n values (if only 3 found, 3 will be averaged)
-    simmean = subsetsimstack.groupby(by='original_word').agg(['mean'])
+    # # take the WEIGHTED mean of the n values
+    # #TODO convert the floats to ints before performing the counts
+    # percentage = subsetstack.groupby('original_word').transform(lambda x: x.map(x.value_counts(normalize=True)))
+    # percentage = percentage.loc[percentage.index.dropna()]
+    # # if each number appears only once then the ratios will be 1/n where is the unique set of numbers in the column
+    # # in this case, we just want to leave the column alone
+    # percentage = percentage.apply(lambda x: x * 1 / x if x.min() == x.max() else x)
+    # weighted = pd.concat(
+    #     [subsetstack['original_word'], percentage * subsetstack.select_dtypes(include=np.number)], axis=1)
+    simmean = subsetstack.groupby('original_word').agg('mean')
 
     # we might not find all words but we definitely don't want more
     assert len(simmean) <= len(subset_nulls)
-
-    simmean.columns = simmean.columns.droplevel(1)
     # pd.set_option('display.max_rows', vc.shape[0] + 1)
-    # print(subsetsimstack)
 
     # copy the new values into the dataframe, if they don't exist
     df.update(simmean, overwrite=False)
+
+    # replace the lang prefix
+    if model_name in LANG_MODELS:
+        df.index = df.index.get_level_values(0).str.replace(LANG_PREFIX, '')
 
     if df.index.name != 'word':
         df.set_index('word', inplace=True)
@@ -486,6 +586,7 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
     nullcount = df[nullcols].isnull().sum()
     logging.debug('Null count:\n')
     logging.debug(nullcount)
+
     return df
 
 
@@ -496,7 +597,6 @@ def replace_nulls_with_nearest_non_nulls_by_similarity(df, model):
 #     # we have antonyms returned in the nearest neighbours method so need to apply some logic to avoid directly
 #     # copying measures from an antonym, as antonyms might be negatively correlated in emotional measures
 #     if len(match):
-#
 
 
 def most_similar(model, queries, *, batch_size=1024, n=1, sort=True, data=None):
@@ -554,6 +654,9 @@ def most_similar(model, queries, *, batch_size=1024, n=1, sort=True, data=None):
     free_gpu_memory(xp)
     # Round values really close to 1 or -1
     scores = xp.around(scores, decimals=4, out=scores)
+    # normalise scores
+    if len(scores):
+        scores = scores * 1 / np.max(scores)
     # Account for numerical error we want to return in range -1, 1
     scores = xp.clip(scores, a_min=-1, a_max=1, out=scores)
     scores = as_numpy(xp, scores)
@@ -620,75 +723,32 @@ def as_numpy(xp, arr):
     return arr
 
 
-def replace_nulls_with_nearest_non_nulls_by_form(df):
-    # 2 is a totally arbitrary number...
-    null_filter = df.isnull().sum(axis=1) >= 2
-    wordsdf_nulls = df[null_filter]
-    wordsdf_notnull = df[~null_filter]
-    longer_words = wordsdf_notnull.index.get_level_values('word')[wordsdf_notnull.index.str.len() > 4]
-    # return a list of tuples that can be used to update null values, e.g. (earthy, earth)
-    # earthy can be updated with the values from earth
-    longer_words_contained_in_nulls = [(y, x) for y in [y for y in wordsdf_nulls.index.get_level_values('word')]
-                                       for x in longer_words if y.startswith(x) and len(y) > len(x)]
-
-    longer_words_df = pd.DataFrame(longer_words_contained_in_nulls, columns=['null_word', 'non_null_word'])
-    # if there are multiple versions of y (null_word) stored in longerwords_df, take the record where x (non_null_word)
-    # is the longest word that fits in y that is not y itself
-    value_counts = longer_words_df['null_word'].value_counts()
-    dupe_words = value_counts.loc[value_counts > 1].index
-    dupes = longer_words_df.loc[longer_words_df['null_word'].isin(dupe_words)].copy()
-    non_dupes = longer_words_df.loc[~longer_words_df['null_word'].isin(dupe_words)].copy()
-    non_dupes.set_index('null_word', inplace=True)
-    dupes['non_null_word_length'] = dupes['non_null_word'].str.len()
-    dupes = dupes.sort_values(['null_word', 'non_null_word_length'], ascending=[True, False]).groupby(
-        'null_word').first()
-    dupes.drop(columns=['non_null_word_length'], inplace=True)
-    longer_words_df = pd.concat([dupes, non_dupes], axis=0)
-    assert (~longer_words_df.index.duplicated().any())
-    longer_words_df = pd.merge(longer_words_df, df, how='left', left_on='non_null_word', right_index=True)
-    longer_words_df.drop(['word_lemma', 'non_null_word'], inplace=True, axis=1)
-    longer_words_df.index.rename('word', inplace=True)
-    df.update(longer_words_df, overwrite=False)
-    df.reset_index(inplace=True)
-
-    return df
-
-
 def create_all_measures_dataframe(df, index=None):
     df.reset_index(inplace=True)
     # in case the index has already been reset
     if 'index' in df.columns:
         df.drop(columns=['index'], inplace=True)
 
-    result = df
-    result.drop(columns='word_lemma', inplace=True)
-    column_names = list(result.columns.values)
-    result['word'] = lower_and_decode(result['word'])
-    non_numeric = df[df.dtypes[df.dtypes == np.object].index.tolist()].columns.values.tolist()
-    result = df.apply(pd.to_numeric, errors='ignore')
-    if result['part_of_speech'].dtype.name == 'category':
-        result['part_of_speech'].cat.add_categories(UNKNOWN_CATEGORY, inplace=True)
-    result[non_numeric] = result[non_numeric].fillna(value=UNKNOWN_CATEGORY)
-    result = result.groupby(non_numeric, as_index=True).agg(['mean']).sort_index(level='word')
-    result = result.dropna(axis=0, how='all')
-    result.columns = result.columns.droplevel(1)
-    result = result.reset_index()
-    print(result)
-    # Order getting messed up with part_of_speech and ages being mixed because of group by
-    for idn, nn in enumerate(non_numeric):
-        if column_names[idn] != nn:
-            column_names[column_names.index(nn)], column_names[idn] = column_names[idn], nn
-
-    result[non_numeric] = result[non_numeric].replace(UNKNOWN_CATEGORY, None)
+    df.drop(columns='word_lemma', inplace=True)
+    column_names = list(df.columns.values)
+    df['word'] = lower_and_decode(df['word'])
+    non_numeric = df.select_dtypes(exclude=np.number).columns.tolist()
+    df = df.apply(pd.to_numeric, errors='ignore')
+    if df['part_of_speech'].dtype.name == 'category':
+        df['part_of_speech'].cat.add_categories(UNKNOWN_CATEGORY, inplace=True)
+    df[non_numeric] = df[non_numeric].fillna(value=UNKNOWN_CATEGORY)
+    df = df.groupby(non_numeric, as_index=True).agg(['mean']).sort_index(level='word')
+    df = df.dropna(axis=0, how='all')
+    df.columns = df.columns.droplevel(1)
+    df = df.reset_index()
+    df[non_numeric] = df[non_numeric].replace(UNKNOWN_CATEGORY, None)
     # re-index on word (or whatever is passed in)
     if index:
         logging.debug('setting index to {}'.format(index))
-        result = result.set_index([index])
-        result.index.rename(index)
-    logging.debug('index names {}'.format(result.index.names))
-    result.columns = [x for x in column_names if x not in result.index.names]
-
-    return result
+        df = df.set_index([index])
+        df.index.rename(index)
+    logging.debug('index names {}'.format(df.index.names))
+    return df
 
 
 def lower_and_decode(col):
@@ -722,8 +782,6 @@ def get_all_measures(cur=None, rebuild=None):
             cur = get_all_measures_raw()
         item_list = format_word_data(cur)
         df = create_all_measures_dataframe(item_list, index='word')
-        # fill any nan values with the mean of the column
-        # df.fillna(df.mean(), inplace=True)
         df = df.round(DECIMAL_PLACES)
         save_all_measures(df.reset_index().replace({np.nan: None}))
     else:
@@ -731,7 +789,6 @@ def get_all_measures(cur=None, rebuild=None):
         df = pd.DataFrame([x for x in cur], columns=[desc[0] for desc in cur.description])
         df = df.replace('NaN', np.nan)
         df = set_data_types(df, WORD_MEASURES_DTYPES)
-        df.drop('id', axis=1, inplace=True)
     return df
 
 

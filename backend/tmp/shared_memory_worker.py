@@ -11,9 +11,11 @@ def work_with_shared_memory(work, shm_name, rows, cols, dtype):
     tracemalloc.start()
     shape = (rows, cols)
     current, peak = tracemalloc.get_traced_memory()
-    print(f"Current Process: {current_process().name=} memory usage {current / 1e6}MB; Peak: {peak / 1e6}MB")
+
     shared = {'vectors': {'name': shm_name, 'shape': shape, 'dtype': dtype}}
     nlp = spacy.load('/home/chris/dev/uniqueness/data/crawl', shared=shared)
+    print(f"Current Process: {current_process().name=} memory usage {current / 1e6}MB; Peak: {peak / 1e6}MB SharedName: {nlp.vocab.vectors.vectors_shared_name}")
+    time.sleep(3)
     sims = []
     for pair in work:
         # data is sent as numpy.str...

@@ -9,9 +9,11 @@ import gzip
 import argparse
 
 
-def main(file, name):
+def main(file, name, textcols=None):
     stop_words = set(stopwords.words('english'))
     df = pd.read_csv(file)
+    if textcols:
+        df['text'] = df[textcols].astype(str).agg(' '.join, axis=1)
     df['tokenized'] = df['text'].str.split(' ')
     # replace contractions with full words
     df['tokenized'] = df['tokenized'].apply(

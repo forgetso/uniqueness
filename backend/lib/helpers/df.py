@@ -5,7 +5,9 @@ def unpack_lists(lst, length=None):
     # return a list of individual words from columns of word lists and include the original column index of the list
     unpacked = None
     # we need every item in the list to have the length attribute. empty list satisfies this condition
-    lst.replace(np.nan, [], inplace=True)
+    #lst.replace(np.nan, [], inplace=True)
+    for row in lst.loc[lst.isnull()].index:
+        lst.at[row] = []
     if not length:
         length = 2
     try:

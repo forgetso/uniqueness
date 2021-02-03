@@ -27,3 +27,4 @@ LOG_LEVEL = logging.DEBUG
 WORD_FREQUENCIES = ''.join([PROJECT_ROOT, '/data/bncfreqs.csv'])
 NGRAMS_DATA = Path(PROJECT_ROOT).joinpath('data/ngrams.csv')
 SYNONYMS_ANTONYMS_FILE = Path(PROJECT_ROOT).joinpath('./data/synonyms_antonyms.csv').absolute()
+MERONYMS_FOLDER = Path('/home/chris/dev/embedding_evaluation/data/analogy/BATS_3.0/4_Lexicographic_semantics')

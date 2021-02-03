@@ -33,7 +33,7 @@ def process(word=None, mode='thesaurus'):
 def multiprocess(words, mode):
     db = pymongo.MongoClient(host='localhost')[DATABASE]
     for word in words:
-
+        logging.debug(word)
         uri_filled = URI.format(word=word, mode=mode)
         user_agent = random.choice(user_agent_list)
         headers = {'User-Agent': user_agent}
@@ -41,15 +41,17 @@ def multiprocess(words, mode):
         soup = BeautifulSoup(request_obj.content, 'html.parser')
         definition_wrapper = soup.find(id="definition-wrapper".format(mode))
 
-        if not definition_wrapper:
+        if definition_wrapper is None:
             logging.debug('word not found in {}'.format(mode))
             db.words.update({'word': word}, {"$set": {"sources.{}".format(SOURCE): True}})
+            continue
 
         definitions = None
         sub_category = None
         alternate_spelling = None
         entry_id = '{}-entry-'.format(mode)
         definitions_container = definition_wrapper.findAll('div', id=lambda x: x and x.startswith(entry_id))
+
 
         # TODO find out what all these different entries are
         if mode == 'dictionary':
@@ -94,7 +96,6 @@ def get_thesaurus_relations(definition_wrapper, rtype):
         relations.extend(rels_list)
         relations = [re.sub('\s\((or|also)\s(\w+)\)', ',\\2', y).split(',') for y in relations]
         relations = [re.sub('\[\w+\]', '', item) for sublist in relations for item in sublist]
-    print(relations)
     return relations
 
 

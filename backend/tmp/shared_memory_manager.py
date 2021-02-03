@@ -1,7 +1,7 @@
 from multiprocessing import Process, cpu_count, shared_memory, Process, set_start_method, Pipe, Pool
 from backend.lib.multiprocessor import job_pool
 import numpy as np
-from shared_memory_worker import work_with_shared_memory
+from backend.tmp.shared_memory_worker import work_with_shared_memory
 import spacy
 import random
 import pandas as pd
@@ -35,7 +35,7 @@ def get_shared_array(shm_name: str, shape: tuple, dtype: str):
 def main():
     # Load the spacy model - a shared memory for vectors will be created
     nlp = spacy.load('/home/chris/dev/uniqueness/data/crawl')
-    shape, dtype = nlp.vocab.vectors.data.base.shape, nlp.vocab.vectors.data.base.dtype
+    shape, dtype = nlp.vocab.vectors.data.shape, nlp.vocab.vectors.data.dtype
     shm = nlp.vocab.vectors.shm
     process_count = int(cpu_count() / 2)
     work = []

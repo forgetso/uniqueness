@@ -19,6 +19,7 @@ import gc
 from backend.app.ngrams import attach_ngrams
 import jellyfish as jf
 import cupy as cp
+from colorsys import rgb_to_hls
 
 pd.options.mode.chained_assignment = "raise"
 logging.basicConfig(level=LOG_LEVEL)
@@ -41,6 +42,21 @@ MODELS = ["s2v", "crawl", "wikipedia", "dict2vec", "attractrepel"]
 LANG_MODELS = ["attractrepel"]
 LANG = 'en'
 PROVERB_THRESHOLD_SIMILARITY = 0.5
+TARGET_COLORS = {
+    "mental": (185, 0, 255),
+    "emotional": (255, 61, 255),
+    "social": (255, 18, 100),
+    "communal": (229, 106, 106),
+    "professional": (140, 0, 0),
+    "violent": (250, 185, 255),
+    "temporal": (63, 6, 12),
+    "abstract": (57, 233, 255),
+    "locational": (0, 131, 0),
+    "numeric": (15, 224, 0),
+    "tactile": (0, 255, 170),
+    "visual": (20, 255, 45),
+}
+TARGET_HLS = {key: rgb_to_hls(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255) for key, rgb in TARGET_COLORS.items()}
 
 
 def main(
@@ -148,6 +164,7 @@ def get_coding(df, shared_data, shared_model, save, measures):
     all_measures["part_of_speech"] = all_measures["part_of_speech"].str.decode("utf8")
     all_measures["word"] = all_measures["word"].str.decode("utf8")
     all_measures.set_index("word", inplace=True)
+    all_measures = all_measures.apply(pd.to_numeric, errors='ignore')
     all_words = shm_data.data["all_words"]
     all_words.set_index("word", inplace=True)
 
@@ -334,13 +351,30 @@ def attach_meaures(df, all_measures):
         df.index.get_level_values("cue_clean").str.decode("utf8").drop_duplicates()
     )
 
-    response_measures = get_measures(all_measures, distinct_responses)
+    # get the RGB hemisphere colours as HLS (HSL Selected (Hue, Saturation, Light)
+    res_measures = get_measures(all_measures, distinct_responses)
     cue_measures = get_measures(all_measures, distinct_cues)
+    cue_measures['left_hls'] = cue_measures.apply(lambda x: rgb_to_hls(x['left_r'], x['left_g'], x['left_b']), axis=1)
+    cue_measures['right_hls'] = cue_measures.apply(lambda x: rgb_to_hls(x['right_r'], x['right_g'], x['right_b']),
+                                                   axis=1)
+    res_measures['left_hls'] = cue_measures.apply(lambda x: rgb_to_hls(x['left_r'], x['left_g'], x['left_b']), axis=1)
+    res_measures['right_hls'] = cue_measures.apply(lambda x: rgb_to_hls(x['right_r'], x['right_g'], x['right_b']),
+                                                   axis=1)
+    # TODO change this to use HLS
+    cue_measures['left_colour'] = cue_measures.apply(lambda x: get_colour(x['left_r'], x['left_g'], x['left_b']),
+                                                     axis=1)
+    res_measures['left_colour'] = res_measures.apply(lambda x: get_colour(x['left_r'], x['left_g'], x['left_b']),
+                                                     axis=1)
+    cue_measures['right_colour'] = cue_measures.apply(lambda x: get_colour(x['right_r'], x['right_g'], x['right_b']),
+                                                      axis=1)
+    res_measures['right_colour'] = res_measures.apply(lambda x: get_colour(x['right_r'], x['right_g'], x['right_b']),
+                                                      axis=1)
+
     # attach the various measures back to the full lists of cues and responses
-    response_measures_full = pd.DataFrame(
+    res_measures_full = pd.DataFrame(
         df.index.get_level_values("response_clean").str.decode("utf8")
     ).merge(
-        response_measures,
+        res_measures,
         left_on="response_clean",
         right_on="response_clean",
         how="left",
@@ -350,23 +384,25 @@ def attach_meaures(df, all_measures):
         df.index.get_level_values("cue_clean").str.decode("utf8")
     ).merge(cue_measures, left_on="cue_clean", right_on="cue_clean", how="left")
 
-    assert len(cue_measures_full) == len(response_measures_full)
+    assert len(cue_measures_full) == len(res_measures_full)
 
     # make sure there are no overlapping column names
     cue_measures_full = prefixes(cue_measures_full, 'cue', add=True)
-    response_measures_full = prefixes(response_measures_full, 'response', add=True)
-    measures_full = pd.concat([cue_measures_full.reset_index(), response_measures_full.reset_index()], axis=1)
+    res_measures_full = prefixes(res_measures_full, 'response', add=True)
+    measures_full = pd.concat([cue_measures_full.reset_index(), res_measures_full.reset_index()], axis=1)
 
-    cue_numeric = cue_measures_full.drop(
-        ["cue_clean", "cue_part_of_speech", "cue_lstem", "cue_sstem"], axis=1
-    )
-    res_numeric = response_measures_full.drop(
-        ["response_clean", "response_part_of_speech", "response_lstem", "response_sstem"], axis=1
-    )
+    # get the numeric items from the dataframes
+    cmf = cue_measures_full.apply(pd.to_numeric, errors='ignore')
+    rmf = res_measures_full.apply(pd.to_numeric, errors='ignore')
+
+    # get numeric values only
+    cue_numeric = cmf.select_dtypes(include=np.number)
+    res_numeric = rmf.select_dtypes(include=np.number)
 
     # fill nans with means
-    cue_numeric = cue_numeric.fillna(cue_numeric.mean())
-    res_numeric = res_numeric.fillna(res_numeric.mean())
+    cue_measures_full = cue_measures_full.fillna(cue_measures_full.mean())
+    res_measures_full = res_measures_full.fillna(res_measures_full.mean())
+    assert (cue_measures_full.shape == res_measures_full.shape)
 
     # normalize the vectors before calculating similarities
     cue_gpu = cp.array(cue_numeric, dtype=float)
@@ -383,6 +419,19 @@ def attach_meaures(df, all_measures):
 
     measures_full.set_index(["cue_clean", "response_clean"], inplace=True)
     return measures_full
+
+
+def colour_difference(colour1, colour2):
+    return sum([(component1 - component2)**2 for component1, component2 in zip(colour1, colour2)])
+
+
+def get_hemi_colour_category(hls):
+    # colours are normalized to between 0 and 1
+    differences = [[colour_difference(hls, target_value), target_name] for target_name, target_value in
+                   TARGET_HLS.items()]
+    differences.sort()  # sorted by the first element of inner lists
+    colour_name = differences[0][1]
+    return colour_name
 
 
 def prefixes(df, suffix, add=True):

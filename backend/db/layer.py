@@ -1,8 +1,7 @@
 import psycopg2 as pg
 from backend.settings_private import PG_PASSWORD, PG_USER
-from backend.settings import FREQUENCIES_FILE, WORD_FREQUENCIES, SYNONYMS_ANTONYMS_FILE
+from backend.settings import FREQUENCIES_FILE, WORD_FREQUENCIES, SYNONYMS_ANTONYMS_FILE, MERONYMS_FOLDER
 from psycopg2.extras import execute_values
-from nltk import PorterStemmer
 import pprint
 import sys
 import logging
@@ -11,9 +10,10 @@ import pandas as pd
 import sqlalchemy
 from backend.lib.helpers.df import unpack_lists
 import re
+from os import listdir
+from pathlib import Path
 
 SOURCES = ['humanbraincloud', 'smallworldofwords', 'bot']
-ps = PorterStemmer()
 
 
 def connect():
@@ -327,10 +327,17 @@ def get_all_words():
     return result
 
 
-def get_word_filter():
+def get_word_filter(bands=None, pos=None):
     # Take only words in the 2k to 3k band from the British National Corpus as per Fitzgerald et. al
     df = pd.read_csv(WORD_FREQUENCIES, sep='\t')
-    word_filter = df[2000:3999].copy()
+    if bands == 'all':
+        word_filter = df
+    else:
+        word_filter = df[2000:3999].copy()
+    if pos:
+        if isinstance(pos, str):
+            pos = [pos]
+        word_filter = word_filter[word_filter['PoS'].isin(pos)].copy()
     word_filter['word'] = word_filter['Word'].str.lower().str.encode('utf8')
     return word_filter['word'].values
 
@@ -440,20 +447,28 @@ def get_synonyms_antonyms():
     return synonyms, antonyms
 
 
-def get_related_list(df, relation):
-    unpacked = pd.DataFrame(unpack_lists(df['{}_list'.format(relation)]), columns=[relation, 'index'], dtype=str)
-    unpacked['index'] = unpacked['index'].astype(int)
-    unpacked[relation] = unpacked[relation].astype(str)
-    unpacked.set_index('index', inplace=True)
-    df.index.name = 'index'
-    relations = pd.merge(df[['word']].astype(str), unpacked, how='right', left_index=True, right_index=True)
-    return relations
+def get_meronyms():
+    df = pd.DataFrame()
+    for file in listdir(MERONYMS_FOLDER):
+        if 'meronyms' in file:
+            meronym_type = str(file).split('-')[1].split(']')[0].strip()
+            mdf = pd.read_csv(Path(MERONYMS_FOLDER).joinpath(file), delimiter='\t', names=['word', 'relations'])
+            mdf['type'] = meronym_type
+            df = pd.concat([df, mdf])
+    df['relations'] = df['relations'].str.split('/')
+    df.reset_index(inplace=True, drop=True)
+    unpacked = pd.DataFrame(unpack_lists(df['relations'], length=1), columns=['relation', 'index']).set_index('index')
+    unpacked.index = unpacked.index.astype(int)
+    meronyms = df[['word', 'type']].merge(unpacked, how='inner', left_index=True, right_index=True)
+    return meronyms
 
 
 def save_all_measures(df):
     logging.debug('Saving measures to db')
     conn = engine()
     df.to_sql('measures', con=conn, if_exists='replace', index=False)
+
+
 
 
 def save_cue_response_pair(cue_response_pair):
@@ -483,6 +498,18 @@ def save_cue_response_pair(cue_response_pair):
         update_correction(response_id=id_of_new_row, original_word=response, correction=cue_response_pair['correction'])
 
     return id_of_new_row
+
+
+def save_cue_relations(fingerprint, cue, relation_type, relations, time_duration, created):
+    conn = connect()
+    cur = conn.cursor()
+    for relation, score in relations.items():
+        query = """INSERT INTO relations (fingerprint, cue, relation_type, relation, score, time_duration, created)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+        cur.execute(query, (fingerprint, cue, relation_type, relation, score, time_duration, created))
+    conn.commit()
+
+    return
 
 
 def save_cue_response_pairs(cue_response_pairs):
@@ -557,13 +584,17 @@ def update_correction(response_id, original_word, correction):
 def save_coded_pairs(coded_pairs):
     logging.debug('Saving coded pairs')
     conn = engine()
+    # TODO manage creation or appending
+    # columns = set(conn.execute('SELECT * FROM coding').keys())
+    # new_columns = set(coded_pairs.columns.values.tolist())
+    # print(columns, new_columns)
     coded_pairs.to_sql('coding', con=conn, if_exists='append')
 
 
 def delete_coded_pairs():
     conn = connect()
     cur = conn.cursor()
-    query = """DELETE FROM coding"""
+    query = """DROP TABLE  IF EXISTS coding"""
     cur.execute(query)
     conn.commit()
 

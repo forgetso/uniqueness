@@ -9,6 +9,7 @@
     "bootstrap": "^4.4.1",
     "fingerprintjs2": "^2.1.0",
     "local-storage": "^2.0.0",
+    "mongo-to-sql-converter": "^1.1.1",
     "react": "^16.13.0",
     "react-dom": "^16.13.0",
     "react-imask": "^6.0.3",

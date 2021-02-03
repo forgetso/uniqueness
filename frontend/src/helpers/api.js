@@ -1,5 +1,5 @@
-var getCueWord = function () {
-    return fetch(process.env.REACT_APP_API_URL + 'cueresponse',
+var getRelationQuery = function () {
+    return fetch(process.env.REACT_APP_API_URL + 'relationquery',
         {
             method: 'GET',
             headers: {
@@ -14,15 +14,16 @@ var getCueWord = function () {
     });
 };
 
-var saveResponseWord = function (cue, response, time_duration, user_id) {
-    return fetch(process.env.REACT_APP_API_URL + "cueresponse",
+var saveResponse = function (cue, relations, relation_type, time_duration, fingerprint) {
+    return fetch(process.env.REACT_APP_API_URL + "relationquery",
         {
             method: 'POST',
             body: JSON.stringify({
                 'cue': cue,
-                'response': response,
+                'relation_type': relation_type,
+                'relations': relations,
                 'time_duration': time_duration,
-                'user_id': user_id
+                'fingerprint': fingerprint
             }),
             headers: {
                 //'X-Api-Key': API_KEY,
@@ -36,27 +37,5 @@ var saveResponseWord = function (cue, response, time_duration, user_id) {
     });
 };
 
-var correctSpelling = function (response_id, original_word, correction) {
-    return fetch(process.env.REACT_APP_API_URL + "correctspelling",
-        {
-            method: 'POST',
-            body: JSON.stringify({
-                'response_id': response_id,
-                'original_word': original_word,
-                'correction': correction
-            }),
-            headers: {
-                //'X-Api-Key': API_KEY,
-                'Content-Type': 'application/json',
-                "Accept": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            }
-
-        }).then(function (response) {
-        return response
-    });
-};
-
-exports.getCueWord = getCueWord;
-exports.saveResponseWord = saveResponseWord;
-exports.correctSpelling = correctSpelling;
+exports.getRelationQuery = getRelationQuery;
+exports.saveResponse = saveResponse;

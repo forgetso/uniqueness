@@ -10,9 +10,10 @@ UNKNOWN_AREA_LABEL = b'U'
 # TODO Even when restricting the algorithm to words used in the Gallant vocab, roughly 12% of words do not return a semantic area.
 #   Is this because they are not statistically significant in a voxel?
 
-class BrainMap():
+class BrainMap:
 
     def __init__(self):
+        #TODO fix paths
         semantic_space_data = np.load('{}/semantic_space.npz'.format(SEMANTIC_SPACE_FOLDER))
         self.english1000_vocab = semantic_space_data['english1000_vocab']
         self.english1000_embedding = semantic_space_data['english1000_embedding']
@@ -34,7 +35,8 @@ class BrainMap():
         coordinates = {'left': {}, 'right': {}}
 
         for hemi in coordinates.keys():
-            labels = self.pragmatic_info['{}names'.format(hemi[0])]
+            filename = '{}names'.format(hemi[0])
+            labels = self.pragmatic_info[filename]
             vert = self.hemi_data[hemi]['semantic']['parc']
             rr, _ = surface.load_surf_mesh(fsaverage['pial_{}'.format(hemi)])
             # (192,) labels
