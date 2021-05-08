@@ -3,7 +3,7 @@ from multiprocessing import cpu_count
 import logging
 from pathlib import Path
 
-#TODO Path join all paths
+# TODO Path join all paths
 SHARE_PREFIX = 'unq'
 PROJECT_ROOT = '/home/chris/dev/uniqueness'
 PG_USER = 'backend'
@@ -28,3 +28,6 @@ WORD_FREQUENCIES = ''.join([PROJECT_ROOT, '/data/bncfreqs.csv'])
 NGRAMS_DATA = Path(PROJECT_ROOT).joinpath('data/ngrams.csv')
 SYNONYMS_ANTONYMS_FILE = Path(PROJECT_ROOT).joinpath('./data/synonyms_antonyms.csv').absolute()
 MERONYMS_FOLDER = Path('/home/chris/dev/embedding_evaluation/data/analogy/BATS_3.0/4_Lexicographic_semantics')
+VPN_URLS = Path('./vpn/nordvpn_servers.csv')
+GOOG_MERONYMS = Path('./data/goog_meronyms.csv')
+SMALLWORLDOFWORDS = Path('./data/SWOW-EN.complete.csv')

@@ -1,13 +1,18 @@
 import psycopg2 as pg
 from backend.settings_private import PG_PASSWORD, PG_USER
-from backend.settings import FREQUENCIES_FILE, WORD_FREQUENCIES, SYNONYMS_ANTONYMS_FILE, MERONYMS_FOLDER
+from backend.settings import FREQUENCIES_FILE, WORD_FREQUENCIES, SYNONYMS_ANTONYMS_FILE, MERONYMS_FOLDER, \
+    SMALLWORLDOFWORDS
 from psycopg2.extras import execute_values
 import pprint
 import sys
 import logging
 import numpy as np
 import pandas as pd
-import sqlalchemy
+import sqlalchemy as sa
+from sqlalchemy.sql import insert
+from sqlalchemy.orm import Session
+from backend.db.tabledefs import Relation, RelationGroup, Response, ResponseGroup, Users, UserAgentLocale
+import datetime
 from backend.lib.helpers.df import unpack_lists
 import re
 from os import listdir
@@ -22,7 +27,7 @@ def connect():
 
 
 def engine():
-    engine = sqlalchemy.create_engine(
+    engine = sa.create_engine(
         'postgresql://{user}:{password}@localhost:5432/backend'.format(user=PG_USER, password=PG_PASSWORD))
     return engine
 
@@ -463,53 +468,109 @@ def get_meronyms():
     return meronyms
 
 
+def get_userid_by_external_user_id(external_user_id):
+    userid = None
+    eng = engine()
+    query = sa.select([Users.userid]).where(Users.external_user_id == external_user_id)
+    result = [row for row in eng.execute(query)]
+    if len(result):
+        userid = result[0][0]
+    return userid
+
+
+def get_useragent_locale_id(useragent, locale):
+    useragentlocaleid = None
+    eng = engine()
+    query = sa.select([UserAgentLocale.useragentlocaleid]).where(UserAgentLocale.useragent == useragent).where(
+        UserAgentLocale.locale == locale)
+    result = [row for row in eng.execute(query)]
+    if len(result):
+        useragentlocaleid = result[0][0]
+    return useragentlocaleid
+
+
 def save_all_measures(df):
     logging.debug('Saving measures to db')
     conn = engine()
     df.to_sql('measures', con=conn, if_exists='replace', index=False)
 
 
+def save_relations_initial(df):
+    eng = engine()
+    session = Session(eng)
+    df['created'] = datetime.datetime.utcnow()
+    df[['cue', 'modelname', 'created']].copy().to_sql(RelationGroup.__tablename__, con=session.bind, if_exists='append',
+                                                      index=False)
+    query = session.query(sa.func.max(RelationGroup.relationgroupid))
+    relationgroupid = query[0][0]
+    df['relationgroupid'] = relationgroupid
+    df['score'] = df['score'].round(4)
+    df[['relationgroupid', 'relation', 'score']].to_sql(Relation.__tablename__, con=session.bind, if_exists='append',
+                                                        index=False)
+    session.commit()
+    idsquery = session.query(Relation).filter(Relation.relationgroupid == relationgroupid).all()
+
+    relations = [r.__dict__ for r in idsquery]
+    [r.pop('_sa_instance_state') for r in relations]
+    relationsdf = pd.DataFrame(relations)
+    relationsdf['cue'] = df['cue'].values[0]
+    print(relationsdf)
+    return relationsdf
 
 
-def save_cue_response_pair(cue_response_pair):
-    cue = cue_response_pair['cue']
-    response = cue_response_pair['response']
-    user_id = cue_response_pair['user_id']
-    time_duration = cue_response_pair['time_duration']
-    corrections = cue_response_pair['corrections']
-    created = cue_response_pair['created']
-    source = cue_response_pair['source']
-    conn = connect()
-    cur = conn.cursor()
-    query = """INSERT INTO responses (user_id, cue, response, time_duration, created, source)
-                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id"""
-
-    cur.execute(query, (user_id, cue, response, time_duration, created, source))
-    id_of_new_row = cur.fetchone()[0]
-    correction_ids = []
-    for original_word, corrections in corrections.items():
-        correction_ids.append(save_corrections([original_word, corrections, None, id_of_new_row]))
-    # # put the newly created correction ids in the responses table, for good measure
-    # query = """UPDATE responses SET correction_ids = %s WHERE id = %s"""
-    # cur.execute(query, (correction_ids, id_of_new_row))
-    conn.commit()
-
-    if 'correction' in cue_response_pair:
-        update_correction(response_id=id_of_new_row, original_word=response, correction=cue_response_pair['correction'])
-
-    return id_of_new_row
-
-
-def save_cue_relations(fingerprint, cue, relation_type, relations, time_duration, created):
-    conn = connect()
-    cur = conn.cursor()
-    for relation, score in relations.items():
-        query = """INSERT INTO relations (fingerprint, cue, relation_type, relation, score, time_duration, created)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)"""
-        cur.execute(query, (fingerprint, cue, relation_type, relation, score, time_duration, created))
-    conn.commit()
-
+def save_relations_response(relationgroupid, relationids, fingerprint, timedurations, relationtype, ipaddress, locale,
+                            useragent, source):
+    eng = engine()
+    session = Session(eng)
+    userid = save_user(session, fingerprint, source)
+    responsegroupid = save_responsegroup(session, userid, relationgroupid, relationtype, ipaddress, locale, useragent)
+    save_responses(session, responsegroupid, relationids, timedurations)
     return
+
+
+def save_responses(session, responsegroupid, relationids, timedurations):
+    responses = pd.concat(
+        [
+            pd.DataFrame(relationids, columns=['relationid']),
+            pd.DataFrame(timedurations, columns=['timeduration'])
+        ], axis=1)
+    responses['responsegroupid'] = responsegroupid
+    responses.to_sql(Response.__tablename__, con=session.bind, if_exists='append', index=False)
+
+
+def save_responsegroup(session, userid, relationgroupid, relationtype, ipaddress, locale, useragent):
+    useragentlocaleid = save_useragent_locale(session, useragent, locale)
+    createdtime = datetime.datetime.utcnow()
+    query = insert(ResponseGroup).values(userid=userid, relationgroupid=relationgroupid, relationtype=relationtype,
+                                         ipaddress=ipaddress, useragentlocaleid=useragentlocaleid,
+                                         created=createdtime).returning(
+        ResponseGroup.responsegroupid)
+    responsegroupid = [x.responsegroupid for x in session.execute(query)][0]
+    session.commit()
+    return responsegroupid
+
+
+def save_user(session, fingerprint, source):
+    userid = get_userid_by_external_user_id(fingerprint)
+    print(userid)
+    if not userid:
+        query = insert(Users).values(external_user_id=fingerprint, source=source).returning(Users.userid)
+        userid = [x.userid for x in session.execute(query)][0]
+        session.commit()
+    print(userid)
+    return userid
+
+
+def save_useragent_locale(session, useragent, locale):
+    useragentlocaleid = get_useragent_locale_id(useragent, locale)
+    print(useragentlocaleid)
+    if not useragentlocaleid:
+        query = insert(UserAgentLocale).values(useragent=useragent, locale=locale).returning(
+            UserAgentLocale.useragentlocaleid)
+        useragentlocaleid = [x.useragentlocaleid for x in session.execute(query)][0]
+        session.commit()
+    print(useragentlocaleid)
+    return useragentlocaleid
 
 
 def save_cue_response_pairs(cue_response_pairs):

@@ -5,6 +5,7 @@ import pandas as pd
 from math import ceil
 from multiprocessing_logging import install_mp_handler
 
+
 # split a list into evenly sized chunks
 def chunks(lst, n):
     if n < 1:
@@ -37,9 +38,9 @@ def amend_groups(slices, groupby):
                 if len(slices[nxt_slice_idx]) == 0:
                     # move this slice to the start of the list to maintain the list length
                     slices = (
-                        [slices[nxt_slice_idx]]
-                        + slices[:nxt_slice_idx]
-                        + slices[nxt_slice_idx + 1 :]
+                            [slices[nxt_slice_idx]]
+                            + slices[:nxt_slice_idx]
+                            + slices[nxt_slice_idx + 1:]
                     )
 
     slices = [x for x in slices if len(x)]
@@ -59,7 +60,7 @@ def split_on(df, col, job_number):
     # splitting on col
     df_len = len(df)
     lst = [
-        df.iloc[row : rows[i + 1]] if i + 1 < len(rows) else df.iloc[row:]
+        df.iloc[row: rows[i + 1]] if i + 1 < len(rows) else df.iloc[row:]
         for i, row in enumerate(rows)
     ]
     # make sure the number of dataframes in lst is equal to the number of jobs
@@ -88,7 +89,7 @@ def get_indices_for_combining_list_of_lists(lst, num, addon=0):
     ]
     if remainder:
         extra_indices = get_indices_for_combining_list_of_lists(
-            lst[len(lst) - remainder :], remainder_groups, addon=loop_max + addon
+            lst[len(lst) - remainder:], remainder_groups, addon=loop_max + addon
         )
         indices.extend(extra_indices)
     return indices

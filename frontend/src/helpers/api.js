@@ -14,16 +14,21 @@ var getRelationQuery = function () {
     });
 };
 
-var saveResponse = function (cue, relations, relation_type, time_duration, fingerprint) {
+var saveResponse = function (relationGroupId, relationIds, timeDurations, fingerprint, relationType) {
+    /*
+    relationsgroupid - the ID of the relations group: int
+    relationids - the IDs of the selected relations: object {int: time_till_selection}
+    fingerprint - a browser fingerprint to detect same user: string
+     */
     return fetch(process.env.REACT_APP_API_URL + "relationquery",
         {
             method: 'POST',
             body: JSON.stringify({
-                'cue': cue,
-                'relation_type': relation_type,
-                'relations': relations,
-                'time_duration': time_duration,
-                'fingerprint': fingerprint
+                'relationgroupid': relationGroupId,
+                'relationids': relationIds,
+                'timedurations': timeDurations,
+                'fingerprint': fingerprint,
+                'relationtype': relationType
             }),
             headers: {
                 //'X-Api-Key': API_KEY,

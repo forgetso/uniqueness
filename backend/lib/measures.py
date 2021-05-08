@@ -324,7 +324,7 @@ def get_lemma(word):
     tmp = (None, None)
     if lemmas:
         # TODO work out whether this is actually worth doing - maybe just return lemmas that are shorter than the word
-        tmp = (list(set([l[0] for l in lemmas.values()]))[0], ','.join(sorted(lemmas.keys())).lower())
+        tmp = (list(set([lemma[0] for lemma in lemmas.values()]))[0], ','.join(sorted(lemmas.keys())).lower())
     return tmp
 
 

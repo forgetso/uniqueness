@@ -14,43 +14,83 @@ import json
 from importlib import import_module
 from pathlib import Path
 import pandas as pd
+import requests
 
 logging.basicConfig(level=LOG_LEVEL)
 # this cannot be worked out using os.getcwd as the proxy script needs to be run from sudo so the CWD would be
 # wrong in this case (root/..etc)
 CWD = PROJECT_ROOT
 FNULL = open(os.devnull, 'w')
-VPN_CONFIG_FOLDER = '/vpn/ovpn_udp/'
-VPN_CONFIG_FOLDER_FULL = ''.join([CWD, VPN_CONFIG_FOLDER])
-USERPASSFILE = ''.join([CWD, VPN_CONFIG_FOLDER, 'userpass.txt'])
+# TODO use pathlib
+VPN_CONFIG_FOLDER = Path('./vpn/ovpn_udp/')
+VPN_CONFIG_FOLDER_FULL = Path(CWD).joinpath(VPN_CONFIG_FOLDER)
+USERPASSFILENAME = 'userpass.txt'
+USERPASSFILE = VPN_CONFIG_FOLDER_FULL.joinpath(USERPASSFILENAME)
 USERPASSCONFIG = 'auth-user-pass {}'.format(USERPASSFILE)
-OPENVPN_PID_FILE = "/tmp/openvpn_pid"
+OPENVPN_PID_FILE = Path("/tmp/openvpn_pid")
 IP_SERVICE = 'https://api.ipify.org'
 LOCK_PREFIX = 'uniqueness_lock'
-TMP_FOLDER = '/tmp'
+TMP_FOLDER = Path('/tmp')
+CONNECT_TIMEOUT = 10  # seconds
+SERVER_URL = 'https://nordvpn.com/api/server/stats'
 
 
 def process(job=None, **kwargs):
+    country = kwargs.get('country', 'us')
+    max_attempts = kwargs.get('max_attempts', 3)
+    modify_config_files()
     bad_configs = get_excluded_configs()
-    files_path = [''.join([VPN_CONFIG_FOLDER_FULL, x]) for x in os.listdir(VPN_CONFIG_FOLDER_FULL) if
-                  x.startswith('us') and x != 'userpass.txt' and x not in bad_configs['exclude']]
-    # make sure the configs are set to look for a credentials file
-    for file in files_path:
-        write = False
-        with open(file, 'r') as f:
-            lines = f.read()
-            lines_split = lines.split(USERPASSCONFIG)
-            if len(lines_split) != 2:
-                lines_split = lines.split('auth-user-pass')
-                lines = ''.join([lines_split[0], '\n', USERPASSCONFIG, '\n', lines_split[1]])
-                write = True
-            f.close()
-        if write:
-            with open(file, 'w') as f:
-                assert (USERPASSCONFIG in lines)
-                f.write(lines)
-                f.close()
-    proxy_server_config = choose_proxy_config(files_path)
+    fastest_servers = get_fastest_servers()
+    proxy_server_config = choose_proxy_config(country, fastest_servers, bad_configs)
+    logging.debug(proxy_server_config)
+
+    ## getting the IP address using socket.gethostbyname() method
+    ip_address_initial = get(IP_SERVICE).text
+
+    if ip_address_initial == IP:
+
+        # TODO allow multiple attempts here as well?
+
+        attempts = 0
+        while attempts < max_attempts:
+            try:
+                connect_attempts = connect(max_attempts, attempts, country, proxy_server_config, fastest_servers,
+                                           bad_configs)
+                attempts += connect_attempts
+                if ip_changed(ip_address_initial):
+                    set_lock(job)
+                    run_process(job, **kwargs)
+            except ConnectionError as e:
+                exclude_proxy_config(proxy_server_config.name, reason=e.errno)
+                proxy_server_config = choose_proxy_config(country, fastest_servers, bad_configs)
+                bad_configs = get_excluded_configs()
+            finally:
+                release_lock(job)
+                logging.debug('Finally trying to kill openvpn if no other processes are using it')
+                final_process_check()
+                bad_configs = get_excluded_configs()
+
+
+
+
+def connect(max_attempts, attempts, country, proxy_server_config, fastest_servers, bad_configs):
+    conn_attempts = attempts
+    proxy_process = None
+    while conn_attempts < max_attempts:
+        try:
+            proxy_process = setup_proxy(proxy_server_config)
+            break
+        except ConnectionError:
+            stop_openvpn()
+            kill(proxy_process)
+            exclude_proxy_config(proxy_server_config.name, reason='timeout')
+            proxy_server_config = choose_proxy_config(country, fastest_servers, bad_configs)
+            conn_attempts += 1
+            continue
+    return conn_attempts
+
+
+def write_userpass_file():
     if not os.path.exists(USERPASSFILE):
         logging.debug('writing userpass file')
         userpassfile = open(USERPASSFILE, 'w')
@@ -58,31 +98,30 @@ def process(job=None, **kwargs):
         userpassfile.write("\n")
         userpassfile.write(PROXY_PASSWORD)
         userpassfile.close()
-    logging.debug(proxy_server_config)
 
-    ## getting the IP address using socket.gethostbyname() method
-    ip_address_initial = get(IP_SERVICE).text
-    proxy_process = None
-    if ip_address_initial == IP:
-        attempts = 0
-        while attempts < 3:
-            try:
-                proxy_process = setup_proxy(proxy_server_config)
-                break
-            except ConnectionError:
-                stop_openvpn()
-                kill(proxy_process)
-                exclude_proxy_config(proxy_server_config)
-                attempts += 1
-                continue
-    try:
-        if ip_changed(ip_address_initial):
-            set_lock(job)
-            run_process(job, **kwargs)
-    finally:
-        release_lock(job)
-        logging.debug('Finally trying to kill openvpn if no other processes are using it')
-        final_process_check()
+
+def modify_config_files():
+    # make sure the configs are set to look for a credentials file
+    for file in Path(VPN_CONFIG_FOLDER_FULL).iterdir():
+        if file.name.endswith('.ovpn'):
+            write = False
+            with file.open(mode='r') as f:
+                lines = f.read()
+                lines_split = lines.split(USERPASSCONFIG)
+                if len(lines_split) != 2:
+                    lines_split = lines.split('auth-user-pass')
+                    try:
+                        lines = ''.join([lines_split[0], '\n', USERPASSCONFIG, '\n', lines_split[1]])
+                    except IndexError as e:
+                        raise IndexError(file.name, e)
+                    write = True
+                f.close()
+            if write:
+                with file.open(mode='w') as f:
+                    assert (USERPASSCONFIG in lines)
+                    f.write(lines)
+                    f.close()
+    return
 
 
 def set_lock(job):
@@ -102,7 +141,22 @@ def ip_changed(ip_address_initial):
     return ip_address_subsequent != IP
 
 
-def choose_proxy_config(files_path):
+def get_fastest_servers():
+    server_list = requests.get(SERVER_URL).json()
+    country_servers = [s for s in server_list if server_list[s]['percent'] <= 10]
+    return country_servers
+
+
+def choose_proxy_config(country, fastest_servers, bad_configs):
+    logging.debug('There are {} bad configs excluded'.format(len(bad_configs)))
+    files_path = [
+        x for x in Path(VPN_CONFIG_FOLDER_FULL).iterdir() if
+        x.name.startswith(country)
+        and x.name != USERPASSFILENAME
+        and x.name not in bad_configs['exclude']
+        and '.'.join(x.name.split('.')[:-2]) in fastest_servers
+    ]
+
     return random.choice(files_path)
 
 
@@ -120,33 +174,34 @@ def config_path():
     return path
 
 
-def exclude_proxy_config(bad_config):
-    logging.debug('excluding bad config: {}'.format(bad_config))
+def exclude_proxy_config(bad_config, reason):
+    logging.debug('excluding bad config: {} reason {}'.format(bad_config, reason))
     path = config_path()
     excludes = get_excluded_configs()
-    excludes = excludes.append(pd.DataFrame([[bad_config]], columns=['exclude']))
+    excludes = excludes.append(pd.DataFrame([[bad_config, reason]], columns=['exclude', 'reason']))
     excludes = excludes.drop_duplicates()
-    logging.debug('writing {} to {}'.format(excludes, path))
     excludes.to_csv(path, index=False)
 
 
 def setup_proxy(proxy_server_config):
-    command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config]
+    command = ["sudo", "/usr/sbin/openvpn", "--writepid", OPENVPN_PID_FILE, "--config", proxy_server_config,
+               '--connect-timeout', str(CONNECT_TIMEOUT)]
     proxy_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      stdin=subprocess.PIPE)
     start_time = time.time()
     while True:
         line = proxy_process.stdout.readline().decode('utf8')
-        logging.debug(line)
         try:
             if line.index('Initialization Sequence Completed'):
+                logging.debug(line.strip())
                 break
             if line.index('AUTH_FAILED'):
+                logging.debug(line.strip())
                 raise ConnectionError('Authentication error')
         except ValueError as e:
             time_elapsed = time.time() - start_time
             time.sleep(0.1)
-            if time_elapsed > 10:
+            if time_elapsed > CONNECT_TIMEOUT:
                 kill(proxy_process)
                 raise ConnectionError('Could not connect to proxy server: {}'.format(e))
             continue
@@ -173,7 +228,7 @@ def process_output(proxy_process, max_time=30):
 
 
 def stop_openvpn():
-    pid_file = open(OPENVPN_PID_FILE, mode='r')
+    pid_file = OPENVPN_PID_FILE.open(mode='r')
     pid = int(pid_file.read())
     logging.debug('sending stop command to proxy process {}'.format(pid))
     try:
