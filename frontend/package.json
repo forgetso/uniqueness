@@ -15,7 +15,7 @@
     "react": "^16.13.0",
     "react-dom": "^16.13.0",
     "react-imask": "^6.0.3",
-    "react-scripts": "3.4.0"
+    "react-scripts": "3.4.4"
   },
   "scripts": {
     "start": "react-scripts start",
