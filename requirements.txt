@@ -163,7 +163,7 @@ terminado==0.8.3
 testpath==0.4.4
 thinc==7.4.1
 tokenizers==0.5.2
-torch==1.5.1
+torch==2.8.0
 torchcontrib==0.0.2
 tornado==6.0.4
 tqdm==4.45.0
