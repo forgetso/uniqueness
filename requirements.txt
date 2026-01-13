@@ -175,6 +175,6 @@ urllib3==1.25.9
 wasabi==0.7.1
 wcwidth==0.1.9
 webencodings==0.5.1
-Werkzeug==1.0.1
+Werkzeug==3.1.5
 wrapt==1.12.1
 zipp==3.1.0
